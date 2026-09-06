@@ -1,1 +1,0 @@
-export { GearIcon } from "./GearIcon";

@@ -1,1 +1,0 @@
-export { SubscribeConfirmation } from './SubscribeConfirmation';

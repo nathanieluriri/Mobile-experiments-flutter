@@ -1,1 +1,0 @@
-export { DotGrid } from "./DotGrid";

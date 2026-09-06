@@ -1,4 +1,0 @@
-export const SCRIPT_START_DELAY_MS = 500;
-export const TYPING_INDICATOR_DURATION_MS = 900;
-export const REPLY_TYPING_DELAY_MS = 500;
-export const REPLY_ARRIVAL_DELAY_MS = 1700;

@@ -1,2 +1,0 @@
-export const COMPACT_HEIGHT_BREAKPOINT = 780;
-export const COMPACT_CARD_STACK_SCALE = 0.92;

@@ -1,1 +1,0 @@
-export { ReceiveScreen } from './ReceiveScreen';
