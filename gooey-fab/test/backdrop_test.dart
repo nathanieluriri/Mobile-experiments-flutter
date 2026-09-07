@@ -6,8 +6,9 @@ import 'package:gooey_fab/painting/feather_icons.dart';
 import 'support/golden.dart';
 
 /// Finds the button carrying [glyph].
-Finder _glyph(FeatherGlyph glyph) =>
-    find.byWidgetPredicate((widget) => widget is FeatherIcon && widget.glyph == glyph);
+Finder _glyph(FeatherGlyph glyph) => find.byWidgetPredicate(
+  (widget) => widget is FeatherIcon && widget.glyph == glyph,
+);
 
 void main() {
   testWidgets('backdrop blurs and dims the list while open', (tester) async {

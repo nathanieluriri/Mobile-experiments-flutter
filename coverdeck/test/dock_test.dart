@@ -14,14 +14,22 @@ Widget _strip(int selected, TabBarController controller) {
     home: ColoredBox(
       color: AppColors.background,
       child: Center(
-        child: BottomDock(selected: selected, onSelect: (_) {}, controller: controller),
+        child: BottomDock(
+          selected: selected,
+          onSelect: (_) {},
+          controller: controller,
+        ),
       ),
     ),
   );
 }
 
 void main() {
-  for (final (index, name) in const [(0, 'deck'), (1, 'browse'), (2, 'library')]) {
+  for (final (index, name) in const [
+    (0, 'deck'),
+    (1, 'browse'),
+    (2, 'library'),
+  ]) {
     testWidgets('dock on the $name tab', (tester) async {
       final controller = TabBarController();
       addTearDown(controller.dispose);
@@ -39,7 +47,11 @@ void main() {
     controller.handleScroll('browse', 200, 1000);
     await tester.pump();
     await pumpMs(tester, 1200);
-    expect(find.text('Deck'), findsNothing, reason: 'labels go when the dock shrinks');
+    expect(
+      find.text('Deck'),
+      findsNothing,
+      reason: 'labels go when the dock shrinks',
+    );
     await capture(tester, 'dock__compact');
   });
 
@@ -51,7 +63,11 @@ void main() {
 
     controller.handleScroll('browse', 200, 1000);
     await tester.pump();
-    expect(find.text('Deck'), findsNothing, reason: 'the contents change at once');
+    expect(
+      find.text('Deck'),
+      findsNothing,
+      reason: 'the contents change at once',
+    );
     expect(
       tester.getSize(find.byType(BottomDock)),
       expanded,
@@ -65,7 +81,11 @@ void main() {
 
     await pumpMs(tester, 1200);
     final compact = tester.getSize(find.byType(BottomDock));
-    expect(compact.width, lessThan(midway.width), reason: 'and keeps shrinking');
+    expect(
+      compact.width,
+      lessThan(midway.width),
+      reason: 'and keeps shrinking',
+    );
     expect(compact.height, lessThan(midway.height));
   });
 
@@ -84,11 +104,23 @@ void main() {
       addTearDown(controller.dispose);
       controller.handleScroll('browse', 28, 1000);
       controller.handleScroll('browse', 34, 1000);
-      expect(controller.compact, isFalse, reason: 'six past the anchor is under the threshold');
+      expect(
+        controller.compact,
+        isFalse,
+        reason: 'six past the anchor is under the threshold',
+      );
       controller.handleScroll('browse', 40, 1000);
-      expect(controller.compact, isTrue, reason: 'twelve past the anchor closes it');
+      expect(
+        controller.compact,
+        isTrue,
+        reason: 'twelve past the anchor closes it',
+      );
       controller.handleScroll('browse', 35, 1000);
-      expect(controller.compact, isTrue, reason: 'five back is under the threshold');
+      expect(
+        controller.compact,
+        isTrue,
+        reason: 'five back is under the threshold',
+      );
       controller.handleScroll('browse', 31, 1000);
       expect(controller.compact, isFalse, reason: 'nine back opens it again');
     });
@@ -113,7 +145,8 @@ void main() {
       expect(
         controller.compact,
         isTrue,
-        reason: 'the second list is scrolling down from its own anchor, '
+        reason:
+            'the second list is scrolling down from its own anchor, '
             'not up from where the first list was left',
       );
     });

@@ -84,7 +84,7 @@ class OnboardingHeader extends StatelessWidget {
               child: Center(
                 child: HitSlop(
                   slop: 8,
-                    child: PressableOpacity(
+                  child: PressableOpacity(
                     pressedOpacity: 0.7,
                     onTap: onSkip,
                     child: Container(

@@ -12,8 +12,14 @@ final _size = coverSize(kPhone.logical.width);
 final _spacing = _size * 0.36;
 final _centerGap = _size * 0.3;
 
-Future<CoverflowController> _pumpDeckAt(WidgetTester tester, double scrollX) async {
-  final controller = CoverflowController(vsync: const TestVSync(), count: albums.length);
+Future<CoverflowController> _pumpDeckAt(
+  WidgetTester tester,
+  double scrollX,
+) async {
+  final controller = CoverflowController(
+    vsync: const TestVSync(),
+    count: albums.length,
+  );
   addTearDown(controller.dispose);
   controller.dragTo(scrollX);
   await pumpScreen(tester, App(deckController: controller));
@@ -39,14 +45,14 @@ void main() {
 
   group('cover geometry', () {
     CoverCard card(int index, double scrollX) => CoverCard(
-          album: albums[index],
-          index: index,
-          scrollX: scrollX,
-          size: _size,
-          spacing: _spacing,
-          centerGap: _centerGap,
-          containerWidth: kPhone.logical.width,
-        );
+      album: albums[index],
+      index: index,
+      scrollX: scrollX,
+      size: _size,
+      spacing: _spacing,
+      centerGap: _centerGap,
+      containerWidth: kPhone.logical.width,
+    );
 
     test('the focused cover is flat, centred and opaque', () {
       final focused = card(0, 0);
@@ -87,9 +93,16 @@ void main() {
       // land on the same step and the album order breaks the tie.
       expect(coverZIndex(0, 0), 1000);
       expect(coverZIndex(1, 0), 990);
-      expect(coverZIndex(0, 0.49), coverZIndex(1, 0.49), reason: 'both round to 995');
-      expect(coverZIndex(0, 0.55), lessThan(coverZIndex(1, 0.55)),
-          reason: 'past the crossover the second cover is the nearer one');
+      expect(
+        coverZIndex(0, 0.49),
+        coverZIndex(1, 0.49),
+        reason: 'both round to 995',
+      );
+      expect(
+        coverZIndex(0, 0.55),
+        lessThan(coverZIndex(1, 0.55)),
+        reason: 'past the crossover the second cover is the nearer one',
+      );
     });
 
     test('covers fade out five and a half steps away', () {
@@ -103,7 +116,10 @@ void main() {
 
   group('deck position', () {
     CoverflowController build() {
-      final controller = CoverflowController(vsync: const TestVSync(), count: albums.length);
+      final controller = CoverflowController(
+        vsync: const TestVSync(),
+        count: albums.length,
+      );
       addTearDown(controller.dispose);
       return controller;
     }
@@ -123,11 +139,23 @@ void main() {
       controller.dragTo(1.0);
       // 0.18 seconds of travel at the release speed, then the nearest cover.
       expect(controller.projectedTarget(0), 1, reason: 'no throw, no travel');
-      expect(controller.projectedTarget(2.7), 1, reason: '1.0 + 0.486 still rounds down');
+      expect(
+        controller.projectedTarget(2.7),
+        1,
+        reason: '1.0 + 0.486 still rounds down',
+      );
       expect(controller.projectedTarget(3), 2, reason: '1.0 + 0.54 tips over');
       expect(controller.projectedTarget(11), 3, reason: '1.0 + 1.98');
-      expect(controller.projectedTarget(-11), 0, reason: 'clamped at the first cover');
-      expect(controller.projectedTarget(500), albums.length - 1, reason: 'clamped at the last');
+      expect(
+        controller.projectedTarget(-11),
+        0,
+        reason: 'clamped at the first cover',
+      );
+      expect(
+        controller.projectedTarget(500),
+        albums.length - 1,
+        reason: 'clamped at the last',
+      );
     });
 
     test('the reported index is the nearest cover inside the deck', () {
@@ -139,11 +167,17 @@ void main() {
       controller.dragTo(0.6);
       expect(controller.index, 1);
       controller.dragTo(controller.minScrollX);
-      expect(controller.index, 0, reason: 'the overscroll band still reads as the first cover');
+      expect(
+        controller.index,
+        0,
+        reason: 'the overscroll band still reads as the first cover',
+      );
       expect(seen, [1, 0]);
     });
 
-    testWidgets('dragging moves the deck one cover per spacing of travel', (tester) async {
+    testWidgets('dragging moves the deck one cover per spacing of travel', (
+      tester,
+    ) async {
       final controller = await _pumpDeckAt(tester, 0);
       final gesture = await tester.startGesture(const Offset(220, 300));
       await gesture.moveBy(const Offset(-40, 0));
@@ -153,7 +187,8 @@ void main() {
       expect(
         controller.scrollX,
         closeTo(1 + 40 / _spacing, 0.001),
-        reason: 'every point of travel counts, the slop that starts the drag included',
+        reason:
+            'every point of travel counts, the slop that starts the drag included',
       );
       await gesture.up();
       await tester.pump();

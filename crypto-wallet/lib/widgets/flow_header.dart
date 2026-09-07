@@ -34,7 +34,11 @@ class FlowHeader extends StatelessWidget {
                 shape: BoxShape.circle,
               ),
               alignment: Alignment.center,
-              child: const Icon(LucideIcons.chevronLeft, size: 22, color: AppColors.ink),
+              child: const Icon(
+                LucideIcons.chevronLeft,
+                size: 22,
+                color: AppColors.ink,
+              ),
             ),
           ),
           Expanded(

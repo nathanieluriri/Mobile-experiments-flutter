@@ -88,8 +88,7 @@ class _NotesScreenState extends State<NotesScreen>
     final padding = MediaQuery.paddingOf(context);
     final width = MediaQuery.sizeOf(context).width;
     final noteWidth = width - kScreenHorizontalPadding * 2;
-    final activeIndex =
-        _notes.indexWhere((note) => note.id == _activeNoteId);
+    final activeIndex = _notes.indexWhere((note) => note.id == _activeNoteId);
 
     return ColoredBox(
       color: AppColors.ink,
@@ -101,10 +100,8 @@ class _NotesScreenState extends State<NotesScreen>
               children: [
                 AnimatedBuilder(
                   animation: Listenable.merge([_dim, _scroll]),
-                  builder: (context, _) => NotesHeader(
-                    scrollY: _scrollY,
-                    dim: _dim.value,
-                  ),
+                  builder: (context, _) =>
+                      NotesHeader(scrollY: _scrollY, dim: _dim.value),
                 ),
                 Expanded(
                   child: SingleChildScrollView(
@@ -128,7 +125,7 @@ class _NotesScreenState extends State<NotesScreen>
                         extraSpace: _reflowIndex == null
                             ? 0
                             : _reflowSpace *
-                                (1 - _reflowCurve.transform(_reflow.value)),
+                                  (1 - _reflowCurve.transform(_reflow.value)),
                         children: [
                           _largeTitle(),
                           for (final note in _notes)
@@ -137,7 +134,8 @@ class _NotesScreenState extends State<NotesScreen>
                               note: note,
                               width: noteWidth,
                               isActive: note.id == _activeNoteId,
-                              isDimmed: _activeNoteId != null &&
+                              isDimmed:
+                                  _activeNoteId != null &&
                                   note.id != _activeNoteId,
                               onFocus: _focus,
                               onBlur: _blur,

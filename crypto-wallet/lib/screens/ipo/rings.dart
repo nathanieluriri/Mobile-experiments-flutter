@@ -27,7 +27,8 @@ class CountdownRing extends StatefulWidget {
   State<CountdownRing> createState() => _CountdownRingState();
 }
 
-class _CountdownRingState extends State<CountdownRing> with TickerProviderStateMixin {
+class _CountdownRingState extends State<CountdownRing>
+    with TickerProviderStateMixin {
   late final AnimationController _fill = AnimationController(
     vsync: this,
     duration: const Duration(milliseconds: 1100),
@@ -42,7 +43,11 @@ class _CountdownRingState extends State<CountdownRing> with TickerProviderStateM
   @override
   void initState() {
     super.initState();
-    _fill.animateTo(widget.progress, duration: _fillDuration, curve: Curves.easeOutCubic);
+    _fill.animateTo(
+      widget.progress,
+      duration: _fillDuration,
+      curve: Curves.easeOutCubic,
+    );
     if (!widget.paused) {
       _orbitController.repeat();
     }
@@ -52,7 +57,11 @@ class _CountdownRingState extends State<CountdownRing> with TickerProviderStateM
   void didUpdateWidget(CountdownRing oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.progress != widget.progress) {
-      _fill.animateTo(widget.progress, duration: _fillDuration, curve: Curves.easeOutCubic);
+      _fill.animateTo(
+        widget.progress,
+        duration: _fillDuration,
+        curve: Curves.easeOutCubic,
+      );
     }
     if (oldWidget.paused != widget.paused) {
       if (widget.paused) {
@@ -90,7 +99,11 @@ class _CountdownRingState extends State<CountdownRing> with TickerProviderStateM
               );
             },
           ),
-          Icon(LucideIcons.clock, size: widget.size * 0.3, color: AppColors.subtle),
+          Icon(
+            LucideIcons.clock,
+            size: widget.size * 0.3,
+            color: AppColors.subtle,
+          ),
         ],
       ),
     );
@@ -106,7 +119,12 @@ class _CountdownPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     const inset = 5.0;
-    final rect = Rect.fromLTWH(inset, inset, size.width - inset * 2, size.height - inset * 2);
+    final rect = Rect.fromLTWH(
+      inset,
+      inset,
+      size.width - inset * 2,
+      size.height - inset * 2,
+    );
     final center = size.center(Offset.zero);
     final track = Paint()
       ..style = PaintingStyle.stroke
@@ -138,7 +156,8 @@ class _CountdownPainter extends CustomPainter {
       -math.pi / 2,
       sweep,
       false,
-      Paint.from(comet)..maskFilter = const ui.MaskFilter.blur(BlurStyle.normal, 3),
+      Paint.from(comet)
+        ..maskFilter = const ui.MaskFilter.blur(BlurStyle.normal, 3),
     );
     canvas.drawArc(rect, -math.pi / 2, sweep, false, comet);
     canvas.restore();
@@ -168,8 +187,9 @@ class ProbabilityRing extends StatefulWidget {
 
 class _ProbabilityRingState extends State<ProbabilityRing>
     with SingleTickerProviderStateMixin {
-  late final AnimationController _fill = AnimationController.unbounded(vsync: this)
-    ..animateWith(springTo(Springs.roll, 0, widget.score));
+  late final AnimationController _fill = AnimationController.unbounded(
+    vsync: this,
+  )..animateWith(springTo(Springs.roll, 0, widget.score));
 
   @override
   void didUpdateWidget(ProbabilityRing oldWidget) {
@@ -212,7 +232,10 @@ class _ProbabilityRingState extends State<ProbabilityRing>
               final fill = _fill.value.clamp(0.0, 1.0);
               return CustomPaint(
                 size: Size.square(widget.size),
-                painter: _ProbabilityPainter(fill: fill, color: _colorFor(fill)),
+                painter: _ProbabilityPainter(
+                  fill: fill,
+                  color: _colorFor(fill),
+                ),
               );
             },
           ),
@@ -242,7 +265,12 @@ class _ProbabilityPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     const inset = 7.0;
-    final rect = Rect.fromLTWH(inset, inset, size.width - inset * 2, size.height - inset * 2);
+    final rect = Rect.fromLTWH(
+      inset,
+      inset,
+      size.width - inset * 2,
+      size.height - inset * 2,
+    );
     final center = size.center(Offset.zero);
     canvas.drawCircle(
       center,

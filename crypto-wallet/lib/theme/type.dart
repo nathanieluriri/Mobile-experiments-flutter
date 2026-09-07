@@ -27,7 +27,9 @@ TextStyle text(
     fontWeight: weight,
     color: color,
     height: lineHeight == null ? null : lineHeight / size,
-    leadingDistribution: lineHeight == null ? null : TextLeadingDistribution.even,
+    leadingDistribution: lineHeight == null
+        ? null
+        : TextLeadingDistribution.even,
     letterSpacing: tracking == 0 ? 0 : size * tracking,
     fontFeatures: tabular ? const [FontFeature.tabularFigures()] : null,
     decoration: TextDecoration.none,

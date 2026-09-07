@@ -55,7 +55,11 @@ class BookmarkCard extends StatelessWidget {
                           title,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: text(size: 14, weight: FontWeight.w500, color: AppColors.ink),
+                          style: text(
+                            size: 14,
+                            weight: FontWeight.w500,
+                            color: AppColors.ink,
+                          ),
                         ),
                       ),
                       const SizedBox(width: kStep * 2),

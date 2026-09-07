@@ -18,7 +18,11 @@ class Avatar extends StatelessWidget {
         height: _avatarDiameter,
         child: DecoratedBox(
           decoration: BoxDecoration(
-            gradient: LinearGradient(begin: _gradientBegin, end: _gradientEnd, colors: colors),
+            gradient: LinearGradient(
+              begin: _gradientBegin,
+              end: _gradientEnd,
+              colors: colors,
+            ),
           ),
         ),
       ),

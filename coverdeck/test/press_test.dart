@@ -5,8 +5,9 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'support/golden.dart';
 
-Finder _play() =>
-    find.byWidgetPredicate((widget) => widget is GlyphIcon && widget.glyph == Glyph.playFill);
+Finder _play() => find.byWidgetPredicate(
+  (widget) => widget is GlyphIcon && widget.glyph == Glyph.playFill,
+);
 
 void main() {
   group('a held control springs inward', () {

@@ -22,10 +22,18 @@ void main() {
     for (final entry in flows.entries) {
       await tester.tap(find.text(entry.key));
       await pumpFor(tester, 900);
-      expect(find.text(entry.value), findsOneWidget, reason: '${entry.key} opens');
+      expect(
+        find.text(entry.value),
+        findsOneWidget,
+        reason: '${entry.key} opens',
+      );
       await tester.tap(find.byIcon(LucideIcons.chevronLeft));
       await pumpFor(tester, 900);
-      expect(find.text(entry.value), findsNothing, reason: '${entry.key} closes');
+      expect(
+        find.text(entry.value),
+        findsNothing,
+        reason: '${entry.key} closes',
+      );
       expect(find.text('Total Balance'), findsOneWidget);
     }
   });

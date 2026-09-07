@@ -49,8 +49,15 @@ const videoIconSize = 22.0;
 const voiceIconSize = 20.0;
 
 /// Maps [value] from [inputRange] to [outputRange], clamped at both ends.
-double interpolateClamped(double value, List<double> inputRange, List<double> outputRange) {
-  final t = ((value - inputRange[0]) / (inputRange[1] - inputRange[0])).clamp(0.0, 1.0);
+double interpolateClamped(
+  double value,
+  List<double> inputRange,
+  List<double> outputRange,
+) {
+  final t = ((value - inputRange[0]) / (inputRange[1] - inputRange[0])).clamp(
+    0.0,
+    1.0,
+  );
   return outputRange[0] + (outputRange[1] - outputRange[0]) * t;
 }
 
@@ -68,6 +75,9 @@ ui.ImageFilter backdropFilterAt(double progress) {
       0, 0, 1, 0, 0, //
       0, 0, 0, progress, 0, //
     ]),
-    inner: ui.ImageFilter.blur(sigmaX: backdropBlurSigma, sigmaY: backdropBlurSigma),
+    inner: ui.ImageFilter.blur(
+      sigmaX: backdropBlurSigma,
+      sigmaY: backdropBlurSigma,
+    ),
   );
 }

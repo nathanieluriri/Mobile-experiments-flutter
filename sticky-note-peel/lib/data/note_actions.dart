@@ -14,10 +14,10 @@ class NoteActionConfig {
   final Color accent;
 
   String get label => switch (action) {
-        NoteAction.delete => 'Delete',
-        NoteAction.archive => 'Archive',
-        NoteAction.share => 'Share',
-      };
+    NoteAction.delete => 'Delete',
+    NoteAction.archive => 'Archive',
+    NoteAction.share => 'Share',
+  };
 }
 
 const kNoteActions = <NoteActionConfig>[

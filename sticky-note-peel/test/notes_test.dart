@@ -39,10 +39,12 @@ void main() {
     await tester.pump();
 
     final menu = tester.getRect(
-      find.ancestor(
-        of: find.byIcon(LucideIcons.menu),
-        matching: find.byType(Container),
-      ).first,
+      find
+          .ancestor(
+            of: find.byIcon(LucideIcons.menu),
+            matching: find.byType(Container),
+          )
+          .first,
     );
     expect(menu.size, const Size(kHeaderButtonSize, kHeaderButtonSize));
     expect(menu.left, kHeaderHorizontalPadding);
@@ -71,8 +73,9 @@ void main() {
     expect(debugDisableShadows, isFalse);
   });
 
-  testWidgets('the title swaps from the list into the header on scroll',
-      (tester) async {
+  testWidgets('the title swaps from the list into the header on scroll', (
+    tester,
+  ) async {
     await pumpScreen(tester, const App());
     await tester.pump();
     expect(largeTitleOpacity(tester), 1);

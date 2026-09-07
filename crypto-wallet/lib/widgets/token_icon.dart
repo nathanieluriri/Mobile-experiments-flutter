@@ -16,21 +16,25 @@ class TokenIcon extends StatelessWidget {
     final iconSize = size * 0.52;
     final (Color background, Widget glyph) = switch (id) {
       TokenId.eth => (
-          const Color(0xFF627EEA),
-          EthGlyph(size: iconSize, color: Colors.white),
-        ),
+        const Color(0xFF627EEA),
+        EthGlyph(size: iconSize, color: Colors.white),
+      ),
       TokenId.usdc => (
-          const Color(0xFF2775CA),
-          DollarGlyph(size: iconSize * 0.8, color: Colors.white),
-        ),
+        const Color(0xFF2775CA),
+        DollarGlyph(size: iconSize * 0.8, color: Colors.white),
+      ),
       TokenId.btc => (
-          const Color(0xFFF7931A),
-          Icon(LucideIcons.bitcoin, size: iconSize * 1.15, color: Colors.white),
-        ),
+        const Color(0xFFF7931A),
+        Icon(LucideIcons.bitcoin, size: iconSize * 1.15, color: Colors.white),
+      ),
       TokenId.sol => (
-          const Color(0xFF101014),
-          SolanaBars(barWidth: size * 0.36, barHeight: size * 0.07, gap: size * 0.07),
+        const Color(0xFF101014),
+        SolanaBars(
+          barWidth: size * 0.36,
+          barHeight: size * 0.07,
+          gap: size * 0.07,
         ),
+      ),
     };
     return Container(
       width: size,

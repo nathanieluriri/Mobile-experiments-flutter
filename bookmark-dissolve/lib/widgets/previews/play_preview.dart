@@ -44,7 +44,11 @@ class PlayBody extends StatelessWidget {
           children: [
             Positioned.fill(
               child: Padding(
-                padding: const EdgeInsets.only(left: kStep * 3, right: kStep * 3, top: kStep * 3.5),
+                padding: const EdgeInsets.only(
+                  left: kStep * 3,
+                  right: kStep * 3,
+                  top: kStep * 3.5,
+                ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
@@ -69,7 +73,11 @@ class PlayBody extends StatelessWidget {
                         'your pocket \u2014 with all the craft and fidelity of a full '
                         'design studio.',
                         textAlign: TextAlign.center,
-                        style: text(size: 6.5, lineHeight: 9, color: AppColors.playGray),
+                        style: text(
+                          size: 6.5,
+                          lineHeight: 9,
+                          color: AppColors.playGray,
+                        ),
                       ),
                     ),
                     Padding(
@@ -130,7 +138,11 @@ class _EditorWireframe extends StatelessWidget {
         const SizedBox(width: kStep * 1.5),
         Expanded(
           child: Container(
-            padding: const EdgeInsets.only(left: kStep * 2, right: kStep * 2, top: kStep * 2),
+            padding: const EdgeInsets.only(
+              left: kStep * 2,
+              right: kStep * 2,
+              top: kStep * 2,
+            ),
             decoration: const BoxDecoration(
               color: Color(0xFF131315),
               borderRadius: BorderRadius.vertical(top: Radius.circular(5)),
@@ -174,7 +186,10 @@ class _EditorWireframe extends StatelessWidget {
   Widget _bar(double width, Color color) => Container(
     width: width,
     height: 3,
-    decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(1.5)),
+    decoration: BoxDecoration(
+      color: color,
+      borderRadius: BorderRadius.circular(1.5),
+    ),
   );
 }
 
@@ -189,7 +204,10 @@ class _Chip extends StatelessWidget {
     return Container(
       width: 5,
       height: 5,
-      decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(radius)),
+      decoration: BoxDecoration(
+        color: color,
+        borderRadius: BorderRadius.circular(radius),
+      ),
     );
   }
 }

@@ -51,14 +51,20 @@ Route<void> generateRoute(RouteSettings settings) {
     case Routes.send:
       return FlowRoute(settings: settings, builder: (_) => const SendScreen());
     case Routes.receive:
-      return FlowRoute(settings: settings, builder: (_) => const ReceiveScreen());
+      return FlowRoute(
+        settings: settings,
+        builder: (_) => const ReceiveScreen(),
+      );
     case Routes.swap:
       return FlowRoute(settings: settings, builder: (_) => const SwapScreen());
     case Routes.ipo:
       return FlowRoute(settings: settings, builder: (_) => const IpoScreen());
     case Routes.wallet:
     default:
-      return WalletRoute(settings: settings, builder: (_) => const WalletScreen());
+      return WalletRoute(
+        settings: settings,
+        builder: (_) => const WalletScreen(),
+      );
   }
 }
 
@@ -181,7 +187,9 @@ class WalletRoute<T> extends PageRoute<T> {
                 children: [
                   child!,
                   IgnorePointer(
-                    child: ColoredBox(color: Colors.black.withValues(alpha: q * 0.3)),
+                    child: ColoredBox(
+                      color: Colors.black.withValues(alpha: q * 0.3),
+                    ),
                   ),
                 ],
               ),

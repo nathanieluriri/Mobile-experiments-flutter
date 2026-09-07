@@ -8,10 +8,8 @@ import '../../theme/motion.dart';
 /// Every value the player sheet animates, read off one progress number.
 ///
 /// 0 is the mini player sitting above the tab bar, 1 is the full sheet. The
-/// blur is the one figure that could not be carried over as written: the
-/// original asks its blur view for intensity 0 to 55, which is not a Gaussian
-/// radius, so the radius here is the one measured off the original running on
-/// the phone.
+/// blur is a Gaussian radius, so its top end is set by eye to the frosting
+/// the sheet should carry at full open rather than converted from a scale.
 class SheetTransition {
   const SheetTransition({
     required this.progress,

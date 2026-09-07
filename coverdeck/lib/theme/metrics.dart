@@ -1,7 +1,8 @@
 import 'package:flutter/widgets.dart';
 
 /// Thinnest line the screen can draw, one physical pixel.
-double hairlineWidth(BuildContext context) => 1 / MediaQuery.devicePixelRatioOf(context);
+double hairlineWidth(BuildContext context) =>
+    1 / MediaQuery.devicePixelRatioOf(context);
 
 /// Piecewise linear map of [x] from [input] onto [output], clamped at both ends.
 ///

@@ -35,7 +35,7 @@ abstract final class AppText {
     fontSize: 16,
     color: AppColors.secondaryLabel,
     fontWeight: FontWeight.w400,
-);
+  );
 
   /// Elapsed and total time, in figures of even width so nothing shifts.
   static const time = TextStyle(
@@ -45,7 +45,7 @@ abstract final class AppText {
     color: AppColors.tertiaryLabel,
     fontFeatures: [FontFeature.tabularFigures()],
     fontWeight: FontWeight.w400,
-);
+  );
 
   /// Screen heading on the list tabs.
   static const heading = TextStyle(
@@ -72,7 +72,7 @@ abstract final class AppText {
     fontSize: 13,
     color: AppColors.secondaryLabel,
     fontWeight: FontWeight.w400,
-);
+  );
 
   /// Playlist name in a library row.
   static const rowTitle = TextStyle(
@@ -90,7 +90,7 @@ abstract final class AppText {
     fontSize: 13,
     color: AppColors.secondaryLabel,
     fontWeight: FontWeight.w400,
-);
+  );
 
   /// Dock label, tinted by whether its tab is selected.
   static const dockLabel = TextStyle(

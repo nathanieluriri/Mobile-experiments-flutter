@@ -75,14 +75,21 @@ class _AppBottomSheetState extends State<AppBottomSheet>
 
   void _dismiss(double velocity) {
     _translateY
-        .animateWith(springTo(Springs.sheet, _translateY.value, _windowHeight, velocity: velocity))
+        .animateWith(
+          springTo(
+            Springs.sheet,
+            _translateY.value,
+            _windowHeight,
+            velocity: velocity,
+          ),
+        )
         .whenComplete(() {
-      if (!mounted) {
-        return;
-      }
-      setState(() => _mounted = false);
-      widget.onClose();
-    });
+          if (!mounted) {
+            return;
+          }
+          setState(() => _mounted = false);
+          widget.onClose();
+        });
   }
 
   void _onDragStart(DragStartDetails details) {
@@ -92,14 +99,16 @@ class _AppBottomSheetState extends State<AppBottomSheet>
 
   void _onDragUpdate(DragUpdateDetails details) {
     final translation = details.globalPosition.dy - _dragStart;
-    _translateY.value =
-        translation >= 0 ? translation : -math.pow(translation.abs(), 0.72).toDouble();
+    _translateY.value = translation >= 0
+        ? translation
+        : -math.pow(translation.abs(), 0.72).toDouble();
   }
 
   void _onDragEnd(DragEndDetails details) {
     final velocity = details.velocity.pixelsPerSecond.dy;
     final shouldClose =
-        velocity > _dragCloseVelocity || _translateY.value > _sheetHeight * _dragCloseRatio;
+        velocity > _dragCloseVelocity ||
+        _translateY.value > _sheetHeight * _dragCloseRatio;
     if (shouldClose) {
       _dismiss(velocity);
     } else {
@@ -163,7 +172,9 @@ class _AppBottomSheetState extends State<AppBottomSheet>
                     ),
                     decoration: const BoxDecoration(
                       color: AppColors.card,
-                      borderRadius: BorderRadius.vertical(top: Radius.circular(30)),
+                      borderRadius: BorderRadius.vertical(
+                        top: Radius.circular(30),
+                      ),
                     ),
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
@@ -182,7 +193,10 @@ class _AppBottomSheetState extends State<AppBottomSheet>
                         ),
                         Padding(
                           padding: const EdgeInsets.only(bottom: 8),
-                          child: Text(widget.title, style: text(20, weight: FontWeight.w700)),
+                          child: Text(
+                            widget.title,
+                            style: text(20, weight: FontWeight.w700),
+                          ),
                         ),
                         widget.child,
                       ],

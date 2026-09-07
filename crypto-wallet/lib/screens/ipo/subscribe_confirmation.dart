@@ -45,8 +45,10 @@ class _SubscribeConfirmationState extends State<SubscribeConfirmation>
     with TickerProviderStateMixin {
   _Stage _stage = _Stage.review;
   Timer? _timer;
-  late final AnimationController _slide = AnimationController.unbounded(vsync: this, value: 340)
-    ..animateWith(springTo(Springs.sheet, 340, 0));
+  late final AnimationController _slide = AnimationController.unbounded(
+    vsync: this,
+    value: 340,
+  )..animateWith(springTo(Springs.sheet, 340, 0));
   late final AnimationController _fade = AnimationController(
     vsync: this,
     duration: const Duration(milliseconds: 240),
@@ -107,7 +109,11 @@ class _SubscribeConfirmationState extends State<SubscribeConfirmation>
         ),
         Row(
           children: [
-            CompanyLogo(size: 46, gradient: ipo.gradient, monogram: ipo.monogram),
+            CompanyLogo(
+              size: 46,
+              gradient: ipo.gradient,
+              monogram: ipo.monogram,
+            ),
             const SizedBox(width: 14),
             Expanded(
               child: Column(
@@ -115,7 +121,10 @@ class _SubscribeConfirmationState extends State<SubscribeConfirmation>
                 children: [
                   Text(ipo.company, style: text(17, weight: FontWeight.w700)),
                   const SizedBox(height: 2),
-                  Text('${ipo.ticker} · ${ipo.exchange}', style: text(12, color: AppColors.subtle)),
+                  Text(
+                    '${ipo.ticker} · ${ipo.exchange}',
+                    style: text(12, color: AppColors.subtle),
+                  ),
                 ],
               ),
             ),
@@ -133,19 +142,37 @@ class _SubscribeConfirmationState extends State<SubscribeConfirmation>
             ),
           ],
         ),
-        Container(height: 1, margin: const EdgeInsets.symmetric(vertical: 20), color: AppColors.outline),
+        Container(
+          height: 1,
+          margin: const EdgeInsets.symmetric(vertical: 20),
+          color: AppColors.outline,
+        ),
         _detailRow('Estimated Allocation', _allocationText),
         _detailRow('Expected Listing', ipo.listingDate),
-        _detailRow('Price Range', formatPriceRange(ipo.priceLow, ipo.priceHigh)),
+        _detailRow(
+          'Price Range',
+          formatPriceRange(ipo.priceLow, ipo.priceHigh),
+        ),
         const SizedBox(height: 20),
-        PrimaryButton(enabled: true, onPress: _confirm, label: 'Confirm Subscription'),
+        PrimaryButton(
+          enabled: true,
+          onPress: _confirm,
+          label: 'Confirm Subscription',
+        ),
         const SizedBox(height: 12),
         PressableScale(
           onPress: widget.onCancel,
           child: SizedBox(
             height: 44,
             child: Center(
-              child: Text('Cancel', style: text(14, weight: FontWeight.w600, color: AppColors.subtle)),
+              child: Text(
+                'Cancel',
+                style: text(
+                  14,
+                  weight: FontWeight.w600,
+                  color: AppColors.subtle,
+                ),
+              ),
             ),
           ),
         ),
@@ -168,12 +195,19 @@ class _SubscribeConfirmationState extends State<SubscribeConfirmation>
               alignment: Alignment.center,
               children: [
                 const LoadingRing(size: _ring),
-                CompanyLogo(size: 44, gradient: ipo.gradient, monogram: ipo.monogram),
+                CompanyLogo(
+                  size: 44,
+                  gradient: ipo.gradient,
+                  monogram: ipo.monogram,
+                ),
               ],
             ),
           ),
           const SizedBox(height: 20),
-          Text('Placing subscription', style: text(16, weight: FontWeight.w700)),
+          Text(
+            'Placing subscription',
+            style: text(16, weight: FontWeight.w700),
+          ),
           const SizedBox(height: 4),
           Text(
             '\$${groupThousands('${widget.amountUsd}')} · ${ipo.ticker}',
@@ -201,7 +235,11 @@ class _SubscribeConfirmationState extends State<SubscribeConfirmation>
               child: Stack(
                 clipBehavior: Clip.none,
                 children: [
-                  CompanyLogo(size: 72, gradient: ipo.gradient, monogram: ipo.monogram),
+                  CompanyLogo(
+                    size: 72,
+                    gradient: ipo.gradient,
+                    monogram: ipo.monogram,
+                  ),
                   Positioned(
                     right: -6,
                     bottom: -6,
@@ -218,7 +256,11 @@ class _SubscribeConfirmationState extends State<SubscribeConfirmation>
                           shape: BoxShape.circle,
                           border: Border.all(color: AppColors.card, width: 3),
                         ),
-                        child: const Icon(LucideIcons.check, size: 15, color: AppColors.white),
+                        child: const Icon(
+                          LucideIcons.check,
+                          size: 15,
+                          color: AppColors.white,
+                        ),
                       ),
                     ),
                   ),
@@ -232,7 +274,10 @@ class _SubscribeConfirmationState extends State<SubscribeConfirmation>
             child: Column(
               children: [
                 const SizedBox(height: 20),
-                Text('Subscription Confirmed', style: text(19, weight: FontWeight.w700)),
+                Text(
+                  'Subscription Confirmed',
+                  style: text(19, weight: FontWeight.w700),
+                ),
                 const SizedBox(height: 4),
                 Text(
                   "You're in line for ${ipo.company}'s listing",
@@ -254,7 +299,10 @@ class _SubscribeConfirmationState extends State<SubscribeConfirmation>
               ),
               child: Column(
                 children: [
-                  _detailRow('Investment', '\$${groupThousands('${widget.amountUsd}')}'),
+                  _detailRow(
+                    'Investment',
+                    '\$${groupThousands('${widget.amountUsd}')}',
+                  ),
                   _detailRow('Estimated Allocation', _allocationText),
                   _detailRow('Expected Listing', ipo.listingDate),
                 ],
@@ -276,7 +324,14 @@ class _SubscribeConfirmationState extends State<SubscribeConfirmation>
                   color: AppColors.ink,
                   borderRadius: BorderRadius.circular(26),
                 ),
-                child: Text('Done', style: text(15, weight: FontWeight.w700, color: AppColors.white)),
+                child: Text(
+                  'Done',
+                  style: text(
+                    15,
+                    weight: FontWeight.w700,
+                    color: AppColors.white,
+                  ),
+                ),
               ),
             ),
           ),
@@ -313,11 +368,19 @@ class _SubscribeConfirmationState extends State<SubscribeConfirmation>
             builder: (context, child) {
               return Opacity(
                 opacity: (_fade.value * 1.2).clamp(0.0, 1.0),
-                child: Transform.translate(offset: Offset(0, _slide.value), child: child),
+                child: Transform.translate(
+                  offset: Offset(0, _slide.value),
+                  child: child,
+                ),
               );
             },
             child: Container(
-              padding: EdgeInsets.only(left: 24, right: 24, top: 24, bottom: bottomInset + 20),
+              padding: EdgeInsets.only(
+                left: 24,
+                right: 24,
+                top: 24,
+                bottom: bottomInset + 20,
+              ),
               decoration: BoxDecoration(
                 color: AppColors.card,
                 borderRadius: BorderRadius.circular(32),

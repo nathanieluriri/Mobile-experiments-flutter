@@ -14,7 +14,9 @@ void main() {
     addTearDown(controller.dispose);
     await pumpScreen(
       tester,
-      hostApp(ConnectSpotifyScreen(onBack: noop, marqueeController: controller)),
+      hostApp(
+        ConnectSpotifyScreen(onBack: noop, marqueeController: controller),
+      ),
     );
     await precacheAssets(tester, artists.map((item) => item.imageAsset));
     await capture(tester, 'fade__default');

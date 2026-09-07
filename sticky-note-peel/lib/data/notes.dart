@@ -7,7 +7,8 @@ const kNotes = <Note>[
     id: 'design',
     color: Color(0xFFFFD54A),
     title: 'Useful hints to build a perfect design for iPhone Xs',
-    body: 'Apple presents new gadgets every year and each of this device '
+    body:
+        'Apple presents new gadgets every year and each of this device '
         'deserves the attention. But when iPhone X was presented to the '
         'public, rules of app designing were changed. With iPhone Xs '
         'announcement this year, UI/UX designers',
@@ -47,7 +48,8 @@ const kNotes = <Note>[
     id: 'wakeup',
     color: Color(0xFFF4A6C0),
     title: '10 Reasons You Should Wake-Up At 5AM For 30 Days Straight',
-    body: "For the remainder of this article, I'm going to make you specific "
+    body:
+        "For the remainder of this article, I'm going to make you specific "
         'promises about what will happen if you do this.\n'
         'To be absolutely clear: if you wake up at 5AM for 30 days straight, '
         'your entire life will change',
@@ -56,7 +58,8 @@ const kNotes = <Note>[
     id: 'business',
     color: Color(0xFFC3B4E2),
     title: 'Understanding Business Value',
-    body: 'A designer that understands how to continually bring value to the '
+    body:
+        'A designer that understands how to continually bring value to the '
         'business while also advocating for the user is a golden egg for '
         'organisations',
     tags: ['Article'],

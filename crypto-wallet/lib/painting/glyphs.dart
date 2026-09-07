@@ -72,7 +72,12 @@ class DollarGlyph extends StatelessWidget {
 
 /// Three stacked rounded bars, the Solana mark.
 class SolanaBars extends StatelessWidget {
-  const SolanaBars({super.key, required this.barWidth, required this.barHeight, required this.gap});
+  const SolanaBars({
+    super.key,
+    required this.barWidth,
+    required this.barHeight,
+    required this.gap,
+  });
 
   final double barWidth;
   final double barHeight;

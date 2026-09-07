@@ -30,7 +30,9 @@ void main() {
     expect(isRunning(tester), isFalse);
   });
 
-  testWidgets('every card is on the board once it has restored', (tester) async {
+  testWidgets('every card is on the board once it has restored', (
+    tester,
+  ) async {
     await pumpScreen(tester, const App());
     await tester.pumpAndSettle();
     await startRestore(tester);

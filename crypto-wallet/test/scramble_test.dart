@@ -56,7 +56,11 @@ void main() {
     expect(controller.refreshing, isTrue);
     controller.refresh();
     await pumpMs(tester, 100);
-    expect(controller.time, closeTo(900, 1), reason: 'the busy guard keeps the clock');
+    expect(
+      controller.time,
+      closeTo(900, 1),
+      reason: 'the busy guard keeps the clock',
+    );
     expect(controller.digits, '237812', reason: 'no fetch before 2000 ms');
     await pumpMs(tester, 1200);
     expect(controller.time, closeTo(2100, 1));
@@ -78,10 +82,14 @@ void main() {
         expect(lock, greaterThan(RefreshTimeline.lockAt(i - 1)));
       }
     }
-    expect(RefreshTimeline.locked(5, 0, 0), isTrue, reason: 'no cycling means locked');
+    expect(
+      RefreshTimeline.locked(5, 0, 0),
+      isTrue,
+      reason: 'no cycling means locked',
+    );
   });
 
-  test('timeline matches the source constants', () {
+  test('timeline matches the refresh constants', () {
     expect(RefreshTimeline.morph(0), 0);
     expect(RefreshTimeline.morph(180), 0);
     expect(RefreshTimeline.morph(630), 1);
@@ -107,8 +115,10 @@ void main() {
     final c = RefreshTimeline.digitChar(0, '237812', 72, 1, 0);
     expect(a, b);
     expect(RegExp(r'^\d$').hasMatch(c), isTrue);
-    expect(RefreshTimeline.digitChar(5, '237812', 131, 1, 0),
-        RefreshTimeline.digitChar(5, '237812', 0, 1, 0));
+    expect(
+      RefreshTimeline.digitChar(5, '237812', 131, 1, 0),
+      RefreshTimeline.digitChar(5, '237812', 0, 1, 0),
+    );
     expect(RefreshTimeline.digitChar(2, '237812', 500, 1, 1), '7');
   });
 

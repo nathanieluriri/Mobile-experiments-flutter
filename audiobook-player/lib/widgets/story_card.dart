@@ -38,9 +38,9 @@ class StoryCard extends StatelessWidget {
                       story.title,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      // Inter sets a little wider than the phone's own face, so
-                      // the titles carry a touch of negative tracking to stay on
-                      // one line inside the card.
+                      // Inter sets a little wide at this size, so the titles
+                      // carry a touch of negative tracking to stay on one line
+                      // inside the card.
                       style: const TextStyle(
                         fontSize: 15,
                         fontWeight: FontWeight.w600,

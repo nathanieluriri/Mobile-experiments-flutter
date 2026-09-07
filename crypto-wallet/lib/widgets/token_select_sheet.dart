@@ -90,7 +90,12 @@ class _TokenSelectSheetState extends State<TokenSelectSheet> {
         padding: EdgeInsets.only(top: top, bottom: 4),
         child: Text(
           value.toUpperCase(),
-          style: text(11, weight: FontWeight.w600, color: AppColors.subtle, tracking: kTrackingWide),
+          style: text(
+            11,
+            weight: FontWeight.w600,
+            color: AppColors.subtle,
+            tracking: kTrackingWide,
+          ),
         ),
       );
     }
@@ -129,7 +134,11 @@ class _TokenSelectSheetState extends State<TokenSelectSheet> {
               ),
               child: Row(
                 children: [
-                  const Icon(LucideIcons.search, size: 16, color: AppColors.subtle),
+                  const Icon(
+                    LucideIcons.search,
+                    size: 16,
+                    color: AppColors.subtle,
+                  ),
                   const SizedBox(width: 8),
                   Expanded(
                     child: TextField(
@@ -208,7 +217,10 @@ class _TokenRow extends StatelessWidget {
                   children: [
                     Text(token.name, style: text(16, weight: FontWeight.w700)),
                     const SizedBox(height: 2),
-                    Text(token.symbol, style: text(13, color: AppColors.subtle)),
+                    Text(
+                      token.symbol,
+                      style: text(13, color: AppColors.subtle),
+                    ),
                   ],
                 ),
               ),
@@ -229,7 +241,11 @@ class _TokenRow extends StatelessWidget {
               if (active)
                 const Padding(
                   padding: EdgeInsets.only(left: 12),
-                  child: Icon(LucideIcons.circleCheck, size: 18, color: AppColors.accent),
+                  child: Icon(
+                    LucideIcons.circleCheck,
+                    size: 18,
+                    color: AppColors.accent,
+                  ),
                 ),
             ],
           ),

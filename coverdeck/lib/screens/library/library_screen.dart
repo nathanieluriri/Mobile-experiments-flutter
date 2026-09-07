@@ -46,18 +46,21 @@ class LibraryScreen extends StatelessWidget {
           return false;
         },
         child: SingleChildScrollView(
-          padding: EdgeInsets.only(top: topInset + 16, left: 20, right: 20, bottom: 150),
+          padding: EdgeInsets.only(
+            top: topInset + 16,
+            left: 20,
+            right: 20,
+            bottom: 150,
+          ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Padding(
                 padding: EdgeInsets.only(bottom: 12),
-                child: Text(
-                  'Library',
-                  style: AppText.heading,
-                ),
+                child: Text('Library', style: AppText.heading),
               ),
-              for (final playlist in playlists) _PlaylistRow(playlist: playlist),
+              for (final playlist in playlists)
+                _PlaylistRow(playlist: playlist),
             ],
           ),
         ),
@@ -84,7 +87,10 @@ class _PlaylistRow extends StatelessWidget {
             decoration: ShapeDecoration(
               shape: RoundedSuperellipseBorder(
                 borderRadius: radius,
-                side: BorderSide(color: AppColors.coverBorder, width: hairlineWidth(context)),
+                side: BorderSide(
+                  color: AppColors.coverBorder,
+                  width: hairlineWidth(context),
+                ),
               ),
             ),
             child: ClipRSuperellipse(

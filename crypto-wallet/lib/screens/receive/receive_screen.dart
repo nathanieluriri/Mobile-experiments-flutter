@@ -69,7 +69,12 @@ class _ReceiveScreenState extends State<ReceiveScreen> {
               ),
               Expanded(
                 child: SingleChildScrollView(
-                  padding: EdgeInsets.only(left: 20, right: 20, top: 8, bottom: padding.bottom + 24),
+                  padding: EdgeInsets.only(
+                    left: 20,
+                    right: 20,
+                    top: 8,
+                    bottom: padding.bottom + 24,
+                  ),
                   child: AnimatedSwitcher(
                     duration: const Duration(milliseconds: 220),
                     switchInCurve: const Threshold(0),
@@ -78,43 +83,46 @@ class _ReceiveScreenState extends State<ReceiveScreen> {
                       children: [...previous, ?current],
                     ),
                     child: _loading
-                      ? const ReceiveSkeleton()
-                      : Column(
-                          key: const ValueKey('content'),
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            Enter(
-                              kind: EnterKind.fadeInDown,
-                              delay: const Duration(milliseconds: 40),
-                              duration: const Duration(milliseconds: 420),
-                              child: ReceiveCard(
-                                network: _network,
-                                onNetworkPress: () => setState(() => _sheetOpen = true),
+                        ? const ReceiveSkeleton()
+                        : Column(
+                            key: const ValueKey('content'),
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              Enter(
+                                kind: EnterKind.fadeInDown,
+                                delay: const Duration(milliseconds: 40),
+                                duration: const Duration(milliseconds: 420),
+                                child: ReceiveCard(
+                                  network: _network,
+                                  onNetworkPress: () =>
+                                      setState(() => _sheetOpen = true),
+                                ),
                               ),
-                            ),
-                            const SizedBox(height: 16),
-                            Enter(
-                              kind: EnterKind.fadeInDown,
-                              delay: const Duration(milliseconds: 110),
-                              duration: const Duration(milliseconds: 420),
-                              child: AddressActions(network: _network),
-                            ),
-                            const SizedBox(height: 16),
-                            Enter(
-                              kind: EnterKind.fadeInDown,
-                              delay: const Duration(milliseconds: 180),
-                              duration: const Duration(milliseconds: 420),
-                              child: const InfoCard(message: _infoMessage),
-                            ),
-                            const SizedBox(height: 24),
-                            Enter(
-                              kind: EnterKind.fadeInDown,
-                              delay: const Duration(milliseconds: 250),
-                              duration: const Duration(milliseconds: 420),
-                              child: const ReceiveHistory(transactions: incomingTransactions),
-                            ),
-                          ],
-                        ),
+                              const SizedBox(height: 16),
+                              Enter(
+                                kind: EnterKind.fadeInDown,
+                                delay: const Duration(milliseconds: 110),
+                                duration: const Duration(milliseconds: 420),
+                                child: AddressActions(network: _network),
+                              ),
+                              const SizedBox(height: 16),
+                              Enter(
+                                kind: EnterKind.fadeInDown,
+                                delay: const Duration(milliseconds: 180),
+                                duration: const Duration(milliseconds: 420),
+                                child: const InfoCard(message: _infoMessage),
+                              ),
+                              const SizedBox(height: 24),
+                              Enter(
+                                kind: EnterKind.fadeInDown,
+                                delay: const Duration(milliseconds: 250),
+                                duration: const Duration(milliseconds: 420),
+                                child: const ReceiveHistory(
+                                  transactions: incomingTransactions,
+                                ),
+                              ),
+                            ],
+                          ),
                   ),
                 ),
               ),
@@ -144,26 +152,36 @@ class NetworkIcon extends StatelessWidget {
   Widget build(BuildContext context) {
     final iconSize = size * 0.58;
     final (Color background, Widget glyph) = switch (id) {
-      NetworkId.ethereum => (const Color(0xFF627EEA), EthGlyph(size: iconSize, color: AppColors.white)),
+      NetworkId.ethereum => (
+        const Color(0xFF627EEA),
+        EthGlyph(size: iconSize, color: AppColors.white),
+      ),
       NetworkId.base => (
-          const Color(0xFF0052FF),
-          Container(
-            width: size * 0.55,
-            height: size * 0.55,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              border: Border.all(color: AppColors.white, width: (size * 0.11).clamp(2.0, double.infinity)),
+        const Color(0xFF0052FF),
+        Container(
+          width: size * 0.55,
+          height: size * 0.55,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            border: Border.all(
+              color: AppColors.white,
+              width: (size * 0.11).clamp(2.0, double.infinity),
             ),
           ),
         ),
+      ),
       NetworkId.solana => (
-          const Color(0xFF101014),
-          SolanaBars(barWidth: size * 0.4, barHeight: size * 0.08, gap: size * 0.08),
+        const Color(0xFF101014),
+        SolanaBars(
+          barWidth: size * 0.4,
+          barHeight: size * 0.08,
+          gap: size * 0.08,
         ),
+      ),
       NetworkId.polygon => (
-          const Color(0xFF8247E5),
-          Icon(LucideIcons.hexagon, size: iconSize, color: AppColors.white),
-        ),
+        const Color(0xFF8247E5),
+        Icon(LucideIcons.hexagon, size: iconSize, color: AppColors.white),
+      ),
     };
     return Container(
       width: size,
@@ -190,9 +208,14 @@ class AddressQr extends StatefulWidget {
 }
 
 class _AddressQrState extends State<AddressQr> with TickerProviderStateMixin {
-  late final AnimationController _sweep = AnimationController(vsync: this, duration: _sweepDuration);
-  late final AnimationController _scale = AnimationController.unbounded(vsync: this, value: 0.92)
-    ..animateWith(springTo(Springs.pop, 0.92, 1));
+  late final AnimationController _sweep = AnimationController(
+    vsync: this,
+    duration: _sweepDuration,
+  );
+  late final AnimationController _scale = AnimationController.unbounded(
+    vsync: this,
+    value: 0.92,
+  )..animateWith(springTo(Springs.pop, 0.92, 1));
   late final AnimationController _fade = AnimationController(
     vsync: this,
     duration: const Duration(milliseconds: 280),
@@ -201,7 +224,10 @@ class _AddressQrState extends State<AddressQr> with TickerProviderStateMixin {
   late QrImage _image = _encode(widget.value);
 
   static QrImage _encode(String value) {
-    final code = QrCode.fromData(data: value, errorCorrectLevel: QrErrorCorrectLevel.M);
+    final code = QrCode.fromData(
+      data: value,
+      errorCorrectLevel: QrErrorCorrectLevel.M,
+    );
     return QrImage(code);
   }
 
@@ -264,7 +290,11 @@ class _AddressQrState extends State<AddressQr> with TickerProviderStateMixin {
 }
 
 class _QrPainter extends CustomPainter {
-  _QrPainter({required this.image, required this.sweep, required this.sweeping});
+  _QrPainter({
+    required this.image,
+    required this.sweep,
+    required this.sweeping,
+  });
 
   final QrImage image;
   final double sweep;
@@ -309,7 +339,9 @@ class _QrPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_QrPainter oldDelegate) =>
-      oldDelegate.image != image || oldDelegate.sweep != sweep || oldDelegate.sweeping != sweeping;
+      oldDelegate.image != image ||
+      oldDelegate.sweep != sweep ||
+      oldDelegate.sweeping != sweeping;
 }
 
 /// Copies [value] and shows a check for a moment.
@@ -367,13 +399,26 @@ class _CopyChipState extends State<_CopyChip> {
             width: 32,
             height: 32,
             alignment: Alignment.center,
-            decoration: const BoxDecoration(color: AppColors.chip, shape: BoxShape.circle),
+            decoration: const BoxDecoration(
+              color: AppColors.chip,
+              shape: BoxShape.circle,
+            ),
             child: AnimatedSwitcher(
               duration: const Duration(milliseconds: 160),
               reverseDuration: const Duration(milliseconds: 120),
               child: _copy.copied
-                  ? const Icon(LucideIcons.check, key: ValueKey('check'), size: 14, color: AppColors.gain)
-                  : const Icon(LucideIcons.copy, key: ValueKey('copy'), size: 14, color: AppColors.ink),
+                  ? const Icon(
+                      LucideIcons.check,
+                      key: ValueKey('check'),
+                      size: 14,
+                      color: AppColors.gain,
+                    )
+                  : const Icon(
+                      LucideIcons.copy,
+                      key: ValueKey('copy'),
+                      size: 14,
+                      color: AppColors.ink,
+                    ),
             ),
           ),
         );
@@ -384,7 +429,11 @@ class _CopyChipState extends State<_CopyChip> {
 
 /// Network chip, QR code, truncated address and caption.
 class ReceiveCard extends StatelessWidget {
-  const ReceiveCard({super.key, required this.network, required this.onNetworkPress});
+  const ReceiveCard({
+    super.key,
+    required this.network,
+    required this.onNetworkPress,
+  });
 
   final Network network;
   final VoidCallback onNetworkPress;
@@ -404,7 +453,12 @@ class ReceiveCard extends StatelessWidget {
             haptic: HapticKind.selection,
             onPress: onNetworkPress,
             child: Container(
-              padding: const EdgeInsets.only(left: 8, right: 12, top: 6, bottom: 6),
+              padding: const EdgeInsets.only(
+                left: 8,
+                right: 12,
+                top: 6,
+                bottom: 6,
+              ),
               decoration: BoxDecoration(
                 color: AppColors.chip,
                 borderRadius: BorderRadius.circular(999),
@@ -415,29 +469,50 @@ class ReceiveCard extends StatelessWidget {
                   AnimatedSwitcher(
                     duration: const Duration(milliseconds: 220),
                     reverseDuration: const Duration(milliseconds: 140),
-                    child: NetworkIcon(key: ValueKey(network.id), id: network.id, size: 22),
+                    child: NetworkIcon(
+                      key: ValueKey(network.id),
+                      id: network.id,
+                      size: 22,
+                    ),
                   ),
                   const SizedBox(width: 8),
-                  FadeSwapText(text: network.name, style: text(13, weight: FontWeight.w600)),
+                  FadeSwapText(
+                    text: network.name,
+                    style: text(13, weight: FontWeight.w600),
+                  ),
                   const SizedBox(width: 8),
-                  const Icon(LucideIcons.chevronDown, size: 14, color: AppColors.subtle),
+                  const Icon(
+                    LucideIcons.chevronDown,
+                    size: 14,
+                    color: AppColors.subtle,
+                  ),
                 ],
               ),
             ),
           ),
           const SizedBox(height: 20),
-          AddressQr(key: ValueKey(network.address), value: network.address, size: _qrSize),
+          AddressQr(
+            key: ValueKey(network.address),
+            value: network.address,
+            size: _qrSize,
+          ),
           const SizedBox(height: 20),
           Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              FadeSwapText(text: truncateAddress(network.address), style: text(15, weight: FontWeight.w600)),
+              FadeSwapText(
+                text: truncateAddress(network.address),
+                style: text(15, weight: FontWeight.w600),
+              ),
               const SizedBox(width: 10),
               _CopyChip(address: network.address),
             ],
           ),
           const SizedBox(height: 4),
-          Text('Your ${network.name} address', style: text(12, color: AppColors.subtle)),
+          Text(
+            'Your ${network.name} address',
+            style: text(12, color: AppColors.subtle),
+          ),
         ],
       ),
     );
@@ -463,7 +538,13 @@ class _AddressActionsState extends State<AddressActions> {
     super.dispose();
   }
 
-  Widget _button({required Widget icon, required String label, required Color color, required VoidCallback onPress, HapticKind haptic = HapticKind.tap}) {
+  Widget _button({
+    required Widget icon,
+    required String label,
+    required Color color,
+    required VoidCallback onPress,
+    HapticKind haptic = HapticKind.tap,
+  }) {
     return Expanded(
       child: PressableScale(
         lift: true,
@@ -481,7 +562,10 @@ class _AddressActionsState extends State<AddressActions> {
             children: [
               icon,
               const SizedBox(width: 8),
-              FadeSwapText(text: label, style: text(15, weight: FontWeight.w600, color: color)),
+              FadeSwapText(
+                text: label,
+                style: text(15, weight: FontWeight.w600, color: color),
+              ),
             ],
           ),
         ),
@@ -498,7 +582,11 @@ class _AddressActionsState extends State<AddressActions> {
         return Row(
           children: [
             _button(
-              icon: Icon(copied ? LucideIcons.check : LucideIcons.copy, size: 16, color: copied ? AppColors.gain : AppColors.ink),
+              icon: Icon(
+                copied ? LucideIcons.check : LucideIcons.copy,
+                size: 16,
+                color: copied ? AppColors.gain : AppColors.ink,
+              ),
               label: copied ? 'Copied' : 'Copy Address',
               color: copied ? AppColors.gain : AppColors.ink,
               haptic: HapticKind.none,
@@ -506,7 +594,11 @@ class _AddressActionsState extends State<AddressActions> {
             ),
             const SizedBox(width: 12),
             _button(
-              icon: const Icon(LucideIcons.share, size: 16, color: AppColors.ink),
+              icon: const Icon(
+                LucideIcons.share,
+                size: 16,
+                color: AppColors.ink,
+              ),
               label: 'Share QR',
               color: AppColors.ink,
               onPress: () {},
@@ -538,11 +630,23 @@ class InfoCard extends StatelessWidget {
             width: 36,
             height: 36,
             alignment: Alignment.center,
-            decoration: const BoxDecoration(color: AppColors.accentSoft, shape: BoxShape.circle),
-            child: const Icon(LucideIcons.info, size: 16, color: AppColors.accent),
+            decoration: const BoxDecoration(
+              color: AppColors.accentSoft,
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(
+              LucideIcons.info,
+              size: 16,
+              color: AppColors.accent,
+            ),
           ),
           const SizedBox(width: 12),
-          Expanded(child: Text(message, style: text(13, color: AppColors.subtle, lineHeight: 18))),
+          Expanded(
+            child: Text(
+              message,
+              style: text(13, color: AppColors.subtle, lineHeight: 18),
+            ),
+          ),
         ],
       ),
     );
@@ -564,7 +668,12 @@ class ReceiveHistory extends StatelessWidget {
           padding: const EdgeInsets.only(bottom: 10),
           child: Text(
             'RECENT ACTIVITY',
-            style: text(13, weight: FontWeight.w600, color: AppColors.subtle, tracking: kTrackingWide),
+            style: text(
+              13,
+              weight: FontWeight.w600,
+              color: AppColors.subtle,
+              tracking: kTrackingWide,
+            ),
           ),
         ),
         Container(
@@ -581,33 +690,59 @@ class ReceiveHistory extends StatelessWidget {
                   delay: Duration(milliseconds: 120 + i * 80),
                   duration: const Duration(milliseconds: 380),
                   child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 12,
+                    ),
                     child: Row(
                       children: [
                         Container(
                           width: 40,
                           height: 40,
                           alignment: Alignment.center,
-                          decoration: const BoxDecoration(color: AppColors.gainSoft, shape: BoxShape.circle),
-                          child: const Icon(LucideIcons.arrowDownLeft, size: 17, color: AppColors.gain),
+                          decoration: const BoxDecoration(
+                            color: AppColors.gainSoft,
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(
+                            LucideIcons.arrowDownLeft,
+                            size: 17,
+                            color: AppColors.gain,
+                          ),
                         ),
                         const SizedBox(width: 12),
                         Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text(transactions[i].from, style: text(15, weight: FontWeight.w700)),
+                              Text(
+                                transactions[i].from,
+                                style: text(15, weight: FontWeight.w700),
+                              ),
                               const SizedBox(height: 2),
-                              Text(transactions[i].time, style: text(12, color: AppColors.subtle)),
+                              Text(
+                                transactions[i].time,
+                                style: text(12, color: AppColors.subtle),
+                              ),
                             ],
                           ),
                         ),
                         Column(
                           crossAxisAlignment: CrossAxisAlignment.end,
                           children: [
-                            Text(transactions[i].amount, style: text(15, weight: FontWeight.w700, color: AppColors.gain)),
+                            Text(
+                              transactions[i].amount,
+                              style: text(
+                                15,
+                                weight: FontWeight.w700,
+                                color: AppColors.gain,
+                              ),
+                            ),
                             const SizedBox(height: 2),
-                            Text(transactions[i].fiat, style: text(12, color: AppColors.subtle)),
+                            Text(
+                              transactions[i].fiat,
+                              style: text(12, color: AppColors.subtle),
+                            ),
                           ],
                         ),
                       ],
@@ -634,7 +769,12 @@ class ReceiveSkeleton extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Container(
-          padding: const EdgeInsets.only(left: 20, right: 20, top: 24, bottom: 20),
+          padding: const EdgeInsets.only(
+            left: 20,
+            right: 20,
+            top: 24,
+            bottom: 20,
+          ),
           decoration: BoxDecoration(
             color: AppColors.card,
             borderRadius: BorderRadius.circular(24),
@@ -714,34 +854,46 @@ class NetworkSheet extends StatelessWidget {
               },
               child: Padding(
                 padding: EdgeInsets.only(top: i == 0 ? 0 : 4),
-              child: Container(
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                decoration: BoxDecoration(
-                  color: network.id == selected.id ? AppColors.accentSoft.withValues(alpha: 0.6) : null,
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: Row(
-                  children: [
-                    NetworkIcon(id: network.id, size: 42),
-                    const SizedBox(width: 14),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(network.name, style: text(16, weight: FontWeight.w700)),
-                          const SizedBox(height: 2),
-                          Text(truncateAddress(network.address), style: text(13, color: AppColors.subtle)),
-                        ],
+                child: Container(
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  decoration: BoxDecoration(
+                    color: network.id == selected.id
+                        ? AppColors.accentSoft.withValues(alpha: 0.6)
+                        : null,
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Row(
+                    children: [
+                      NetworkIcon(id: network.id, size: 42),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              network.name,
+                              style: text(16, weight: FontWeight.w700),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              truncateAddress(network.address),
+                              style: text(13, color: AppColors.subtle),
+                            ),
+                          ],
+                        ),
                       ),
-                    ),
-                    if (network.id == selected.id)
-                      const Padding(
-                        padding: EdgeInsets.only(left: 12),
-                        child: Icon(LucideIcons.circleCheck, size: 18, color: AppColors.accent),
-                      ),
-                  ],
+                      if (network.id == selected.id)
+                        const Padding(
+                          padding: EdgeInsets.only(left: 12),
+                          child: Icon(
+                            LucideIcons.circleCheck,
+                            size: 18,
+                            color: AppColors.accent,
+                          ),
+                        ),
+                    ],
+                  ),
                 ),
-              ),
               ),
             ),
         ],

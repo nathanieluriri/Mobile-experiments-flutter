@@ -9,7 +9,7 @@ void main() {
     await pumpScreen(tester, const App());
     await tester.pumpAndSettle();
     // Arc is deleted first, so the Play card comes apart from a board holding
-    // two cards, the way the recording shows it.
+    // two cards.
     await removeCard(tester, kArc);
 
     await startDissolve(tester, kPlay);
@@ -24,7 +24,9 @@ void main() {
     await capture(tester, 'dissolve__t2800');
   });
 
-  testWidgets('the card lower in a column comes apart the same way', (tester) async {
+  testWidgets('the card lower in a column comes apart the same way', (
+    tester,
+  ) async {
     await pumpScreen(tester, const App());
     await tester.pumpAndSettle();
 

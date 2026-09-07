@@ -91,13 +91,23 @@ class DissolveParticles {
 
       final scatterAngle = _seeds[s + 1] * math.pi * 2;
       final scatter =
-          (ParticleMotion.scatterBase + _seeds[s + 2] * ParticleMotion.scatterJitter) * drive;
+          (ParticleMotion.scatterBase +
+              _seeds[s + 2] * ParticleMotion.scatterJitter) *
+          drive;
       final wind =
           (width + ParticleMotion.windOverscan - originX) *
-          (ParticleMotion.windBase + _seeds[s + 3] * ParticleMotion.windJitter) *
+          (ParticleMotion.windBase +
+              _seeds[s + 3] * ParticleMotion.windJitter) *
           tt;
-      final lift = (ParticleMotion.liftBase + _seeds[s + 4] * ParticleMotion.liftJitter) * drive;
-      final fall = (ParticleMotion.fallBase + _seeds[s + 4] * ParticleMotion.fallJitter) * tt * tt;
+      final lift =
+          (ParticleMotion.liftBase +
+              _seeds[s + 4] * ParticleMotion.liftJitter) *
+          drive;
+      final fall =
+          (ParticleMotion.fallBase +
+              _seeds[s + 4] * ParticleMotion.fallJitter) *
+          tt *
+          tt;
       final wobble =
           math.sin(
             t *
@@ -110,9 +120,12 @@ class DissolveParticles {
           (1 - t);
 
       final tx = originX + math.cos(scatterAngle) * scatter + wind;
-      final ty = originY + math.sin(scatterAngle) * scatter - lift + fall + wobble;
+      final ty =
+          originY + math.sin(scatterAngle) * scatter - lift + fall + wobble;
 
-      final crumble = t > ParticleMotion.crumbleStart ? 1.0 : t / ParticleMotion.crumbleStart;
+      final crumble = t > ParticleMotion.crumbleStart
+          ? 1.0
+          : t / ParticleMotion.crumbleStart;
       final scale = (1 - ParticleMotion.maxShrink * crumble) / pixelScale;
       final spin = (_seeds[s + 5] - 0.5) * ParticleMotion.spinRange * drive;
 
@@ -122,7 +135,8 @@ class DissolveParticles {
       transforms[o + 2] = tx;
       transforms[o + 3] = ty;
 
-      final fadeStart = ParticleFade.startBase + _seeds[s + 5] * ParticleFade.startJitter;
+      final fadeStart =
+          ParticleFade.startBase + _seeds[s + 5] * ParticleFade.startJitter;
       final fade = clamp01((t - fadeStart) / (ParticleFade.end - fadeStart));
       final alpha = 1 - smoothstep(fade);
       colors[i] = ((alpha * 255).round() << 24) | 0x00FFFFFF;

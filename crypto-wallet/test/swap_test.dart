@@ -27,7 +27,7 @@ void main() {
     await capture(tester, 'swap__amount');
   });
 
-  test('quote and venue follow the source formulas', () {
+  test('quote and venue follow their formulas', () {
     final quote = computeSwapQuote(tokens[0], tokens[1], 0.1);
     expect(quote.rate, closeTo(2437.52, 1e-9));
     expect(quote.toAmount, closeTo(243.752, 1e-9));

@@ -34,8 +34,10 @@ class SpringSize extends SingleChildRenderObjectWidget {
 /// The render object behind [SpringSize].
 class RenderSpringSize extends RenderProxyBox {
   RenderSpringSize({required TickerProvider vsync, required this.spring}) {
-    _width = AnimationController.unbounded(vsync: vsync)..addListener(_handleTick);
-    _height = AnimationController.unbounded(vsync: vsync)..addListener(_handleTick);
+    _width = AnimationController.unbounded(vsync: vsync)
+      ..addListener(_handleTick);
+    _height = AnimationController.unbounded(vsync: vsync)
+      ..addListener(_handleTick);
   }
 
   late final AnimationController _width;
@@ -78,7 +80,12 @@ class RenderSpringSize extends RenderProxyBox {
         SpringSimulation(spring, _width.value, target.width, _width.velocity),
       );
       _height.animateWith(
-        SpringSimulation(spring, _height.value, target.height, _height.velocity),
+        SpringSimulation(
+          spring,
+          _height.value,
+          target.height,
+          _height.velocity,
+        ),
       );
     }
     _target = target;
@@ -87,9 +94,9 @@ class RenderSpringSize extends RenderProxyBox {
 
   /// Where the child sits inside the size currently being animated to.
   Offset get _childOffset => Offset(
-        (size.width - child!.size.width) / 2,
-        (size.height - child!.size.height) / 2,
-      );
+    (size.width - child!.size.width) / 2,
+    (size.height - child!.size.height) / 2,
+  );
 
   @override
   void paint(PaintingContext context, Offset offset) {
@@ -104,7 +111,8 @@ class RenderSpringSize extends RenderProxyBox {
     return result.addWithPaintOffset(
       offset: _childOffset,
       position: position,
-      hitTest: (result, transformed) => child.hitTest(result, position: transformed),
+      hitTest: (result, transformed) =>
+          child.hitTest(result, position: transformed),
     );
   }
 

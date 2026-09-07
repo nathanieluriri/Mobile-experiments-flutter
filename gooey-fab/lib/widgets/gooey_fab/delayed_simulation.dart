@@ -3,12 +3,17 @@ import 'package:flutter/physics.dart';
 /// Runs [carry] for [delay], then hands over to a simulation [build] makes from
 /// the value and velocity reached at that moment.
 ///
-/// Mirrors `withDelay(ms, withSpring(...))`: whatever was already in flight
-/// keeps going through the delay, and the new spring inherits its momentum
-/// instead of restarting from a standstill. With no [carry] the value simply
-/// holds at [hold], which is what happens on a first tap.
+/// Whatever was already in flight keeps going through the delay, and the new
+/// spring inherits its momentum instead of restarting from a standstill. With
+/// no [carry] the value simply holds at [hold], which is what happens on a
+/// first tap.
 class DelayedSimulation extends Simulation {
-  DelayedSimulation({required this.delay, required this.hold, required this.build, this.carry});
+  DelayedSimulation({
+    required this.delay,
+    required this.hold,
+    required this.build,
+    this.carry,
+  });
 
   /// Seconds before the handover.
   final double delay;
@@ -27,10 +32,12 @@ class DelayedSimulation extends Simulation {
       _handover ??= build(carry?.x(delay) ?? hold, carry?.dx(delay) ?? 0);
 
   @override
-  double x(double time) => time < delay ? (carry?.x(time) ?? hold) : _next.x(time - delay);
+  double x(double time) =>
+      time < delay ? (carry?.x(time) ?? hold) : _next.x(time - delay);
 
   @override
-  double dx(double time) => time < delay ? (carry?.dx(time) ?? 0) : _next.dx(time - delay);
+  double dx(double time) =>
+      time < delay ? (carry?.dx(time) ?? 0) : _next.dx(time - delay);
 
   @override
   bool isDone(double time) => time >= delay && _next.isDone(time - delay);

@@ -22,7 +22,10 @@ class GradientAvatar extends StatelessWidget {
   Widget build(BuildContext context) {
     return CustomPaint(
       size: Size.square(size),
-      painter: _AvatarPainter(gradient: gradient, initial: label.isEmpty ? '' : label[0].toUpperCase()),
+      painter: _AvatarPainter(
+        gradient: gradient,
+        initial: label.isEmpty ? '' : label[0].toUpperCase(),
+      ),
     );
   }
 }
@@ -37,7 +40,10 @@ class _AvatarPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final s = size.width;
     final paint = Paint()
-      ..shader = ui.Gradient.linear(Offset.zero, Offset(s, s), [gradient.$1, gradient.$2]);
+      ..shader = ui.Gradient.linear(Offset.zero, Offset(s, s), [
+        gradient.$1,
+        gradient.$2,
+      ]);
     canvas.drawCircle(Offset(s / 2, s / 2), s / 2, paint);
 
     final fontSize = s * 0.38;
@@ -48,7 +54,9 @@ class _AvatarPainter extends CustomPainter {
       ),
       textDirection: TextDirection.ltr,
     )..layout();
-    final baseline = painter.computeDistanceToActualBaseline(TextBaseline.alphabetic);
+    final baseline = painter.computeDistanceToActualBaseline(
+      TextBaseline.alphabetic,
+    );
     painter.paint(
       canvas,
       Offset((s - painter.width) / 2, s / 2 + fontSize * 0.36 - baseline),

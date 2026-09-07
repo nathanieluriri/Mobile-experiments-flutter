@@ -30,7 +30,10 @@ class ChatRow extends StatelessWidget {
             child: Container(
               decoration: BoxDecoration(
                 border: Border(
-                  bottom: BorderSide(color: AppColors.rowDivider, width: hairline),
+                  bottom: BorderSide(
+                    color: AppColors.rowDivider,
+                    width: hairline,
+                  ),
                 ),
               ),
               padding: const EdgeInsets.symmetric(vertical: _verticalPadding),

@@ -23,8 +23,9 @@ Future<void> testExecutable(FutureOr<void> Function() testMain) async {
     }
   }
   loaders['packages/lucide_icons_flutter/Lucide'] =
-      FontLoader('packages/lucide_icons_flutter/Lucide')
-        ..addFont(rootBundle.load('packages/lucide_icons_flutter/assets/lucide.ttf'));
+      FontLoader('packages/lucide_icons_flutter/Lucide')..addFont(
+        rootBundle.load('packages/lucide_icons_flutter/assets/lucide.ttf'),
+      );
   for (final loader in loaders.values) {
     await loader.load();
   }

@@ -18,7 +18,11 @@ void main() {
     await tester.pump();
     for (final playlist in playlists) {
       expect(find.text(playlist.name), findsOneWidget, reason: playlist.name);
-      expect(find.text('${playlist.count} songs'), findsOneWidget, reason: playlist.name);
+      expect(
+        find.text('${playlist.count} songs'),
+        findsOneWidget,
+        reason: playlist.name,
+      );
     }
   });
 }

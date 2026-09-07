@@ -46,8 +46,9 @@ void main() {
     await tester.pumpAndSettle();
   });
 
-  testWidgets('a press shorter than the threshold does not peel',
-      (tester) async {
+  testWidgets('a press shorter than the threshold does not peel', (
+    tester,
+  ) async {
     await pumpScreen(tester, const App());
     await tester.pump();
 
@@ -65,8 +66,9 @@ void main() {
     await tester.pumpAndSettle();
   });
 
-  testWidgets('holding past the threshold lifts the note and dims the rest',
-      (tester) async {
+  testWidgets('holding past the threshold lifts the note and dims the rest', (
+    tester,
+  ) async {
     await pumpScreen(tester, const App());
     await tester.pump();
 
@@ -81,8 +83,9 @@ void main() {
     expect(dimOpacityOf(tester, 1), 1);
   });
 
-  testWidgets('the shimmer sweeps the note after it springs back',
-      (tester) async {
+  testWidgets('the shimmer sweeps the note after it springs back', (
+    tester,
+  ) async {
     await pumpScreen(tester, const App());
     await tester.pump();
 
@@ -127,7 +130,9 @@ void main() {
     );
     expect(dimOpacityOf(tester, 1), 1);
     expect(find.byType(StickyNote), findsNWidgets(kNotes.length));
-    final physics = tester.widget<Scrollable>(find.byType(Scrollable).first).physics;
+    final physics = tester
+        .widget<Scrollable>(find.byType(Scrollable).first)
+        .physics;
     expect(physics, isNot(isA<NeverScrollableScrollPhysics>()));
   });
 
@@ -147,12 +152,14 @@ void main() {
 
 /// How far the shimmer band on the first note has travelled from the left edge.
 double shimmerBandLeft(WidgetTester tester) {
-  final band = tester.widgetList<Shimmer>(
-    find.descendant(
-      of: find.byType(StickyNote).at(0),
-      matching: find.byType(Shimmer),
-    ),
-  ).first;
+  final band = tester
+      .widgetList<Shimmer>(
+        find.descendant(
+          of: find.byType(StickyNote).at(0),
+          matching: find.byType(Shimmer),
+        ),
+      )
+      .first;
   return -kNoteShimmerBand +
       (band.width + kNoteShimmerBand * 2) * band.progress;
 }

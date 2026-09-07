@@ -5,7 +5,9 @@ import 'package:flutter/material.dart';
 import '../theme/theme.dart';
 
 /// One radian every 650 ms, so a full turn takes this long.
-final Duration _turn = Duration(microseconds: (650 * 2 * math.pi * 1000).round());
+final Duration _turn = Duration(
+  microseconds: (650 * 2 * math.pi * 1000).round(),
+);
 
 /// A rotating open arc used while something is processing.
 class LoadingRing extends StatefulWidget {
@@ -82,5 +84,6 @@ class _RingPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_RingPainter oldDelegate) => oldDelegate.rotation != rotation;
+  bool shouldRepaint(_RingPainter oldDelegate) =>
+      oldDelegate.rotation != rotation;
 }

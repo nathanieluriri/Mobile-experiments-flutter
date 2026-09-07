@@ -40,7 +40,10 @@ class _LogoPainter extends CustomPainter {
     canvas.drawRRect(
       RRect.fromRectAndRadius(Offset.zero & size, Radius.circular(radius)),
       Paint()
-        ..shader = ui.Gradient.linear(Offset.zero, Offset(s, s), [gradient.$1, gradient.$2]),
+        ..shader = ui.Gradient.linear(Offset.zero, Offset(s, s), [
+          gradient.$1,
+          gradient.$2,
+        ]),
     );
     canvas.drawRRect(
       RRect.fromRectAndRadius(
@@ -60,7 +63,9 @@ class _LogoPainter extends CustomPainter {
       ),
       textDirection: TextDirection.ltr,
     )..layout();
-    final baseline = painter.computeDistanceToActualBaseline(TextBaseline.alphabetic);
+    final baseline = painter.computeDistanceToActualBaseline(
+      TextBaseline.alphabetic,
+    );
     painter.paint(
       canvas,
       Offset((s - painter.width) / 2, s / 2 + fontSize * 0.36 - baseline),

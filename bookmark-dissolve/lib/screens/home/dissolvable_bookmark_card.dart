@@ -32,7 +32,8 @@ class DissolvableBookmarkCard extends StatefulWidget {
   final void Function(String cardId) onRestored;
 
   @override
-  State<DissolvableBookmarkCard> createState() => _DissolvableBookmarkCardState();
+  State<DissolvableBookmarkCard> createState() =>
+      _DissolvableBookmarkCardState();
 }
 
 class _DissolvableBookmarkCardState extends State<DissolvableBookmarkCard>
@@ -47,10 +48,15 @@ class _DissolvableBookmarkCardState extends State<DissolvableBookmarkCard>
   void initState() {
     super.initState();
     final restoring = widget.snapshot != null;
-    _enter = AnimationController.unbounded(vsync: this, value: restoring ? 1 : 0);
+    _enter = AnimationController.unbounded(
+      vsync: this,
+      value: restoring ? 1 : 0,
+    );
     final delay = restoreDelay(widget.card.id);
     if (restoring) {
-      WidgetsBinding.instance.addPostFrameCallback((_) => _scheduleMaterialize(delay));
+      WidgetsBinding.instance.addPostFrameCallback(
+        (_) => _scheduleMaterialize(delay),
+      );
     } else if (delay == Duration.zero) {
       _startEnter();
     } else {

@@ -15,8 +15,9 @@ Finder cardNamed(String title) =>
 
 /// Taps the close button on the card titled [title]. Pumps no frames, so the
 /// caller decides where the first frame of the run lands.
-Future<void> tapClose(WidgetTester tester, String title) =>
-    tester.tap(find.descendant(of: cardNamed(title), matching: find.byType(CardCloseButton)));
+Future<void> tapClose(WidgetTester tester, String title) => tester.tap(
+  find.descendant(of: cardNamed(title), matching: find.byType(CardCloseButton)),
+);
 
 /// Taps the close button on [title] and runs the whole dissolve out, leaving
 /// the board settled without that card.
@@ -48,7 +49,11 @@ Future<void> runMs(WidgetTester tester, int ms, {int step = 16}) async {
 }
 
 /// Runs frames until [ready] holds.
-Future<void> runUntil(WidgetTester tester, bool Function() ready, {int limit = 500}) async {
+Future<void> runUntil(
+  WidgetTester tester,
+  bool Function() ready, {
+  int limit = 500,
+}) async {
   for (var frame = 0; frame < limit && !ready(); frame++) {
     await tester.pump(const Duration(milliseconds: 16));
   }

@@ -44,8 +44,7 @@ FoldGeometry computeFoldGeometry(
   final cornerYs = <double>[0, 0, height, height];
   final sides = List<double>.filled(4, 0);
   for (var i = 0; i < 4; i++) {
-    sides[i] =
-        (cornerXs[i] - midX) * normalX + (cornerYs[i] - midY) * normalY;
+    sides[i] = (cornerXs[i] - midX) * normalX + (cornerYs[i] - midY) * normalY;
   }
 
   final clipped = <Offset>[];
@@ -54,10 +53,12 @@ FoldGeometry computeFoldGeometry(
     final j = (i + 1) % 4;
     if (sides[i] >= 0) {
       clipped.add(Offset(cornerXs[i], cornerYs[i]));
-      flap.add(Offset(
-        cornerXs[i] - 2 * sides[i] * normalX,
-        cornerYs[i] - 2 * sides[i] * normalY,
-      ));
+      flap.add(
+        Offset(
+          cornerXs[i] - 2 * sides[i] * normalX,
+          cornerYs[i] - 2 * sides[i] * normalY,
+        ),
+      );
     }
     if (sides[i] * sides[j] < 0) {
       final t = sides[i] / (sides[i] - sides[j]);

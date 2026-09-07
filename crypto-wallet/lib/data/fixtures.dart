@@ -241,17 +241,42 @@ const featuredIpo = Ipo(
     ),
   ],
   metrics: [
-    IpoMetric(id: 'revenue', label: 'Revenue', value: '\$842M', hint: '+118% YoY'),
-    IpoMetric(id: 'profit', label: 'Net Profit', value: '\$118M', hint: '14% margin'),
+    IpoMetric(
+      id: 'revenue',
+      label: 'Revenue',
+      value: '\$842M',
+      hint: '+118% YoY',
+    ),
+    IpoMetric(
+      id: 'profit',
+      label: 'Net Profit',
+      value: '\$118M',
+      hint: '14% margin',
+    ),
     IpoMetric(
       id: 'marketcap',
       label: 'Market Cap',
       value: '\$12.4B',
       hint: 'at midpoint',
     ),
-    IpoMetric(id: 'employees', label: 'Employees', value: '4,300', hint: '14 states'),
-    IpoMetric(id: 'founded', label: 'Founded', value: '2016', hint: 'Austin, TX'),
-    IpoMetric(id: 'backlog', label: 'Backlog', value: '\$1.1B', hint: 'contracted'),
+    IpoMetric(
+      id: 'employees',
+      label: 'Employees',
+      value: '4,300',
+      hint: '14 states',
+    ),
+    IpoMetric(
+      id: 'founded',
+      label: 'Founded',
+      value: '2016',
+      hint: 'Austin, TX',
+    ),
+    IpoMetric(
+      id: 'backlog',
+      label: 'Backlog',
+      value: '\$1.1B',
+      hint: 'contracted',
+    ),
   ],
   timeline: [
     IpoTimelineEvent(

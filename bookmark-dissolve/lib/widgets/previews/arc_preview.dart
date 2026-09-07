@@ -23,7 +23,10 @@ class ArcIcon extends StatelessWidget {
       width: 22,
       height: 22,
       alignment: Alignment.center,
-      decoration: const BoxDecoration(color: Color(0xFFEDEDFB), shape: BoxShape.circle),
+      decoration: const BoxDecoration(
+        color: Color(0xFFEDEDFB),
+        shape: BoxShape.circle,
+      ),
       child: const Mark.sparkle(size: 8, color: Color(0xFF7A5AF8)),
     );
   }
@@ -96,10 +99,15 @@ class ArcBody extends StatelessWidget {
                 child: FractionallySizedBox(
                   widthFactor: 0.86,
                   child: ClipRRect(
-                    borderRadius: const BorderRadius.vertical(top: Radius.circular(10)),
+                    borderRadius: const BorderRadius.vertical(
+                      top: Radius.circular(10),
+                    ),
                     child: Container(
                       color: const Color(0xFFF6D9DC),
-                      padding: const EdgeInsets.only(left: kStep * 2, top: kStep * 2),
+                      padding: const EdgeInsets.only(
+                        left: kStep * 2,
+                        top: kStep * 2,
+                      ),
                       child: Row(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
@@ -116,10 +124,14 @@ class ArcBody extends StatelessWidget {
                                       Container(
                                         width: width,
                                         height: 3,
-                                        margin: const EdgeInsets.only(bottom: 5),
+                                        margin: const EdgeInsets.only(
+                                          bottom: 5,
+                                        ),
                                         decoration: BoxDecoration(
                                           color: const Color(0xFFE2AEB6),
-                                          borderRadius: BorderRadius.circular(1.5),
+                                          borderRadius: BorderRadius.circular(
+                                            1.5,
+                                          ),
                                         ),
                                       ),
                                   ],
@@ -164,13 +176,16 @@ class _DownloadButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: kStep * 2, vertical: 5),
-      decoration: BoxDecoration(color: background, borderRadius: BorderRadius.circular(4)),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(4),
+      ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          // The label carries its own leading space, so the mark sits where
-          // the source's glyph does.
+          // The label carries its own leading space, so the mark sits
+          // tight against it.
           ?mark,
           Text(
             label,
@@ -201,7 +216,11 @@ class _BrowserPane extends StatelessWidget {
             child: Column(
               children: [
                 Padding(
-                  padding: const EdgeInsets.only(left: kStep, right: kStep, top: kStep),
+                  padding: const EdgeInsets.only(
+                    left: kStep,
+                    right: kStep,
+                    top: kStep,
+                  ),
                   child: Wrap(
                     spacing: 1,
                     runSpacing: 1,
@@ -212,7 +231,10 @@ class _BrowserPane extends StatelessWidget {
                         Container(
                           width: size,
                           height: size,
-                          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+                          decoration: BoxDecoration(
+                            color: color,
+                            shape: BoxShape.circle,
+                          ),
                         ),
                     ],
                   ),

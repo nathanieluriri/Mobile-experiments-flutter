@@ -57,7 +57,9 @@ void main() {
     addTearDown(controller.dispose);
     await pumpScreen(
       tester,
-      hostApp(ConnectSpotifyScreen(onBack: noop, marqueeController: controller)),
+      hostApp(
+        ConnectSpotifyScreen(onBack: noop, marqueeController: controller),
+      ),
     );
 
     for (final offset in [
@@ -89,7 +91,9 @@ void main() {
     addTearDown(controller.dispose);
     await pumpScreen(
       tester,
-      hostApp(ConnectSpotifyScreen(onBack: noop, marqueeController: controller)),
+      hostApp(
+        ConnectSpotifyScreen(onBack: noop, marqueeController: controller),
+      ),
     );
 
     for (final flick in [-320.0, -60.0, 45.0, 260.0]) {
@@ -105,7 +109,9 @@ void main() {
     addTearDown(controller.dispose);
     await pumpScreen(
       tester,
-      hostApp(ConnectSpotifyScreen(onBack: noop, marqueeController: controller)),
+      hostApp(
+        ConnectSpotifyScreen(onBack: noop, marqueeController: controller),
+      ),
     );
 
     final viewport = tester.getRect(find.byType(CardMarquee));

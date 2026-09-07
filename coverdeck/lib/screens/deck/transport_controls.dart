@@ -80,11 +80,17 @@ class _ControlButton extends StatefulWidget {
   State<_ControlButton> createState() => _ControlButtonState();
 }
 
-class _ControlButtonState extends State<_ControlButton> with SingleTickerProviderStateMixin {
-  late final AnimationController _scale = AnimationController.unbounded(vsync: this, value: 1);
+class _ControlButtonState extends State<_ControlButton>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _scale = AnimationController.unbounded(
+    vsync: this,
+    value: 1,
+  );
 
   void _springTo(double target) {
-    _scale.animateWith(SpringSimulation(pressSpring, _scale.value, target, _scale.velocity));
+    _scale.animateWith(
+      SpringSimulation(pressSpring, _scale.value, target, _scale.velocity),
+    );
   }
 
   @override
@@ -109,12 +115,17 @@ class _ControlButtonState extends State<_ControlButton> with SingleTickerProvide
         },
         child: AnimatedBuilder(
           animation: _scale,
-          builder: (context, child) => Transform.scale(scale: _scale.value, child: child),
+          builder: (context, child) =>
+              Transform.scale(scale: _scale.value, child: child),
           child: SizedBox(
             width: _controlSize + controlHitSlop * 2,
             height: _controlSize + controlHitSlop * 2,
             child: Center(
-              child: GlyphIcon(glyph: widget.glyph, size: widget.size, color: AppColors.label),
+              child: GlyphIcon(
+                glyph: widget.glyph,
+                size: widget.size,
+                color: AppColors.label,
+              ),
             ),
           ),
         ),

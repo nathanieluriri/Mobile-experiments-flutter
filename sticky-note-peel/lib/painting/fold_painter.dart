@@ -19,8 +19,7 @@ class FoldPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final geometry =
-        computeFoldGeometry(size.width, size.height, dragX, dragY);
+    final geometry = computeFoldGeometry(size.width, size.height, dragX, dragY);
     _fill(canvas, geometry.clipped, background);
     _fill(canvas, geometry.flap, flapColor);
   }

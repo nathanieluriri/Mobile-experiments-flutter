@@ -182,7 +182,8 @@ class _RollingDigitState extends State<RollingDigit>
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    for (var d = 0; d < 10; d++) Text('$d', style: widget.style),
+                    for (var d = 0; d < 10; d++)
+                      Text('$d', style: widget.style),
                   ],
                 ),
               ),

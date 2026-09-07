@@ -41,22 +41,25 @@ class CoverCard extends StatelessWidget {
   double get travel => distance * spacing + tanh(distance * 1.6) * centerGap;
 
   /// Tilt in degrees, flat at the focus and clamped one cover out.
-  double get tiltDegrees =>
-      interpolate(distance, const [-1, 0, 1], const [maxTiltDeg, 0, -maxTiltDeg]);
+  double get tiltDegrees => interpolate(
+    distance,
+    const [-1, 0, 1],
+    const [maxTiltDeg, 0, -maxTiltDeg],
+  );
 
   /// Scale, full at the focus and easing on past the first neighbour.
   double get scale => interpolate(
-        distance.abs(),
-        const [0, 1, 4],
-        const [1, sideScale, sideScale * 0.94],
-      );
+    distance.abs(),
+    const [0, 1, 4],
+    const [1, sideScale, sideScale * 0.94],
+  );
 
   /// Opacity, gone five and a half covers out.
   double get opacity => interpolate(
-        distance.abs(),
-        const [0, 1, 4.5, 5.5],
-        const [1, 0.92, 0.6, 0],
-      );
+    distance.abs(),
+    const [0, 1, 4.5, 5.5],
+    const [1, 0.92, 0.6, 0],
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -105,7 +108,10 @@ class _Cover extends StatelessWidget {
       position: DecorationPosition.foreground,
       decoration: BoxDecoration(
         borderRadius: radius,
-        border: Border.all(color: AppColors.coverBorder, width: hairlineWidth(context)),
+        border: Border.all(
+          color: AppColors.coverBorder,
+          width: hairlineWidth(context),
+        ),
       ),
       child: ClipRRect(
         borderRadius: radius,

@@ -18,7 +18,8 @@ class DissolveController extends ChangeNotifier {
 
   List<DissolveJob> get jobs => List.unmodifiable(_jobs);
 
-  RenderBox? get _overlay => _overlayKey.currentContext?.findRenderObject() as RenderBox?;
+  RenderBox? get _overlay =>
+      _overlayKey.currentContext?.findRenderObject() as RenderBox?;
 
   /// Snapshots the card behind [target], hides it and starts it coming apart.
   ///
@@ -130,7 +131,10 @@ class _DissolveScopeState extends State<DissolveScope> {
                         // run never restarts the ones still going.
                         Positioned.fill(
                           key: ValueKey(job.id),
-                          child: _DissolveRun(job: job, onDone: _controller.finish),
+                          child: _DissolveRun(
+                            job: job,
+                            onDone: _controller.finish,
+                          ),
                         ),
                     ],
                   ),
@@ -164,7 +168,8 @@ class _DissolveRun extends StatefulWidget {
   State<_DissolveRun> createState() => _DissolveRunState();
 }
 
-class _DissolveRunState extends State<_DissolveRun> with SingleTickerProviderStateMixin {
+class _DissolveRunState extends State<_DissolveRun>
+    with SingleTickerProviderStateMixin {
   late final AnimationController _progress;
   late final DissolveParticles _particles;
 
@@ -201,7 +206,11 @@ class _DissolveRunState extends State<_DissolveRun> with SingleTickerProviderSta
   @override
   Widget build(BuildContext context) {
     return CustomPaint(
-      painter: DissolvePainter(image: widget.job.image, particles: _particles, progress: _progress),
+      painter: DissolvePainter(
+        image: widget.job.image,
+        particles: _particles,
+        progress: _progress,
+      ),
     );
   }
 }

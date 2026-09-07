@@ -6,7 +6,12 @@ import 'package:flutter/widgets.dart';
 /// visible band is the bottom of the cover, mirrored. The alpha mask fades
 /// white from 0.42 at the fold, to 0.12 at 0.55, to nothing at the end.
 class Reflection extends StatelessWidget {
-  const Reflection({super.key, required this.asset, required this.size, required this.height});
+  const Reflection({
+    super.key,
+    required this.asset,
+    required this.size,
+    required this.height,
+  });
 
   final String asset;
   final double size;
@@ -36,7 +41,12 @@ class Reflection extends StatelessWidget {
             maxHeight: size,
             child: Transform.flip(
               flipY: true,
-              child: Image.asset(asset, width: size, height: size, fit: BoxFit.cover),
+              child: Image.asset(
+                asset,
+                width: size,
+                height: size,
+                fit: BoxFit.cover,
+              ),
             ),
           ),
         ),

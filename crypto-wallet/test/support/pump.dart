@@ -14,5 +14,8 @@ Future<void> pumpFor(WidgetTester tester, int ms, {int step = 32}) async {
 
 /// The keypad key showing [label].
 Finder keypadKey(String label) {
-  return find.descendant(of: find.byType(NumericKeyboard), matching: find.text(label));
+  return find.descendant(
+    of: find.byType(NumericKeyboard),
+    matching: find.text(label),
+  );
 }

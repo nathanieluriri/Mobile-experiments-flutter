@@ -18,7 +18,8 @@ const List<Color> _fillColors = [
   AppColors.accentPink,
 ];
 
-const List<({double seed, double speed, double drift, double radius})> _particles = [
+const List<({double seed, double speed, double drift, double radius})>
+_particles = [
   (seed: 0.08, speed: 0.36, drift: 2.4, radius: 1.7),
   (seed: 0.31, speed: 0.22, drift: 3.1, radius: 1.3),
   (seed: 0.52, speed: 0.45, drift: 2.0, radius: 1.9),
@@ -36,8 +37,11 @@ class DemandMeter extends StatefulWidget {
   State<DemandMeter> createState() => _DemandMeterState();
 }
 
-class _DemandMeterState extends State<DemandMeter> with TickerProviderStateMixin {
-  late final AnimationController _fill = AnimationController.unbounded(vsync: this);
+class _DemandMeterState extends State<DemandMeter>
+    with TickerProviderStateMixin {
+  late final AnimationController _fill = AnimationController.unbounded(
+    vsync: this,
+  );
   late final AnimationController _clock = AnimationController(
     vsync: this,
     duration: const Duration(seconds: 1000),
@@ -47,7 +51,9 @@ class _DemandMeterState extends State<DemandMeter> with TickerProviderStateMixin
   void _syncFill(double width) {
     if (width != _trackWidth) {
       _trackWidth = width;
-      _fill.animateWith(springTo(Springs.roll, _fill.value, widget.percent / 100 * width));
+      _fill.animateWith(
+        springTo(Springs.roll, _fill.value, widget.percent / 100 * width),
+      );
     }
   }
 
@@ -86,9 +92,19 @@ class _DemandMeterState extends State<DemandMeter> with TickerProviderStateMixin
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Subscription', style: text(13, weight: FontWeight.w600, color: AppColors.subtle)),
+                  Text(
+                    'Subscription',
+                    style: text(
+                      13,
+                      weight: FontWeight.w600,
+                      color: AppColors.subtle,
+                    ),
+                  ),
                   const SizedBox(height: 2),
-                  Text('Demand across all investors', style: text(12, color: AppColors.cents)),
+                  Text(
+                    'Demand across all investors',
+                    style: text(12, color: AppColors.cents),
+                  ),
                 ],
               ),
               Row(
@@ -102,7 +118,14 @@ class _DemandMeterState extends State<DemandMeter> with TickerProviderStateMixin
                   ),
                   Padding(
                     padding: const EdgeInsets.only(bottom: 3),
-                    child: Text('%', style: text(18, weight: FontWeight.w700, color: AppColors.subtle)),
+                    child: Text(
+                      '%',
+                      style: text(
+                        18,
+                        weight: FontWeight.w700,
+                        color: AppColors.subtle,
+                      ),
+                    ),
                   ),
                 ],
               ),
@@ -119,7 +142,7 @@ class _DemandMeterState extends State<DemandMeter> with TickerProviderStateMixin
               return AnimatedBuilder(
                 animation: Listenable.merge([_fill, _clock]),
                 builder: (context, _) {
-                  // The glow is clipped to the 36 px canvas like the original.
+                  // The glow is clipped to the 36 px canvas.
                   return ClipRect(
                     child: CustomPaint(
                       size: Size(constraints.maxWidth, _canvasHeight),
@@ -137,8 +160,14 @@ class _DemandMeterState extends State<DemandMeter> with TickerProviderStateMixin
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text('Oversubscribed 2.4x', style: text(12, color: AppColors.subtle)),
-              Text('Filling fast', style: text(12, weight: FontWeight.w600, color: AppColors.gain)),
+              Text(
+                'Oversubscribed 2.4x',
+                style: text(12, color: AppColors.subtle),
+              ),
+              Text(
+                'Filling fast',
+                style: text(12, weight: FontWeight.w600, color: AppColors.gain),
+              ),
             ],
           ),
         ],
@@ -157,7 +186,10 @@ class _DemandPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final radius = const Radius.circular(_trackHeight / 2);
     canvas.drawRRect(
-      RRect.fromRectAndRadius(Rect.fromLTWH(0, _trackTop, size.width, _trackHeight), radius),
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(0, _trackTop, size.width, _trackHeight),
+        radius,
+      ),
       Paint()..color = AppColors.chip,
     );
     if (fillWidth <= 0) {
@@ -178,17 +210,23 @@ class _DemandPainter extends CustomPainter {
         ..maskFilter = const ui.MaskFilter.blur(BlurStyle.normal, 9),
     );
     canvas.restore();
-    canvas.drawRRect(RRect.fromRectAndRadius(fillRect, radius), Paint()..shader = shader);
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(fillRect, radius),
+      Paint()..shader = shader,
+    );
 
     for (final p in _particles) {
       final t = (p.seed + seconds * p.speed * 0.12) % 1;
       final cx = 8 + t * math.max(0, fillWidth - 16);
-      final cy = _canvasHeight / 2 + math.sin(seconds * (0.8 + p.speed) + p.seed * 20) * p.drift;
+      final cy =
+          _canvasHeight / 2 +
+          math.sin(seconds * (0.8 + p.speed) + p.seed * 20) * p.drift;
       final opacity = 0.35 + math.sin(seconds * 1.6 + p.seed * 30) * 0.3;
       canvas.drawCircle(
         Offset(cx, cy),
         p.radius,
-        Paint()..color = AppColors.white.withValues(alpha: opacity.clamp(0.0, 1.0)),
+        Paint()
+          ..color = AppColors.white.withValues(alpha: opacity.clamp(0.0, 1.0)),
       );
     }
   }
@@ -222,7 +260,8 @@ class PriceRangeCard extends StatefulWidget {
   State<PriceRangeCard> createState() => _PriceRangeCardState();
 }
 
-class _PriceRangeCardState extends State<PriceRangeCard> with TickerProviderStateMixin {
+class _PriceRangeCardState extends State<PriceRangeCard>
+    with TickerProviderStateMixin {
   late double _estimate = (widget.low + widget.high) / 2 + 0.2;
   late final AnimationController _position = AnimationController.unbounded(
     vsync: this,
@@ -242,7 +281,11 @@ class _PriceRangeCardState extends State<PriceRangeCard> with TickerProviderStat
     if (elapsed - _lastUpdate >= _priceUpdate) {
       _lastUpdate += _priceUpdate;
       setState(() {
-        _estimate = nextPriceEstimate(widget.low.toDouble(), widget.high.toDouble(), appRandom);
+        _estimate = nextPriceEstimate(
+          widget.low.toDouble(),
+          widget.high.toDouble(),
+          appRandom,
+        );
       });
       _moveTo(_estimate);
     }
@@ -271,7 +314,10 @@ class _PriceRangeCardState extends State<PriceRangeCard> with TickerProviderStat
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text('Price Range', style: text(13, weight: FontWeight.w600, color: AppColors.subtle)),
+          Text(
+            'Price Range',
+            style: text(13, weight: FontWeight.w600, color: AppColors.subtle),
+          ),
           const SizedBox(height: 8),
           Row(
             children: [
@@ -283,7 +329,14 @@ class _PriceRangeCardState extends State<PriceRangeCard> with TickerProviderStat
               ),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 10),
-                child: Text(kRangeDash, style: text(24, weight: FontWeight.w600, color: AppColors.cents)),
+                child: Text(
+                  kRangeDash,
+                  style: text(
+                    24,
+                    weight: FontWeight.w600,
+                    color: AppColors.cents,
+                  ),
+                ),
               ),
               RollingNumber(
                 value: '\$${widget.high}',
@@ -299,7 +352,10 @@ class _PriceRangeCardState extends State<PriceRangeCard> with TickerProviderStat
               return AnimatedBuilder(
                 animation: _position,
                 builder: (context, _) {
-                  final knobX = _edge + _position.value * math.max(0, constraints.maxWidth - _edge * 2);
+                  final knobX =
+                      _edge +
+                      _position.value *
+                          math.max(0, constraints.maxWidth - _edge * 2);
                   return ClipRect(
                     child: CustomPaint(
                       size: Size(constraints.maxWidth, _priceCanvasHeight),

@@ -13,7 +13,10 @@ void main() {
     late CoverflowController controller;
 
     Future<void> release(WidgetTester tester) async {
-      controller = CoverflowController(vsync: const TestVSync(), count: albums.length);
+      controller = CoverflowController(
+        vsync: const TestVSync(),
+        count: albums.length,
+      );
       addTearDown(controller.dispose);
       controller.dragTo(0.6);
       await pumpScreen(tester, App(deckController: controller));
@@ -50,7 +53,9 @@ void main() {
       await settle(tester);
     });
 
-    testWidgets('a slow release stays on the cover it started from', (tester) async {
+    testWidgets('a slow release stays on the cover it started from', (
+      tester,
+    ) async {
       await release(tester);
       controller.dragTo(0.6);
       controller.fling(0);

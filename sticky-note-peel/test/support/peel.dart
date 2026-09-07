@@ -75,8 +75,8 @@ class PeelDrag {
         ),
       );
       _elapsed = next;
-      final progress =
-          (_elapsed.inMicroseconds / duration.inMicroseconds).clamp(0.0, 1.0);
+      final progress = (_elapsed.inMicroseconds / duration.inMicroseconds)
+          .clamp(0.0, 1.0);
       final eased = 1 - math.pow(1 - progress, 3).toDouble();
       final wanted = (target - kFoldRestPoint) * eased;
       await gesture.moveBy(wanted - _moved);

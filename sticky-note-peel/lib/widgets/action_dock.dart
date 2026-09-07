@@ -75,8 +75,7 @@ class DockButton extends StatefulWidget {
   State<DockButton> createState() => _DockButtonState();
 }
 
-class _DockButtonState extends State<DockButton>
-    with TickerProviderStateMixin {
+class _DockButtonState extends State<DockButton> with TickerProviderStateMixin {
   late final AnimationController _hover;
   late final AnimationController _presence;
   late final AnimationController _shimmer;
@@ -103,8 +102,10 @@ class _DockButtonState extends State<DockButton>
       value: 1,
     );
     _shimmer = AnimationController(vsync: this, duration: kDockShimmerDuration);
-    final duration =
-        springDuration(AppSprings.dockButtonScale, clampOvershoot: true);
+    final duration = springDuration(
+      AppSprings.dockButtonScale,
+      clampOvershoot: true,
+    );
     _scale = AnimationController(vsync: this, duration: duration, value: 1);
     _scaleCurve = SpringCurve(
       AppSprings.dockButtonScale,
@@ -116,7 +117,8 @@ class _DockButtonState extends State<DockButton>
   @override
   void didUpdateWidget(DockButton oldWidget) {
     super.didUpdateWidget(oldWidget);
-    final wasHighlighted = oldWidget.hovered == oldWidget.index ||
+    final wasHighlighted =
+        oldWidget.hovered == oldWidget.index ||
         oldWidget.triggered == oldWidget.index;
     if (_highlighted != wasHighlighted) {
       _hover.animateTo(
@@ -141,7 +143,8 @@ class _DockButtonState extends State<DockButton>
   }
 
   void _retarget() {
-    final target = (_highlighted ? kDockHoverScale : 1.0) +
+    final target =
+        (_highlighted ? kDockHoverScale : 1.0) +
         (widget.triggered == widget.index ? kDockTriggerScaleBoost : 0.0);
     if (target == _scaleTo) {
       return;

@@ -68,7 +68,11 @@ class _SwapScreenState extends State<SwapScreen> {
     _setAmount(
       key == kDeleteKey
           ? deleteAmountKey(_amount)
-          : appendAmountKey(_amount, key, maxDecimals: _fromToken.displayDecimals),
+          : appendAmountKey(
+              _amount,
+              key,
+              maxDecimals: _fromToken.displayDecimals,
+            ),
     );
   }
 
@@ -113,9 +117,13 @@ class _SwapScreenState extends State<SwapScreen> {
     final padding = MediaQuery.paddingOf(context);
     final from = _fromToken;
     final to = _toToken;
-    final toAmountText = _quote.toAmount.toStringAsFixed(math.min(to.displayDecimals, 4));
-    final rateText = '1 ${from.symbol} = ${formatRate(_quote.rate)} ${to.symbol}';
-    final summary = '${formatNumber(_amountNum)} ${from.symbol} → $toAmountText ${to.symbol}';
+    final toAmountText = _quote.toAmount.toStringAsFixed(
+      math.min(to.displayDecimals, 4),
+    );
+    final rateText =
+        '1 ${from.symbol} = ${formatRate(_quote.rate)} ${to.symbol}';
+    final summary =
+        '${formatNumber(_amountNum)} ${from.symbol} → $toAmountText ${to.symbol}';
     final insufficient = _amountNum > from.balance;
     final canSwap = _amountNum > 0 && !insufficient && !_refreshing;
 
@@ -154,14 +162,20 @@ class _SwapScreenState extends State<SwapScreen> {
                             rateText: rateText,
                             refreshing: _refreshing,
                             onFlip: _flip,
-                            onPressChipA: () => setState(() => _sheetSlot = SwapSlot.a),
-                            onPressChipB: () => setState(() => _sheetSlot = SwapSlot.b),
+                            onPressChipA: () =>
+                                setState(() => _sheetSlot = SwapSlot.a),
+                            onPressChipB: () =>
+                                setState(() => _sheetSlot = SwapSlot.b),
                             onMax: () => _setAmount(formatNumber(from.balance)),
                           ),
                         ),
                       ),
                       Padding(
-                        padding: const EdgeInsets.only(top: 12, left: 20, right: 20),
+                        padding: const EdgeInsets.only(
+                          top: 12,
+                          left: 20,
+                          right: 20,
+                        ),
                         child: Enter(
                           kind: EnterKind.fadeInDown,
                           delay: const Duration(milliseconds: 130),
@@ -175,7 +189,11 @@ class _SwapScreenState extends State<SwapScreen> {
                         ),
                       ),
                       Padding(
-                        padding: const EdgeInsets.only(top: 12, left: 20, right: 20),
+                        padding: const EdgeInsets.only(
+                          top: 12,
+                          left: 20,
+                          right: 20,
+                        ),
                         child: Enter(
                           kind: EnterKind.fadeInDown,
                           delay: const Duration(milliseconds: 210),
@@ -192,11 +210,17 @@ class _SwapScreenState extends State<SwapScreen> {
                 child: Column(
                   children: [
                     Padding(
-                      padding: const EdgeInsets.only(left: 20, right: 20, bottom: 12),
+                      padding: const EdgeInsets.only(
+                        left: 20,
+                        right: 20,
+                        bottom: 12,
+                      ),
                       child: PrimaryButton(
                         enabled: canSwap,
                         onPress: () => setState(() => _confirming = true),
-                        label: insufficient ? 'Insufficient ${from.symbol}' : 'Swap',
+                        label: insufficient
+                            ? 'Insufficient ${from.symbol}'
+                            : 'Swap',
                       ),
                     ),
                     NumericKeyboard(onKey: _onKey, onClearAll: _clear),
@@ -256,13 +280,17 @@ class SwapConfirmation extends StatefulWidget {
   State<SwapConfirmation> createState() => _SwapConfirmationState();
 }
 
-class _SwapConfirmationState extends State<SwapConfirmation> with TickerProviderStateMixin {
+class _SwapConfirmationState extends State<SwapConfirmation>
+    with TickerProviderStateMixin {
   bool _success = false;
   Timer? _timer;
-  late final AnimationController _approach = AnimationController.unbounded(vsync: this)
-    ..animateWith(springTo(Springs.sheet, 0, 1));
-  late final AnimationController _cardScale = AnimationController.unbounded(vsync: this, value: 0.92)
-    ..animateWith(springTo(Springs.pop, 0.92, 1));
+  late final AnimationController _approach = AnimationController.unbounded(
+    vsync: this,
+  )..animateWith(springTo(Springs.sheet, 0, 1));
+  late final AnimationController _cardScale = AnimationController.unbounded(
+    vsync: this,
+    value: 0.92,
+  )..animateWith(springTo(Springs.pop, 0.92, 1));
   late final AnimationController _fade = AnimationController(
     vsync: this,
     duration: const Duration(milliseconds: 240),
@@ -403,15 +431,30 @@ class _SwapConfirmationState extends State<SwapConfirmation> with TickerProvider
               width: 64,
               height: 64,
               alignment: Alignment.center,
-              decoration: const BoxDecoration(color: AppColors.gainSoft, shape: BoxShape.circle),
-              child: const Icon(LucideIcons.check, size: 28, color: AppColors.gain),
+              decoration: const BoxDecoration(
+                color: AppColors.gainSoft,
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                LucideIcons.check,
+                size: 28,
+                color: AppColors.gain,
+              ),
             ),
           ),
         ),
         const SizedBox(height: 16),
-        Text('Swap Complete', textAlign: TextAlign.center, style: text(18, weight: FontWeight.w700)),
+        Text(
+          'Swap Complete',
+          textAlign: TextAlign.center,
+          style: text(18, weight: FontWeight.w700),
+        ),
         const SizedBox(height: 4),
-        Text(widget.summary, textAlign: TextAlign.center, style: text(13, color: AppColors.subtle)),
+        Text(
+          widget.summary,
+          textAlign: TextAlign.center,
+          style: text(13, color: AppColors.subtle),
+        ),
         const SizedBox(height: 24),
         PressableScale(
           haptic: HapticKind.press,
@@ -423,7 +466,10 @@ class _SwapConfirmationState extends State<SwapConfirmation> with TickerProvider
               color: AppColors.ink,
               borderRadius: BorderRadius.circular(24),
             ),
-            child: Text('Done', style: text(15, weight: FontWeight.w700, color: AppColors.white)),
+            child: Text(
+              'Done',
+              style: text(15, weight: FontWeight.w700, color: AppColors.white),
+            ),
           ),
         ),
       ],

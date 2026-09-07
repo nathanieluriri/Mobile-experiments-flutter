@@ -70,10 +70,16 @@ class KeypadKeyButton extends StatefulWidget {
 
 class _KeypadKeyButtonState extends State<KeypadKeyButton>
     with TickerProviderStateMixin {
-  late final AnimationController _pressed = AnimationController.unbounded(vsync: this);
-  late final AnimationController _rippleScale =
-      AnimationController.unbounded(vsync: this, value: 0.6);
-  late final AnimationController _rippleOpacity = AnimationController(vsync: this);
+  late final AnimationController _pressed = AnimationController.unbounded(
+    vsync: this,
+  );
+  late final AnimationController _rippleScale = AnimationController.unbounded(
+    vsync: this,
+    value: 0.6,
+  );
+  late final AnimationController _rippleOpacity = AnimationController(
+    vsync: this,
+  );
 
   bool get _isDelete => widget.label == kDeleteKey;
 
@@ -125,7 +131,9 @@ class _KeypadKeyButtonState extends State<KeypadKeyButton>
                     width: 68,
                     height: 52,
                     decoration: BoxDecoration(
-                      color: AppColors.ink.withValues(alpha: 0.06 * _rippleOpacity.value),
+                      color: AppColors.ink.withValues(
+                        alpha: 0.06 * _rippleOpacity.value,
+                      ),
                       borderRadius: BorderRadius.circular(20),
                     ),
                   ),
@@ -133,8 +141,15 @@ class _KeypadKeyButtonState extends State<KeypadKeyButton>
                 Transform.scale(
                   scale: 1 - _pressed.value * 0.06,
                   child: _isDelete
-                      ? const Icon(LucideIcons.delete, size: 23, color: AppColors.ink)
-                      : Text(widget.label, style: text(26, weight: FontWeight.w600)),
+                      ? const Icon(
+                          LucideIcons.delete,
+                          size: 23,
+                          color: AppColors.ink,
+                        )
+                      : Text(
+                          widget.label,
+                          style: text(26, weight: FontWeight.w600),
+                        ),
                 ),
               ],
             );

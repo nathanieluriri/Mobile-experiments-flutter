@@ -4,32 +4,41 @@ import 'package:flutter/widgets.dart';
 abstract final class AppSprings {
   /// The fold point returning to its rest inset when a drag is released over
   /// nothing. Clamped, so it settles the moment it first reaches the target.
-  static const snapBack =
-      SpringDescription(mass: 1, stiffness: 260, damping: 22);
+  static const snapBack = SpringDescription(
+    mass: 1,
+    stiffness: 260,
+    damping: 22,
+  );
 
   /// A dock button growing under the drag point, and shrinking back.
-  static const dockButtonScale =
-      SpringDescription(mass: 1, stiffness: 260, damping: 20);
+  static const dockButtonScale = SpringDescription(
+    mass: 1,
+    stiffness: 260,
+    damping: 20,
+  );
 
   /// The list closing the gap a removed note leaves behind.
-  static const noteListLayout =
-      SpringDescription(mass: 1, stiffness: 200, damping: 30);
+  static const noteListLayout = SpringDescription(
+    mass: 1,
+    stiffness: 200,
+    damping: 30,
+  );
 }
 
 /// Runs a [SpringDescription] from 0 to 1 as a [Curve] over [duration], so a
-/// plain [AnimationController] reproduces the phone's spring exactly.
+/// plain [AnimationController] runs the spring exactly.
 ///
 /// With [clampOvershoot] the curve holds at 1 from the first moment it reaches
-/// it, matching `overshootClamping` on the phone.
+/// it, so the value never overshoots.
 class SpringCurve extends Curve {
   SpringCurve(
     SpringDescription spring, {
     required this.duration,
     bool clampOvershoot = false,
-  })  : _simulation = SpringSimulation(spring, 0, 1, 0),
-        _clampSeconds = clampOvershoot
-            ? _firstOvershootSeconds(spring)
-            : double.infinity;
+  }) : _simulation = SpringSimulation(spring, 0, 1, 0),
+       _clampSeconds = clampOvershoot
+           ? _firstOvershootSeconds(spring)
+           : double.infinity;
 
   final Duration duration;
   final SpringSimulation _simulation;

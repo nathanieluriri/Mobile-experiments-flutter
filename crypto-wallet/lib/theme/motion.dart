@@ -3,12 +3,24 @@ import 'package:flutter/physics.dart';
 
 /// Spring presets shared by every interaction.
 abstract final class Springs {
-  static const press = SpringDescription(mass: 0.7, stiffness: 420, damping: 22);
+  static const press = SpringDescription(
+    mass: 0.7,
+    stiffness: 420,
+    damping: 22,
+  );
   static const roll = SpringDescription(mass: 0.8, stiffness: 260, damping: 20);
   static const pop = SpringDescription(mass: 0.8, stiffness: 300, damping: 14);
-  static const sheet = SpringDescription(mass: 0.9, stiffness: 300, damping: 28);
+  static const sheet = SpringDescription(
+    mass: 0.9,
+    stiffness: 300,
+    damping: 28,
+  );
   static const screen = SpringDescription(mass: 1, stiffness: 280, damping: 30);
-  static const layout = SpringDescription(mass: 0.8, stiffness: 340, damping: 26);
+  static const layout = SpringDescription(
+    mass: 0.8,
+    stiffness: 340,
+    damping: 26,
+  );
 }
 
 /// Easing curves used by timed animations.
@@ -32,8 +44,8 @@ SpringSimulation springTo(
 /// transitions (routes, switchers) can carry the spring's shape.
 class SpringCurve extends Curve {
   SpringCurve(this.spring)
-      : _simulation = SpringSimulation(spring, 0, 1, 0),
-        duration = _settleDuration(spring);
+    : _simulation = SpringSimulation(spring, 0, 1, 0),
+      duration = _settleDuration(spring);
 
   final SpringDescription spring;
   final SpringSimulation _simulation;

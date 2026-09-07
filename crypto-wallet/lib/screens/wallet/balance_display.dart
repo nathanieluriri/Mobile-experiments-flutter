@@ -110,7 +110,8 @@ class _BalanceCanvas extends StatelessWidget {
 
         double measure(String char) => _amount.width(char) + 1;
         final cell = measure('0');
-        final total = measure('\$') + measure(',') + measure('.') + cell * kDigitCount;
+        final total =
+            measure('\$') + measure(',') + measure('.') + cell * kDigitCount;
         var cursor = (width - total) / 2;
         final amountTop = kAmountBaseline - _amount.baseline;
 
@@ -135,7 +136,9 @@ class _BalanceCanvas extends StatelessWidget {
                 left: cursor,
                 top: amountTop,
                 style: _amount.style,
-                baseColor: digitIndex >= kIntDigits ? AppColors.cents : AppColors.ink,
+                baseColor: digitIndex >= kIntDigits
+                    ? AppColors.cents
+                    : AppColors.ink,
                 controller: controller,
               ),
             );
@@ -171,7 +174,10 @@ class _BalanceCanvas extends StatelessWidget {
             Positioned(
               left: gainStart,
               top: gainTop,
-              child: Text(gainText, style: _gain.style.copyWith(color: gainColor)),
+              child: Text(
+                gainText,
+                style: _gain.style.copyWith(color: gainColor),
+              ),
             ),
             Positioned(
               left: pillX,
@@ -188,7 +194,10 @@ class _BalanceCanvas extends StatelessWidget {
             Positioned(
               left: pillX + kPillPadX,
               top: gainTop,
-              child: Text(pctText, style: _gain.style.copyWith(color: gainColor)),
+              child: Text(
+                pctText,
+                style: _gain.style.copyWith(color: gainColor),
+              ),
             ),
           ],
         );
@@ -217,8 +226,20 @@ class _MorphDigit extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = controller;
-    final char = RefreshTimeline.digitChar(index, c.digits, c.time, c.cycling, c.settle);
-    final color = RefreshTimeline.digitColor(index, baseColor, c.time, c.cycling, c.settle);
+    final char = RefreshTimeline.digitChar(
+      index,
+      c.digits,
+      c.time,
+      c.cycling,
+      c.settle,
+    );
+    final color = RefreshTimeline.digitColor(
+      index,
+      baseColor,
+      c.time,
+      c.cycling,
+      c.settle,
+    );
     final drift = RefreshTimeline.drift(index, c.time, c.morph);
     return Positioned(
       left: left + drift.dx,

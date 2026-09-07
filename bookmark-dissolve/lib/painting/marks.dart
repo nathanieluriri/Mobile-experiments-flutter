@@ -7,11 +7,15 @@ import 'package:flutter/widgets.dart';
 /// the Notion page. Each is drawn rather than typeset, so it renders the same
 /// everywhere.
 class Mark extends StatelessWidget {
-  const Mark.sparkle({super.key, required this.size, required this.color}) : _paint = _sparkle;
+  const Mark.sparkle({super.key, required this.size, required this.color})
+    : _paint = _sparkle;
 
-  const Mark.window({super.key, required this.size, required this.color}) : _paint = _window;
+  const Mark.window({super.key, required this.size, required this.color})
+    : _paint = _window;
 
-  const Mark.rocket({super.key, required this.size}) : color = null, _paint = _rocket;
+  const Mark.rocket({super.key, required this.size})
+    : color = null,
+      _paint = _rocket;
 
   final double size;
   final Color? color;
@@ -37,7 +41,8 @@ class _MarkPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) => draw(canvas, size, color);
 
   @override
-  bool shouldRepaint(_MarkPainter old) => old.draw != draw || old.color != color;
+  bool shouldRepaint(_MarkPainter old) =>
+      old.draw != draw || old.color != color;
 }
 
 /// A four pointed star whose sides curve in, so the arms taper to a point
@@ -111,7 +116,11 @@ void _rocket(Canvas canvas, Size size, Color color) {
       ..close(),
     fin,
   );
-  canvas.drawCircle(Offset(w * 0.5, w * 0.36), w * 0.13, Paint()..color = const Color(0xFF74B3E0));
+  canvas.drawCircle(
+    Offset(w * 0.5, w * 0.36),
+    w * 0.13,
+    Paint()..color = const Color(0xFF74B3E0),
+  );
   canvas.drawPath(
     Path()
       ..moveTo(w * 0.38, w * 0.78)

@@ -32,16 +32,18 @@ class BrowseScreen extends StatelessWidget {
           return false;
         },
         child: SingleChildScrollView(
-          padding: EdgeInsets.only(top: topInset + 16, left: 20, right: 20, bottom: 150),
+          padding: EdgeInsets.only(
+            top: topInset + 16,
+            left: 20,
+            right: 20,
+            bottom: 150,
+          ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Padding(
                 padding: EdgeInsets.only(bottom: 20),
-                child: Text(
-                  'Browse',
-                  style: AppText.heading,
-                ),
+                child: Text('Browse', style: AppText.heading),
               ),
               Wrap(
                 spacing: 16,
@@ -99,7 +101,10 @@ class _Tile extends StatelessWidget {
       decoration: ShapeDecoration(
         shape: RoundedSuperellipseBorder(
           borderRadius: radius,
-          side: BorderSide(color: AppColors.coverBorder, width: hairlineWidth(context)),
+          side: BorderSide(
+            color: AppColors.coverBorder,
+            width: hairlineWidth(context),
+          ),
         ),
       ),
       child: ClipRSuperellipse(

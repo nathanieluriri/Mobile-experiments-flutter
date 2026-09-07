@@ -52,7 +52,8 @@ const bookmarkCards = <BookmarkCardDefinition>[
   ),
 ];
 
-int _indexOf(String cardId) => bookmarkCards.indexWhere((card) => card.id == cardId);
+int _indexOf(String cardId) =>
+    bookmarkCards.indexWhere((card) => card.id == cardId);
 
 /// Which column a card belongs to, by its place in the list.
 int bookmarkColumn(String cardId) => _indexOf(cardId) % kBoardColumnCount;

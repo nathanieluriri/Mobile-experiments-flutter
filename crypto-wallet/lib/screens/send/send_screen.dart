@@ -45,7 +45,9 @@ class _SendScreenState extends State<SendScreen> {
 
   void _onKey(String key) {
     setState(() {
-      _amount = key == kDeleteKey ? deleteAmountKey(_amount) : appendAmountKey(_amount, key);
+      _amount = key == kDeleteKey
+          ? deleteAmountKey(_amount)
+          : appendAmountKey(_amount, key);
     });
   }
 
@@ -110,13 +112,19 @@ class _SendScreenState extends State<SendScreen> {
                     return SingleChildScrollView(
                       padding: const EdgeInsets.only(bottom: 12),
                       child: ConstrainedBox(
-                        constraints: BoxConstraints(minHeight: constraints.maxHeight - 12),
+                        constraints: BoxConstraints(
+                          minHeight: constraints.maxHeight - 12,
+                        ),
                         child: IntrinsicHeight(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
                               Padding(
-                                padding: const EdgeInsets.only(left: 20, right: 20, top: 8),
+                                padding: const EdgeInsets.only(
+                                  left: 20,
+                                  right: 20,
+                                  top: 8,
+                                ),
                                 child: Enter(
                                   kind: EnterKind.fadeInDown,
                                   delay: const Duration(milliseconds: 40),
@@ -142,35 +150,46 @@ class _SendScreenState extends State<SendScreen> {
                                   ),
                                 ),
                               ),
-                              // Like the source's flex 1 block inside a scroll
-                              // view: it grows to fill spare height on tall
-                              // screens and keeps its natural height, letting
-                              // the page scroll, when the content is taller.
+                              // A flexible block inside a scroll view: it grows to
+                              // fill spare height on tall screens and keeps its
+                              // natural height, letting the page scroll, when
+                              // the content is taller.
                               Expanded(
                                 child: Padding(
-                                  padding: const EdgeInsets.symmetric(vertical: 20),
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 20,
+                                  ),
                                   child: Center(
                                     child: Enter(
                                       kind: EnterKind.fadeInDown,
                                       delay: const Duration(milliseconds: 180),
-                                      duration: const Duration(milliseconds: 420),
-                                      child: AmountDisplay(value: _amount, token: _token),
+                                      duration: const Duration(
+                                        milliseconds: 420,
+                                      ),
+                                      child: AmountDisplay(
+                                        value: _amount,
+                                        token: _token,
+                                      ),
                                     ),
                                   ),
                                 ),
                               ),
                               Padding(
-                                padding: const EdgeInsets.symmetric(horizontal: 20),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 20,
+                                ),
                                 child: Enter(
                                   kind: EnterKind.fadeInDown,
                                   delay: const Duration(milliseconds: 250),
                                   duration: const Duration(milliseconds: 420),
                                   child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.stretch,
                                     children: [
                                       TokenPicker(
                                         selected: _token,
-                                        onPress: () => setState(() => _sheetOpen = true),
+                                        onPress: () =>
+                                            setState(() => _sheetOpen = true),
                                       ),
                                       const SizedBox(height: 12),
                                       NetworkFeeCard(token: _token),
@@ -191,8 +210,15 @@ class _SendScreenState extends State<SendScreen> {
                 child: Column(
                   children: [
                     Padding(
-                      padding: const EdgeInsets.only(left: 20, right: 20, bottom: 12),
-                      child: PrimaryButton(enabled: _canContinue, onPress: Haptics.success),
+                      padding: const EdgeInsets.only(
+                        left: 20,
+                        right: 20,
+                        bottom: 12,
+                      ),
+                      child: PrimaryButton(
+                        enabled: _canContinue,
+                        onPress: Haptics.success,
+                      ),
                     ),
                     NumericKeyboard(onKey: _onKey, onClearAll: _clear),
                   ],
@@ -227,10 +253,15 @@ class AmountDisplay extends StatefulWidget {
   State<AmountDisplay> createState() => _AmountDisplayState();
 }
 
-class _AmountDisplayState extends State<AmountDisplay> with SingleTickerProviderStateMixin {
-  late final AnimationController _scale = AnimationController.unbounded(vsync: this, value: 1);
+class _AmountDisplayState extends State<AmountDisplay>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _scale = AnimationController.unbounded(
+    vsync: this,
+    value: 1,
+  );
 
-  String get _display => '\$${widget.value.isEmpty ? '0' : groupThousands(widget.value)}';
+  String get _display =>
+      '\$${widget.value.isEmpty ? '0' : groupThousands(widget.value)}';
 
   @override
   void didUpdateWidget(AmountDisplay oldWidget) {
@@ -251,13 +282,18 @@ class _AmountDisplayState extends State<AmountDisplay> with SingleTickerProvider
   Widget build(BuildContext context) {
     final empty = widget.value.isEmpty;
     final usd = parseAmount(widget.value);
-    final equivalent = formatTokenAmount(usd, widget.token.priceUsd, widget.token.displayDecimals);
+    final equivalent = formatTokenAmount(
+      usd,
+      widget.token.priceUsd,
+      widget.token.displayDecimals,
+    );
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
         AnimatedBuilder(
           animation: _scale,
-          builder: (context, child) => Transform.scale(scale: _scale.value, child: child),
+          builder: (context, child) =>
+              Transform.scale(scale: _scale.value, child: child),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -329,7 +365,12 @@ class _NetworkFeeCardState extends State<NetworkFeeCard> {
       children: [
         Text(
           label.toUpperCase(),
-          style: text(11, weight: FontWeight.w600, color: AppColors.subtle, tracking: kTrackingWide),
+          style: text(
+            11,
+            weight: FontWeight.w600,
+            color: AppColors.subtle,
+            tracking: kTrackingWide,
+          ),
         ),
         const SizedBox(height: 4),
         SizedBox(
@@ -343,8 +384,17 @@ class _NetworkFeeCardState extends State<NetworkFeeCard> {
             child: AnimatedSwitcher(
               duration: const Duration(milliseconds: 160),
               child: _pending
-                  ? const Shimmer(key: ValueKey('shimmer'), width: 54, height: 13, radius: 6)
-                  : FadeSwapText(key: const ValueKey('value'), text: value, style: text(14, weight: FontWeight.w700)),
+                  ? const Shimmer(
+                      key: ValueKey('shimmer'),
+                      width: 54,
+                      height: 13,
+                      radius: 6,
+                    )
+                  : FadeSwapText(
+                      key: const ValueKey('value'),
+                      text: value,
+                      style: text(14, weight: FontWeight.w700),
+                    ),
             ),
           ),
         ),
@@ -364,7 +414,11 @@ class _NetworkFeeCardState extends State<NetworkFeeCard> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          _slot('Est. fee', '\$${token.feeUsd.toStringAsFixed(2)}', CrossAxisAlignment.start),
+          _slot(
+            'Est. fee',
+            '\$${token.feeUsd.toStringAsFixed(2)}',
+            CrossAxisAlignment.start,
+          ),
           _slot('Network', token.network, CrossAxisAlignment.center),
           _slot('Arrival', token.eta, CrossAxisAlignment.end),
         ],
@@ -375,7 +429,11 @@ class _NetworkFeeCardState extends State<NetworkFeeCard> {
 
 /// Horizontal row of recent recipients.
 class RecentRecipients extends StatelessWidget {
-  const RecentRecipients({super.key, required this.recipients, required this.onSelect});
+  const RecentRecipients({
+    super.key,
+    required this.recipients,
+    required this.onSelect,
+  });
 
   final List<Recipient> recipients;
   final ValueChanged<Recipient> onSelect;
@@ -389,7 +447,12 @@ class RecentRecipients extends StatelessWidget {
           padding: const EdgeInsets.only(left: 24, right: 24, bottom: 10),
           child: Text(
             'RECENTS',
-            style: text(13, weight: FontWeight.w600, color: AppColors.subtle, tracking: kTrackingWide),
+            style: text(
+              13,
+              weight: FontWeight.w600,
+              color: AppColors.subtle,
+              tracking: kTrackingWide,
+            ),
           ),
         ),
         SingleChildScrollView(
@@ -418,7 +481,11 @@ class RecentRecipients extends StatelessWidget {
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           textAlign: TextAlign.center,
-                          style: text(12, weight: FontWeight.w500, color: AppColors.subtle),
+                          style: text(
+                            12,
+                            weight: FontWeight.w500,
+                            color: AppColors.subtle,
+                          ),
                         ),
                       ),
                     ],
@@ -457,9 +524,16 @@ class RecipientCard extends StatelessWidget {
     if (resolving) {
       state = const _ResolvingState(key: ValueKey('resolving'));
     } else if (recipient != null) {
-      state = _FilledState(key: const ValueKey('filled'), recipient: recipient!, onClear: onClear);
+      state = _FilledState(
+        key: const ValueKey('filled'),
+        recipient: recipient!,
+        onClear: onClear,
+      );
     } else {
-      state = _EmptyState(key: const ValueKey('empty'), onScanPress: onScanPress);
+      state = _EmptyState(
+        key: const ValueKey('empty'),
+        onScanPress: onScanPress,
+      );
     }
     return PressableScale(
       scaleTo: 0.98,
@@ -512,7 +586,13 @@ class _EmptyState extends StatelessWidget {
             child: const SizedBox(
               width: 44,
               height: 44,
-              child: Center(child: Icon(LucideIcons.user, size: 18, color: AppColors.subtle)),
+              child: Center(
+                child: Icon(
+                  LucideIcons.user,
+                  size: 18,
+                  color: AppColors.subtle,
+                ),
+              ),
             ),
           ),
           const SizedBox(width: 14),
@@ -529,8 +609,15 @@ class _EmptyState extends StatelessWidget {
               width: 44,
               height: 44,
               alignment: Alignment.center,
-              decoration: const BoxDecoration(color: AppColors.chip, shape: BoxShape.circle),
-              child: const Icon(LucideIcons.scanQrCode, size: 18, color: AppColors.ink),
+              decoration: const BoxDecoration(
+                color: AppColors.chip,
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                LucideIcons.scanQrCode,
+                size: 18,
+                color: AppColors.ink,
+              ),
             ),
           ),
         ],
@@ -591,7 +678,11 @@ class _ResolvingState extends StatelessWidget {
 }
 
 class _FilledState extends StatelessWidget {
-  const _FilledState({super.key, required this.recipient, required this.onClear});
+  const _FilledState({
+    super.key,
+    required this.recipient,
+    required this.onClear,
+  });
 
   final Recipient recipient;
   final VoidCallback onClear;
@@ -605,7 +696,11 @@ class _FilledState extends StatelessWidget {
           Enter(
             kind: EnterKind.fadeIn,
             duration: const Duration(milliseconds: 340),
-            child: GradientAvatar(size: 44, gradient: recipient.gradient, label: recipient.name),
+            child: GradientAvatar(
+              size: 44,
+              gradient: recipient.gradient,
+              label: recipient.name,
+            ),
           ),
           const SizedBox(width: 14),
           Expanded(
@@ -614,7 +709,10 @@ class _FilledState extends StatelessWidget {
               children: [
                 Row(
                   children: [
-                    Text(recipient.name, style: text(16, weight: FontWeight.w700)),
+                    Text(
+                      recipient.name,
+                      style: text(16, weight: FontWeight.w700),
+                    ),
                     if (recipient.verified)
                       Padding(
                         padding: const EdgeInsets.only(left: 6),
@@ -622,7 +720,11 @@ class _FilledState extends StatelessWidget {
                           kind: EnterKind.zoomIn,
                           delay: const Duration(milliseconds: 180),
                           springDamping: 14,
-                          child: const Icon(LucideIcons.badgeCheck, size: 16, color: AppColors.accent),
+                          child: const Icon(
+                            LucideIcons.badgeCheck,
+                            size: 16,
+                            color: AppColors.accent,
+                          ),
                         ),
                       ),
                   ],
@@ -631,7 +733,10 @@ class _FilledState extends StatelessWidget {
                 Enter(
                   kind: EnterKind.fadeIn,
                   delay: const Duration(milliseconds: 90),
-                  child: Text(truncateAddress(recipient.address), style: text(13, color: AppColors.subtle)),
+                  child: Text(
+                    truncateAddress(recipient.address),
+                    style: text(13, color: AppColors.subtle),
+                  ),
                 ),
               ],
             ),
@@ -643,8 +748,15 @@ class _FilledState extends StatelessWidget {
               width: 36,
               height: 36,
               alignment: Alignment.center,
-              decoration: const BoxDecoration(color: AppColors.chip, shape: BoxShape.circle),
-              child: const Icon(LucideIcons.x, size: 16, color: AppColors.subtle),
+              decoration: const BoxDecoration(
+                color: AppColors.chip,
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                LucideIcons.x,
+                size: 16,
+                color: AppColors.subtle,
+              ),
             ),
           ),
         ],
@@ -677,7 +789,11 @@ class TokenPicker extends StatelessWidget {
             AnimatedSwitcher(
               duration: const Duration(milliseconds: 220),
               reverseDuration: const Duration(milliseconds: 140),
-              child: TokenIcon(key: ValueKey(selected.id), id: selected.id, size: 42),
+              child: TokenIcon(
+                key: ValueKey(selected.id),
+                id: selected.id,
+                size: 42,
+              ),
             ),
             const SizedBox(width: 14),
             Expanded(
@@ -686,10 +802,18 @@ class TokenPicker extends StatelessWidget {
                 children: [
                   Text(
                     'PAY WITH',
-                    style: text(11, weight: FontWeight.w600, color: AppColors.subtle, tracking: kTrackingWide),
+                    style: text(
+                      11,
+                      weight: FontWeight.w600,
+                      color: AppColors.subtle,
+                      tracking: kTrackingWide,
+                    ),
                   ),
                   const SizedBox(height: 2),
-                  FadeSwapText(text: selected.name, style: text(16, weight: FontWeight.w700)),
+                  FadeSwapText(
+                    text: selected.name,
+                    style: text(16, weight: FontWeight.w700),
+                  ),
                 ],
               ),
             ),
@@ -699,13 +823,15 @@ class TokenPicker extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
                   FadeSwapText(
-                    text: '${formatNumber(selected.balance)} ${selected.symbol}',
+                    text:
+                        '${formatNumber(selected.balance)} ${selected.symbol}',
                     style: text(14, weight: FontWeight.w600),
                     alignment: Alignment.centerRight,
                   ),
                   const SizedBox(height: 2),
                   FadeSwapText(
-                    text: '\$${formatFiat(selected.balance * selected.priceUsd)}',
+                    text:
+                        '\$${formatFiat(selected.balance * selected.priceUsd)}',
                     style: text(13, color: AppColors.subtle),
                     alignment: Alignment.centerRight,
                   ),
@@ -716,8 +842,15 @@ class TokenPicker extends StatelessWidget {
               width: 32,
               height: 32,
               alignment: Alignment.center,
-              decoration: const BoxDecoration(color: AppColors.chip, shape: BoxShape.circle),
-              child: const Icon(LucideIcons.chevronDown, size: 16, color: AppColors.subtle),
+              decoration: const BoxDecoration(
+                color: AppColors.chip,
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                LucideIcons.chevronDown,
+                size: 16,
+                color: AppColors.subtle,
+              ),
             ),
           ],
         ),

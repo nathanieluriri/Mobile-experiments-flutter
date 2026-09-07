@@ -9,7 +9,12 @@ enum FeatherGlyph { video, phone, plus }
 /// from an icon font, because the packaged fonts carry later redesigns of the
 /// video and phone glyphs.
 class FeatherIcon extends StatelessWidget {
-  const FeatherIcon(this.glyph, {super.key, required this.size, required this.color});
+  const FeatherIcon(
+    this.glyph, {
+    super.key,
+    required this.size,
+    required this.color,
+  });
 
   final FeatherGlyph glyph;
   final double size;
@@ -54,7 +59,10 @@ class _FeatherPainter extends CustomPainter {
 
   static void _video(Canvas canvas, Paint stroke) {
     canvas.drawRRect(
-      RRect.fromRectAndRadius(const Rect.fromLTWH(1, 5, 15, 14), const Radius.circular(2)),
+      RRect.fromRectAndRadius(
+        const Rect.fromLTWH(1, 5, 15, 14),
+        const Radius.circular(2),
+      ),
       stroke,
     );
     final lens = Path()
@@ -72,16 +80,29 @@ class _FeatherPainter extends CustomPainter {
       ..moveTo(22, 16.92)
       ..lineTo(22, 19.92)
       ..arcToPoint(const Offset(19.82, 21.92), radius: small)
-      ..arcToPoint(const Offset(11.19, 18.85), radius: const Radius.circular(19.79))
-      ..arcToPoint(const Offset(5.19, 12.85), radius: const Radius.circular(19.5))
-      ..arcToPoint(const Offset(2.12, 4.18), radius: const Radius.circular(19.79))
+      ..arcToPoint(
+        const Offset(11.19, 18.85),
+        radius: const Radius.circular(19.79),
+      )
+      ..arcToPoint(
+        const Offset(5.19, 12.85),
+        radius: const Radius.circular(19.5),
+      )
+      ..arcToPoint(
+        const Offset(2.12, 4.18),
+        radius: const Radius.circular(19.79),
+      )
       ..arcToPoint(const Offset(4.11, 2), radius: small)
       ..lineTo(7.11, 2)
       ..arcToPoint(const Offset(9.11, 3.72), radius: small)
       ..arcToPoint(const Offset(9.81, 6.53), radius: wide, clockwise: false)
       ..arcToPoint(const Offset(9.36, 8.64), radius: small)
       ..lineTo(8.09, 9.91)
-      ..arcToPoint(const Offset(14.09, 15.91), radius: const Radius.circular(16), clockwise: false)
+      ..arcToPoint(
+        const Offset(14.09, 15.91),
+        radius: const Radius.circular(16),
+        clockwise: false,
+      )
       ..lineTo(15.36, 14.64)
       ..arcToPoint(const Offset(17.47, 14.19), radius: small)
       ..arcToPoint(const Offset(20.28, 14.89), radius: wide, clockwise: false)

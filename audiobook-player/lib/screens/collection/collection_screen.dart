@@ -2,7 +2,7 @@ import 'package:flutter/widgets.dart';
 
 import '../../widgets/coming_soon_screen.dart';
 
-/// The second tab in the source's order is Search; Collection is the third.
+/// The third tab in the bar, after Stories and Search.
 class CollectionScreen extends StatelessWidget {
   const CollectionScreen({super.key});
 

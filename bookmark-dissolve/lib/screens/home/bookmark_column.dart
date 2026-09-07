@@ -59,7 +59,12 @@ class BookmarkColumn extends StatelessWidget {
 /// Holds one card at its place in the column and springs it to a new place when
 /// the cards above it change.
 class _Slot extends StatefulWidget {
-  const _Slot({super.key, required this.top, required this.height, required this.child});
+  const _Slot({
+    super.key,
+    required this.top,
+    required this.height,
+    required this.child,
+  });
 
   final double top;
   final double height;
@@ -79,7 +84,9 @@ class _SlotState extends State<_Slot> with SingleTickerProviderStateMixin {
   void didUpdateWidget(_Slot old) {
     super.didUpdateWidget(old);
     if (widget.top != old.top) {
-      _top.animateWith(SpringSimulation(kCardSpring, _top.value, widget.top, _top.velocity));
+      _top.animateWith(
+        SpringSimulation(kCardSpring, _top.value, widget.top, _top.velocity),
+      );
     }
   }
 
@@ -93,8 +100,13 @@ class _SlotState extends State<_Slot> with SingleTickerProviderStateMixin {
   Widget build(BuildContext context) {
     return AnimatedBuilder(
       animation: _top,
-      builder: (context, child) =>
-          Positioned(top: _top.value, left: 0, right: 0, height: widget.height, child: child!),
+      builder: (context, child) => Positioned(
+        top: _top.value,
+        left: 0,
+        right: 0,
+        height: widget.height,
+        child: child!,
+      ),
       child: widget.child,
     );
   }

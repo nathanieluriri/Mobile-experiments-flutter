@@ -86,7 +86,8 @@ class _AllocationEstimatorState extends State<AllocationEstimator>
   }
 
   void _emit() {
-    final raw = widget.ipo.minInvestment + _fraction.value.clamp(0.0, 1.0) * _range;
+    final raw =
+        widget.ipo.minInvestment + _fraction.value.clamp(0.0, 1.0) * _range;
     final next = math.min(
       widget.ipo.maxInvestment,
       math.max(widget.ipo.minInvestment, (raw / _step).round() * _step),
@@ -101,7 +102,11 @@ class _AllocationEstimatorState extends State<AllocationEstimator>
 
   void _selectPreset(int preset) {
     _fraction.animateWith(
-      springTo(Springs.roll, _fraction.value, (preset - widget.ipo.minInvestment) / _range),
+      springTo(
+        Springs.roll,
+        _fraction.value,
+        (preset - widget.ipo.minInvestment) / _range,
+      ),
     );
   }
 
@@ -118,7 +123,11 @@ class _AllocationEstimatorState extends State<AllocationEstimator>
       return;
     }
     _fraction.animateWith(
-      springTo(Springs.roll, _fraction.value, (x / _trackWidth).clamp(0.0, 1.0)),
+      springTo(
+        Springs.roll,
+        _fraction.value,
+        (x / _trackWidth).clamp(0.0, 1.0),
+      ),
     );
   }
 
@@ -167,7 +176,14 @@ class _AllocationEstimatorState extends State<AllocationEstimator>
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text('Investment', style: text(13, weight: FontWeight.w600, color: AppColors.subtle)),
+              Text(
+                'Investment',
+                style: text(
+                  13,
+                  weight: FontWeight.w600,
+                  color: AppColors.subtle,
+                ),
+              ),
               Text(
                 '\$${groupThousands('${ipo.minInvestment}')} – \$${groupThousands('${ipo.maxInvestment}')}',
                 style: text(12, color: AppColors.cents),
@@ -179,7 +195,14 @@ class _AllocationEstimatorState extends State<AllocationEstimator>
             children: [
               Padding(
                 padding: const EdgeInsets.only(right: 2),
-                child: Text('\$', style: text(34, weight: FontWeight.w700, color: AppColors.cents)),
+                child: Text(
+                  '\$',
+                  style: text(
+                    34,
+                    weight: FontWeight.w700,
+                    color: AppColors.cents,
+                  ),
+                ),
               ),
               RollingNumber(
                 value: groupThousands('${widget.amount}'),
@@ -212,14 +235,19 @@ class _AllocationEstimatorState extends State<AllocationEstimator>
                               width: double.infinity,
                               child: Stack(
                                 children: [
-                                  const ColoredBox(color: AppColors.chip, child: SizedBox.expand()),
+                                  const ColoredBox(
+                                    color: AppColors.chip,
+                                    child: SizedBox.expand(),
+                                  ),
                                   Transform.translate(
                                     offset: Offset(-(1 - f) * _trackWidth, 0),
                                     child: Container(
                                       height: _track,
                                       decoration: BoxDecoration(
                                         color: AppColors.accent,
-                                        borderRadius: BorderRadius.circular(_track / 2),
+                                        borderRadius: BorderRadius.circular(
+                                          _track / 2,
+                                        ),
                                       ),
                                     ),
                                   ),
@@ -228,17 +256,25 @@ class _AllocationEstimatorState extends State<AllocationEstimator>
                             ),
                           ),
                           Transform.translate(
-                            offset: Offset(f * math.max(0, _trackWidth - _knob), 0),
+                            offset: Offset(
+                              f * math.max(0, _trackWidth - _knob),
+                              0,
+                            ),
                             child: Container(
                               width: _knob,
                               height: _knob,
                               decoration: BoxDecoration(
                                 color: AppColors.white,
                                 shape: BoxShape.circle,
-                                border: Border.all(color: AppColors.outline, width: 0.5),
+                                border: Border.all(
+                                  color: AppColors.outline,
+                                  width: 0.5,
+                                ),
                                 boxShadow: [
                                   BoxShadow(
-                                    color: AppColors.ink.withValues(alpha: 0.18),
+                                    color: AppColors.ink.withValues(
+                                      alpha: 0.18,
+                                    ),
                                     blurRadius: 8,
                                     offset: const Offset(0, 4),
                                   ),
@@ -268,7 +304,9 @@ class _AllocationEstimatorState extends State<AllocationEstimator>
                       padding: const EdgeInsets.symmetric(vertical: 8),
                       alignment: Alignment.center,
                       decoration: BoxDecoration(
-                        color: widget.amount == _presets[i] ? AppColors.ink : AppColors.chip,
+                        color: widget.amount == _presets[i]
+                            ? AppColors.ink
+                            : AppColors.chip,
                         borderRadius: BorderRadius.circular(999),
                       ),
                       child: Text(
@@ -278,7 +316,9 @@ class _AllocationEstimatorState extends State<AllocationEstimator>
                         style: text(
                           12,
                           weight: FontWeight.w600,
-                          color: widget.amount == _presets[i] ? AppColors.white : AppColors.ink,
+                          color: widget.amount == _presets[i]
+                              ? AppColors.white
+                              : AppColors.ink,
                         ),
                       ),
                     ),
@@ -300,7 +340,10 @@ class _AllocationEstimatorState extends State<AllocationEstimator>
                   child: Column(
                     children: [
                       _estimateRow('Estimated Shares', '${estimate.shares}'),
-                      _estimateRow('Estimated Allocation', '${estimate.allocationPercent}%'),
+                      _estimateRow(
+                        'Estimated Allocation',
+                        '${estimate.allocationPercent}%',
+                      ),
                       _estimateRow(
                         'Investment Total',
                         '\$${groupThousands(estimate.totalUsd.toStringAsFixed(2))}',
@@ -310,7 +353,11 @@ class _AllocationEstimatorState extends State<AllocationEstimator>
                   ),
                 ),
               ),
-              ProbabilityRing(size: 96, tier: estimate.tier, score: estimate.tierScore),
+              ProbabilityRing(
+                size: 96,
+                tier: estimate.tier,
+                score: estimate.tierScore,
+              ),
             ],
           ),
         ],

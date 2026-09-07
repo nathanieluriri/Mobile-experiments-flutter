@@ -101,8 +101,10 @@ class _StickyNoteState extends State<StickyNote> with TickerProviderStateMixin {
       duration: kLiftDuration,
       reverseDuration: kSettleDuration,
     );
-    final snapDuration =
-        springDuration(AppSprings.snapBack, clampOvershoot: true);
+    final snapDuration = springDuration(
+      AppSprings.snapBack,
+      clampOvershoot: true,
+    );
     _snap = AnimationController(vsync: this, duration: snapDuration);
     _snapCurve = SpringCurve(
       AppSprings.snapBack,
@@ -118,7 +120,10 @@ class _StickyNoteState extends State<StickyNote> with TickerProviderStateMixin {
         });
       }
     });
-    _travel = AnimationController(vsync: this, duration: kRemovalTravelDuration);
+    _travel = AnimationController(
+      vsync: this,
+      duration: kRemovalTravelDuration,
+    );
     _removal = AnimationController(vsync: this, duration: _shrinkTotal);
     _removal.addStatusListener((status) {
       if (status == AnimationStatus.completed) {
@@ -181,7 +186,8 @@ class _StickyNoteState extends State<StickyNote> with TickerProviderStateMixin {
     final dockCenterY = dockRowCenterY(_noteHeight);
     var hovered = -1;
     for (var i = 0; i < kNoteActions.length; i++) {
-      final dx = dragX - dockButtonCenterX(i, widget.width, kNoteActions.length);
+      final dx =
+          dragX - dockButtonCenterX(i, widget.width, kNoteActions.length);
       final dy = dragY - dockCenterY;
       if (math.sqrt(dx * dx + dy * dy) < kDockHoverRadius) {
         hovered = i;
@@ -204,8 +210,7 @@ class _StickyNoteState extends State<StickyNote> with TickerProviderStateMixin {
       return;
     }
     final index = _hovered;
-    final targetX =
-        dockButtonCenterX(index, widget.width, kNoteActions.length);
+    final targetX = dockButtonCenterX(index, widget.width, kNoteActions.length);
     setState(() {
       _triggered = index;
       _phase = _Phase.leaving;
@@ -243,33 +248,49 @@ class _StickyNoteState extends State<StickyNote> with TickerProviderStateMixin {
   }
 
   double get _foldX => switch (_phase) {
-        _Phase.idle => _dragX,
-        _Phase.snapping =>
-          lerpDouble(_fromX, _restX, _snapCurve.transform(_snap.value))!,
-        _Phase.leaving =>
-          lerpDouble(_fromX, _toX, easeInOutQuad.transform(_travel.value))!,
-      };
+    _Phase.idle => _dragX,
+    _Phase.snapping => lerpDouble(
+      _fromX,
+      _restX,
+      _snapCurve.transform(_snap.value),
+    )!,
+    _Phase.leaving => lerpDouble(
+      _fromX,
+      _toX,
+      easeInOutQuad.transform(_travel.value),
+    )!,
+  };
 
   double get _foldY => switch (_phase) {
-        _Phase.idle => _dragY,
-        _Phase.snapping => lerpDouble(
-            _fromY, kFoldRestInset, _snapCurve.transform(_snap.value))!,
-        _Phase.leaving =>
-          lerpDouble(_fromY, _toY, easeInOutQuad.transform(_travel.value))!,
-      };
+    _Phase.idle => _dragY,
+    _Phase.snapping => lerpDouble(
+      _fromY,
+      kFoldRestInset,
+      _snapCurve.transform(_snap.value),
+    )!,
+    _Phase.leaving => lerpDouble(
+      _fromY,
+      _toY,
+      easeInOutQuad.transform(_travel.value),
+    )!,
+  };
 
   @override
   Widget build(BuildContext context) {
     final flapColor = shade(widget.note.color, kNoteFlapShade);
     return TweenAnimationBuilder<double>(
-      tween: Tween<double>(
-        end: widget.isDimmed ? kDimmedNoteOpacity : 1.0,
-      ),
+      tween: Tween<double>(end: widget.isDimmed ? kDimmedNoteOpacity : 1.0),
       duration: kDimDuration,
       curve: easeInOutQuad,
       builder: (context, dim, child) => Opacity(opacity: dim, child: child),
       child: AnimatedBuilder(
-        animation: Listenable.merge([_lift, _snap, _travel, _removal, _shimmer]),
+        animation: Listenable.merge([
+          _lift,
+          _snap,
+          _travel,
+          _removal,
+          _shimmer,
+        ]),
         builder: (context, _) {
           final lift = easeInOutQuad.transform(_lift.value);
           final removal = _shrinkInterval.transform(_removal.value);
@@ -382,13 +403,13 @@ class _StickyNoteState extends State<StickyNote> with TickerProviderStateMixin {
       gestures: <Type, GestureRecognizerFactory>{
         LongPressGestureRecognizer:
             GestureRecognizerFactoryWithHandlers<LongPressGestureRecognizer>(
-          () => LongPressGestureRecognizer(duration: kPeelLongPress),
-          (instance) => instance
-            ..onLongPressStart = _onLongPressStart
-            ..onLongPressMoveUpdate = _onLongPressMoveUpdate
-            ..onLongPressEnd = _onLongPressEnd
-            ..onLongPressCancel = _onLongPressCancel,
-        ),
+              () => LongPressGestureRecognizer(duration: kPeelLongPress),
+              (instance) => instance
+                ..onLongPressStart = _onLongPressStart
+                ..onLongPressMoveUpdate = _onLongPressMoveUpdate
+                ..onLongPressEnd = _onLongPressEnd
+                ..onLongPressCancel = _onLongPressCancel,
+            ),
       },
     );
   }

@@ -41,8 +41,9 @@ void main() {
     await capture(tester, 'release__settled');
   });
 
-  testWidgets('dropping a note on an action removes it and reflows the list',
-      (tester) async {
+  testWidgets('dropping a note on an action removes it and reflows the list', (
+    tester,
+  ) async {
     await pumpScreen(tester, const App());
     await tester.pump();
     final second = tester.getRect(find.byType(StickyNote).at(1));

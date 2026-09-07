@@ -36,8 +36,9 @@ void main() {
     await tester.pumpAndSettle();
   });
 
-  testWidgets('the dock carries one button per action, evenly spaced',
-      (tester) async {
+  testWidgets('the dock carries one button per action, evenly spaced', (
+    tester,
+  ) async {
     await pumpScreen(tester, const App());
     await tester.pump();
 
@@ -58,8 +59,9 @@ void main() {
     await tester.pumpAndSettle();
   });
 
-  testWidgets('the dock fades out on the same curve it arrived on',
-      (tester) async {
+  testWidgets('the dock fades out on the same curve it arrived on', (
+    tester,
+  ) async {
     await pumpScreen(tester, const App());
     await tester.pump();
 
@@ -69,9 +71,11 @@ void main() {
     await gesture.up();
     await tester.pump();
     const step = 35;
-    for (var elapsed = step;
-        elapsed <= kDockExitDuration.inMilliseconds;
-        elapsed += step) {
+    for (
+      var elapsed = step;
+      elapsed <= kDockExitDuration.inMilliseconds;
+      elapsed += step
+    ) {
       await pumpMs(tester, step);
       final progress = elapsed / kDockExitDuration.inMilliseconds;
       expect(
@@ -85,8 +89,9 @@ void main() {
     expect(find.byType(DockButton), findsNothing);
   });
 
-  testWidgets('a hovered button takes its accent colour and shows its label',
-      (tester) async {
+  testWidgets('a hovered button takes its accent colour and shows its label', (
+    tester,
+  ) async {
     await pumpScreen(tester, const App());
     await tester.pump();
 
@@ -122,12 +127,14 @@ double buttonOpacityOf(WidgetTester tester, int index) {
 
 /// The fill of dock button [index]'s circle.
 Color? circleColorOf(WidgetTester tester, int index) {
-  final container = tester.widgetList<Container>(
-    find.descendant(
-      of: find.byType(DockButton).at(index),
-      matching: find.byType(Container),
-    ),
-  ).first;
+  final container = tester
+      .widgetList<Container>(
+        find.descendant(
+          of: find.byType(DockButton).at(index),
+          matching: find.byType(Container),
+        ),
+      )
+      .first;
   return (container.decoration! as BoxDecoration).color;
 }
 

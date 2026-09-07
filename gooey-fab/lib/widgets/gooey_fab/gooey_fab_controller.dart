@@ -19,7 +19,12 @@ class _Drive {
     if (!controller.isAnimating || spring == null) {
       return null;
     }
-    return SpringSimulation(spring!, controller.value, target!, controller.velocity);
+    return SpringSimulation(
+      spring!,
+      controller.value,
+      target!,
+      controller.velocity,
+    );
   }
 }
 
@@ -54,7 +59,11 @@ class GooeyFabController extends ChangeNotifier {
   bool _isOpen = false;
 
   /// Everything that changes when any of the three values move.
-  late final Listenable animations = Listenable.merge([progress, voiceDrive, videoDrive]);
+  late final Listenable animations = Listenable.merge([
+    progress,
+    voiceDrive,
+    videoDrive,
+  ]);
 
   void toggle() {
     if (_isOpen) {
@@ -70,7 +79,12 @@ class GooeyFabController extends ChangeNotifier {
     notifyListeners();
   }
 
-  void _springTo(_Drive drive, double target, SpringDescription spring, {Duration? delay}) {
+  void _springTo(
+    _Drive drive,
+    double target,
+    SpringDescription spring, {
+    Duration? delay,
+  }) {
     final controller = drive.controller;
     final from = controller.value;
     final velocity = controller.velocity;
@@ -87,7 +101,8 @@ class GooeyFabController extends ChangeNotifier {
         delay: delay.inMicroseconds / Duration.microsecondsPerSecond,
         hold: from,
         carry: carry,
-        build: (value, velocity) => SpringSimulation(spring, value, target, velocity),
+        build: (value, velocity) =>
+            SpringSimulation(spring, value, target, velocity),
       ),
     );
   }

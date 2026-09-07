@@ -30,7 +30,8 @@ class IpoScreen extends StatefulWidget {
   State<IpoScreen> createState() => _IpoScreenState();
 }
 
-class _IpoScreenState extends State<IpoScreen> with SingleTickerProviderStateMixin {
+class _IpoScreenState extends State<IpoScreen>
+    with SingleTickerProviderStateMixin {
   final Ipo _ipo = featuredIpo;
   bool _loading = true;
   int _amount = _defaultAmount;
@@ -45,7 +46,9 @@ class _IpoScreenState extends State<IpoScreen> with SingleTickerProviderStateMix
   Timer? _demandTimer;
   Timer? _countdownTimer;
   Timer? _estimateTimer;
-  late final AnimationController _recede = AnimationController.unbounded(vsync: this);
+  late final AnimationController _recede = AnimationController.unbounded(
+    vsync: this,
+  );
 
   @override
   void initState() {
@@ -54,7 +57,10 @@ class _IpoScreenState extends State<IpoScreen> with SingleTickerProviderStateMix
       setState(() => _loading = false);
       _demandTimer = Timer.periodic(_demandTick, (_) {
         setState(() {
-          _demand = (_demand + 0.4 + appRandom.nextDouble() * 0.8).clamp(0, _demandCap);
+          _demand = (_demand + 0.4 + appRandom.nextDouble() * 0.8).clamp(
+            0,
+            _demandCap,
+          );
         });
       });
     });
@@ -106,7 +112,9 @@ class _IpoScreenState extends State<IpoScreen> with SingleTickerProviderStateMix
 
   void _setConfirming(bool confirming) {
     setState(() => _confirming = confirming);
-    _recede.animateWith(springTo(Springs.screen, _recede.value, confirming ? 1 : 0));
+    _recede.animateWith(
+      springTo(Springs.screen, _recede.value, confirming ? 1 : 0),
+    );
   }
 
   void _done() {
@@ -120,7 +128,8 @@ class _IpoScreenState extends State<IpoScreen> with SingleTickerProviderStateMix
   @override
   Widget build(BuildContext context) {
     final padding = MediaQuery.paddingOf(context);
-    final canSubscribe = !_loading && !_subscribed && _amount >= _ipo.minInvestment;
+    final canSubscribe =
+        !_loading && !_subscribed && _amount >= _ipo.minInvestment;
     return Scaffold(
       backgroundColor: AppColors.screen,
       body: Stack(
@@ -145,7 +154,10 @@ class _IpoScreenState extends State<IpoScreen> with SingleTickerProviderStateMix
                     );
                   },
                   child: SingleChildScrollView(
-                    padding: EdgeInsets.only(top: 12, bottom: padding.bottom + 96),
+                    padding: EdgeInsets.only(
+                      top: 12,
+                      bottom: padding.bottom + 96,
+                    ),
                     child: AnimatedSwitcher(
                       duration: const Duration(milliseconds: 220),
                       switchInCurve: const Threshold(0),
@@ -154,20 +166,20 @@ class _IpoScreenState extends State<IpoScreen> with SingleTickerProviderStateMix
                         children: [...previous, ?current],
                       ),
                       child: _loading
-                        ? const IpoSkeleton()
-                        : IpoContent(
-                            key: const ValueKey('content'),
-                            ipo: _ipo,
-                            related: relatedIpos,
-                            countdown: _countdown,
-                            paused: _confirming,
-                            subscribed: _subscribed,
-                            demand: _demand,
-                            amount: _amount,
-                            onAmountChange: _setAmount,
-                            estimate: _estimate,
-                            refreshing: _refreshing,
-                          ),
+                          ? const IpoSkeleton()
+                          : IpoContent(
+                              key: const ValueKey('content'),
+                              ipo: _ipo,
+                              related: relatedIpos,
+                              countdown: _countdown,
+                              paused: _confirming,
+                              subscribed: _subscribed,
+                              demand: _demand,
+                              amount: _amount,
+                              onAmountChange: _setAmount,
+                              estimate: _estimate,
+                              refreshing: _refreshing,
+                            ),
                     ),
                   ),
                 ),
@@ -283,7 +295,10 @@ class IpoContent extends StatelessWidget {
             ],
           ),
         ),
-        const Padding(padding: section, child: SectionLabel(label: 'Allocation Estimator')),
+        const Padding(
+          padding: section,
+          child: SectionLabel(label: 'Allocation Estimator'),
+        ),
         Padding(
           padding: section,
           child: Enter(
@@ -314,7 +329,11 @@ class IpoSkeleton extends StatelessWidget {
   Widget build(BuildContext context) {
     final cardWidth = MediaQuery.sizeOf(context).width - 40;
     final gridItem = (cardWidth - 10) / 2;
-    Widget card({required double radius, required EdgeInsets padding, required Widget child}) {
+    Widget card({
+      required double radius,
+      required EdgeInsets padding,
+      required Widget child,
+    }) {
       return Container(
         padding: padding,
         decoration: BoxDecoration(
@@ -423,7 +442,8 @@ class IpoSkeleton extends StatelessWidget {
             spacing: 10,
             runSpacing: 10,
             children: [
-              for (var i = 0; i < 4; i++) Shimmer(width: gridItem, height: 92, radius: 20),
+              for (var i = 0; i < 4; i++)
+                Shimmer(width: gridItem, height: 92, radius: 20),
             ],
           ),
         ],

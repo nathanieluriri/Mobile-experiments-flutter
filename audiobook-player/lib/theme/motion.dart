@@ -10,9 +10,8 @@ const flickVelocity = 500.0;
 /// How long a picture takes to fade in once it is decoded.
 const artworkFadeDuration = Duration(milliseconds: 250);
 
-/// The same shape as the animation library's `interpolate`: a piecewise linear
-/// map from [input] to [output]. Outside the ends it keeps extending the first
-/// and last segment unless [clamp] is set.
+/// A piecewise linear map from [input] to [output]. Outside the ends it keeps
+/// extending the first and last segment unless [clamp] is set.
 double interpolate(
   double x,
   List<double> input,

@@ -78,8 +78,8 @@ class _BottomDockState extends State<BottomDock> with TickerProviderStateMixin {
       ),
     );
 
-    // The pill swallows taps that land on its padding, the way the original's
-    // view does; only the strip around it lets them through.
+    // The pill swallows taps that land on its padding; only the strip around
+    // it lets them through.
     return Listener(
       behavior: HitTestBehavior.opaque,
       child: CustomPaint(
@@ -100,7 +100,10 @@ class _BottomDockState extends State<BottomDock> with TickerProviderStateMixin {
               vsync: this,
               spring: dockLayoutSpring,
               child: Padding(
-                padding: EdgeInsets.symmetric(horizontal: 6, vertical: compact ? 5 : 8),
+                padding: EdgeInsets.symmetric(
+                  horizontal: 6,
+                  vertical: compact ? 5 : 8,
+                ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -152,11 +155,16 @@ class _DockItem extends StatelessWidget {
         behavior: HitTestBehavior.opaque,
         onTap: onTap,
         child: Container(
-          padding: EdgeInsets.symmetric(vertical: 6, horizontal: compact ? 16 : 22),
+          padding: EdgeInsets.symmetric(
+            vertical: 6,
+            horizontal: compact ? 16 : 22,
+          ),
           decoration: active
               ? ShapeDecoration(
                   color: const Color(0xFF000000).withValues(alpha: 0.05),
-                  shape: const RoundedSuperellipseBorder(borderRadius: _itemRadius),
+                  shape: const RoundedSuperellipseBorder(
+                    borderRadius: _itemRadius,
+                  ),
                 )
               : null,
           child: Column(

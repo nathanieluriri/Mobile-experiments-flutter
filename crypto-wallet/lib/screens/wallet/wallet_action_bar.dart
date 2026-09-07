@@ -40,7 +40,11 @@ class WalletActionBar extends StatelessWidget {
 }
 
 class _ActionButton extends StatefulWidget {
-  const _ActionButton({required this.label, required this.icon, required this.onPress});
+  const _ActionButton({
+    required this.label,
+    required this.icon,
+    required this.onPress,
+  });
 
   final String label;
   final IconData icon;

@@ -51,20 +51,25 @@ abstract final class RefreshTimeline {
   /// When the last value (the header shift) is back at rest.
   static const double endMs = fetchMs + shiftOutDelayMs + shiftOutMs;
 
-  static double _ramp(double t, double duration) => (t / duration).clamp(0.0, 1.0);
+  static double _ramp(double t, double duration) =>
+      (t / duration).clamp(0.0, 1.0);
 
   static double spinner(double t) {
     if (t < fetchMs + spinnerOutDelayMs) {
       return Eases.iosOut.transform(_ramp(t, spinnerInMs));
     }
-    return 1 - Eases.ios.transform(_ramp(t - fetchMs - spinnerOutDelayMs, spinnerOutMs));
+    return 1 -
+        Eases.ios.transform(
+          _ramp(t - fetchMs - spinnerOutDelayMs, spinnerOutMs),
+        );
   }
 
   static double shift(double t) {
     if (t < fetchMs + shiftOutDelayMs) {
       return Eases.ios.transform(_ramp(t, shiftInMs));
     }
-    return 1 - Eases.ios.transform(_ramp(t - fetchMs - shiftOutDelayMs, shiftOutMs));
+    return 1 -
+        Eases.ios.transform(_ramp(t - fetchMs - shiftOutDelayMs, shiftOutMs));
   }
 
   static double cycling(double t) => t >= morphDelayMs && t < finishMs ? 1 : 0;
@@ -76,10 +81,12 @@ abstract final class RefreshTimeline {
     if (t < fetchMs + morphOutDelayMs) {
       return Eases.ios.transform(_ramp(t - morphDelayMs, morphInMs));
     }
-    return 1 - Eases.ios.transform(_ramp(t - fetchMs - morphOutDelayMs, morphOutMs));
+    return 1 -
+        Eases.ios.transform(_ramp(t - fetchMs - morphOutDelayMs, morphOutMs));
   }
 
-  static double settle(double t) => t < fetchMs ? 0 : _ramp(t - fetchMs, settleMs);
+  static double settle(double t) =>
+      t < fetchMs ? 0 : _ramp(t - fetchMs, settleMs);
 
   /// The settle progress at which digit [index] stops cycling.
   static double lockAt(int index) => (index + 1) / (kDigitCount + 1);
@@ -99,7 +106,9 @@ abstract final class RefreshTimeline {
       return target[index];
     }
     final tick = (time / (72 + index * 12)).floor();
-    return (seededRandom(tick * 12.9898 + index * 78.233) * 10).floor().toString();
+    return (seededRandom(tick * 12.9898 + index * 78.233) * 10)
+        .floor()
+        .toString();
   }
 
   /// The colour digit [index] shows at [time] ms into the refresh.
@@ -144,9 +153,9 @@ class WalletRefreshController extends ChangeNotifier {
     required double initialBalance,
     required Gain initialGain,
     required this.random,
-  })  : balance = initialBalance,
-        gain = initialGain,
-        digits = toDigitString(initialBalance) {
+  }) : balance = initialBalance,
+       gain = initialGain,
+       digits = toDigitString(initialBalance) {
     _ticker = vsync.createTicker(_tick);
   }
 

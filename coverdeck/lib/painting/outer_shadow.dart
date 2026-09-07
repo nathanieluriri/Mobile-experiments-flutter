@@ -45,5 +45,8 @@ class OuterShadowPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(OuterShadowPainter old) =>
-      old.shape != shape || old.color != color || old.sigma != sigma || old.offset != offset;
+      old.shape != shape ||
+      old.color != color ||
+      old.sigma != sigma ||
+      old.offset != offset;
 }

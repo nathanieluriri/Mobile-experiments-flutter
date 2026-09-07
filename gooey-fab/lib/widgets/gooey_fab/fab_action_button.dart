@@ -37,7 +37,11 @@ class FabActionButton extends StatelessWidget {
           child: IgnorePointer(
             ignoring: !interactive,
             child: Transform.scale(
-              scale: interpolateClamped(value, actionScaleInputRange, actionScaleOutputRange),
+              scale: interpolateClamped(
+                value,
+                actionScaleInputRange,
+                actionScaleOutputRange,
+              ),
               child: Opacity(
                 opacity: interpolateClamped(
                   value,

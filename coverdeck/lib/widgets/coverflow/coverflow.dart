@@ -68,7 +68,10 @@ class Coverflow extends StatelessWidget {
               // where two covers round to the same step the later album wins.
               final order = List.generate(albums.length, (i) => i)
                 ..sort((a, b) {
-                  final depth = coverZIndex(a, scrollX).compareTo(coverZIndex(b, scrollX));
+                  final depth = coverZIndex(
+                    a,
+                    scrollX,
+                  ).compareTo(coverZIndex(b, scrollX));
                   return depth != 0 ? depth : a.compareTo(b);
                 });
               return Stack(

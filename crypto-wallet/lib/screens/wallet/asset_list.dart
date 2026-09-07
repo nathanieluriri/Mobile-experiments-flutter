@@ -57,11 +57,19 @@ class _AssetRow extends StatelessWidget {
           Column(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              Text(formatUsd(asset.value), style: text(16, weight: FontWeight.w700)),
+              Text(
+                formatUsd(asset.value),
+                style: text(16, weight: FontWeight.w700),
+              ),
               const SizedBox(height: 2),
               Text(
                 formatSigned(asset.change),
-                style: text(14, weight: FontWeight.w500, color: changeColor, lineHeight: 20),
+                style: text(
+                  14,
+                  weight: FontWeight.w500,
+                  color: changeColor,
+                  lineHeight: 20,
+                ),
               ),
             ],
           ),
@@ -81,17 +89,17 @@ class AssetIcon extends StatelessWidget {
   Widget build(BuildContext context) {
     final (Color background, Widget? glyph) = switch (id) {
       TokenId.eth => (
-          AppColors.chip,
-          const EthGlyph(size: 24, color: Color(0xFF454A54)),
-        ),
+        AppColors.chip,
+        const EthGlyph(size: 24, color: Color(0xFF454A54)),
+      ),
       TokenId.usdc => (
-          const Color(0xFF2775CA),
-          const DollarGlyph(size: 18, color: AppColors.white),
-        ),
+        const Color(0xFF2775CA),
+        const DollarGlyph(size: 18, color: AppColors.white),
+      ),
       TokenId.sol => (
-          const Color(0xFF101014),
-          const SolanaBars(barWidth: 16, barHeight: 3, gap: 3),
-        ),
+        const Color(0xFF101014),
+        const SolanaBars(barWidth: 16, barHeight: 3, gap: 3),
+      ),
       TokenId.btc => (AppColors.chip, null),
     };
     return Container(

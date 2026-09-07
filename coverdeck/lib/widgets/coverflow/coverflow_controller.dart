@@ -16,11 +16,11 @@ class CoverflowController extends ChangeNotifier {
     required TickerProvider vsync,
     required this.count,
     int initialIndex = 0,
-  })  : _index = initialIndex,
-        _position = AnimationController.unbounded(
-          vsync: vsync,
-          value: initialIndex.toDouble(),
-        ) {
+  }) : _index = initialIndex,
+       _position = AnimationController.unbounded(
+         vsync: vsync,
+         value: initialIndex.toDouble(),
+       ) {
     _position.addListener(_handlePositionChange);
   }
 
@@ -75,15 +75,20 @@ class CoverflowController extends ChangeNotifier {
 
   /// Cover a release at [velocity] covers per second lands on.
   int projectedTarget(double velocity) {
-    return clampDouble((scrollX + velocity * flingProjection).roundToDouble(), 0, count - 1)
-        .round();
+    return clampDouble(
+      (scrollX + velocity * flingProjection).roundToDouble(),
+      0,
+      count - 1,
+    ).round();
   }
 
   /// Settles onto the cover a release at [velocity] covers per second reaches.
-  void fling(double velocity) => springTo(projectedTarget(velocity), velocity: velocity);
+  void fling(double velocity) =>
+      springTo(projectedTarget(velocity), velocity: velocity);
 
   /// Settles onto [index], clamped into the deck.
-  void scrollTo(int index) => springTo(clampDouble(index.toDouble(), 0, count - 1).round());
+  void scrollTo(int index) =>
+      springTo(clampDouble(index.toDouble(), 0, count - 1).round());
 
   @override
   void dispose() {

@@ -23,7 +23,8 @@ class ProgressBar extends StatefulWidget {
   State<ProgressBar> createState() => _ProgressBarState();
 }
 
-class _ProgressBarState extends State<ProgressBar> with SingleTickerProviderStateMixin {
+class _ProgressBarState extends State<ProgressBar>
+    with SingleTickerProviderStateMixin {
   late final AnimationController _progress = AnimationController(
     vsync: this,
     duration: Duration(seconds: widget.durationSec),
@@ -104,4 +105,5 @@ class _ProgressBarState extends State<ProgressBar> with SingleTickerProviderStat
 }
 
 /// Formats [sec] as minutes and zero padded seconds.
-String formatDuration(int sec) => '${sec ~/ 60}:${(sec % 60).toString().padLeft(2, '0')}';
+String formatDuration(int sec) =>
+    '${sec ~/ 60}:${(sec % 60).toString().padLeft(2, '0')}';

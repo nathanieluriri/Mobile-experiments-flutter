@@ -9,7 +9,12 @@ const kDpr = 2.0;
 
 /// The phone this app is judged on: logical size and safe-area insets.
 class Phone {
-  const Phone(this.name, this.logical, {required this.top, required this.bottom});
+  const Phone(
+    this.name,
+    this.logical, {
+    required this.top,
+    required this.bottom,
+  });
 
   final String name;
   final Size logical;
@@ -21,10 +26,17 @@ const kPhone = Phone('iPhone 17 Pro', Size(402, 874), top: 62, bottom: 34);
 
 /// Pumps [app] at the phone's size with its safe-area insets, then decodes
 /// every picture in the tree.
-Future<void> pumpScreen(WidgetTester tester, Widget app, {Phone phone = kPhone}) async {
+Future<void> pumpScreen(
+  WidgetTester tester,
+  Widget app, {
+  Phone phone = kPhone,
+}) async {
   tester.view.physicalSize = phone.logical * kDpr;
   tester.view.devicePixelRatio = kDpr;
-  final padding = FakeViewPadding(top: phone.top * kDpr, bottom: phone.bottom * kDpr);
+  final padding = FakeViewPadding(
+    top: phone.top * kDpr,
+    bottom: phone.bottom * kDpr,
+  );
   tester.view.padding = padding;
   tester.view.viewPadding = padding;
   addTearDown(tester.view.reset);
@@ -50,5 +62,8 @@ Future<void> pumpMs(WidgetTester tester, int ms) {
 
 /// Writes or compares `test/goldens/<name>.png` for the whole screen.
 Future<void> capture(WidgetTester tester, String name) async {
-  await expectLater(find.byType(MaterialApp).first, matchesGoldenFile('goldens/$name.png'));
+  await expectLater(
+    find.byType(MaterialApp).first,
+    matchesGoldenFile('goldens/$name.png'),
+  );
 }

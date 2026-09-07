@@ -4,7 +4,12 @@ import '../painting/glyphs.dart';
 
 /// A square glyph from the player's icon set.
 class GlyphIcon extends StatelessWidget {
-  const GlyphIcon({super.key, required this.glyph, required this.size, required this.color});
+  const GlyphIcon({
+    super.key,
+    required this.glyph,
+    required this.size,
+    required this.color,
+  });
 
   final Glyph glyph;
   final double size;

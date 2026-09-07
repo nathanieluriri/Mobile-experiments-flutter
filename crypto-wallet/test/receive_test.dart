@@ -13,7 +13,9 @@ void main() {
     // The eyebrow placeholder keeps its 128 px width inside the stretched column.
     final shimmers = find.byType(Shimmer);
     expect(
-      shimmers.evaluate().map((e) => tester.getSize(find.byWidget(e.widget)).width),
+      shimmers.evaluate().map(
+        (e) => tester.getSize(find.byWidget(e.widget)).width,
+      ),
       contains(128.0),
     );
     await capture(tester, 'receive__loading');
@@ -34,8 +36,8 @@ void main() {
       errorCorrectLevel: QrErrorCorrectLevel.M,
     );
     final image = QrImage(code);
-    // The 43-byte address at level M needs type 4 (33 modules), the same
-    // symbol the original's generator picks with automatic sizing.
+    // The 43-byte address at level M needs type 4 (33 modules), which is what
+    // automatic sizing picks.
     expect(networks[0].address.length, 43);
     expect(image.moduleCount, 33);
     expect(image.isDark(0, 0), isTrue, reason: 'finder pattern corner');

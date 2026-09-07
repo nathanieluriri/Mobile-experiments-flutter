@@ -32,7 +32,7 @@ String formatQuantity(double quantity, String symbol) {
   return '${formatNumber(quantity)} $symbol';
 }
 
-/// Prints a number the way JavaScript does: no trailing ".0" on integers.
+/// Prints a number without a trailing ".0" on integers.
 String formatNumber(num value) {
   if (value is int || value == value.roundToDouble()) {
     return value.toInt().toString();

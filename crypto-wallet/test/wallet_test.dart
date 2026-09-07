@@ -27,7 +27,9 @@ void main() {
       text: TextSpan(text: '2', style: style),
       textDirection: TextDirection.ltr,
     )..layout();
-    final baseline = painter.computeDistanceToActualBaseline(TextBaseline.alphabetic);
+    final baseline = painter.computeDistanceToActualBaseline(
+      TextBaseline.alphabetic,
+    );
     final top = tester.getTopLeft(digit).dy;
     expect(top + baseline, closeTo(62 + 16 + 48 + 24 + 96, 0.75));
   });

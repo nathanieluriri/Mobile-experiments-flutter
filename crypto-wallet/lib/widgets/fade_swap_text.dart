@@ -40,12 +40,14 @@ class FadeSwapText extends StatelessWidget {
         );
       },
       layoutBuilder: (current, previous) {
-        return Stack(
-          alignment: alignment,
-          children: [...previous, ?current],
-        );
+        return Stack(alignment: alignment, children: [...previous, ?current]);
       },
-      child: Text(text, key: ValueKey(text), style: style, textAlign: textAlign),
+      child: Text(
+        text,
+        key: ValueKey(text),
+        style: style,
+        textAlign: textAlign,
+      ),
     );
   }
 }

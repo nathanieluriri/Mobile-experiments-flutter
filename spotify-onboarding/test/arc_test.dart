@@ -9,7 +9,8 @@ import 'package:spotify_onboarding/widgets/card_marquee/marquee_constants.dart';
 double slideOf(Matrix4 m) => m.storage[12];
 
 /// The transform's lean in degrees, taken out of the matrix.
-double tiltOf(Matrix4 m) => math.atan2(m.storage[1], m.storage[0]) * 180 / math.pi;
+double tiltOf(Matrix4 m) =>
+    math.atan2(m.storage[1], m.storage[0]) * 180 / math.pi;
 
 /// The transform's scale, taken out of the matrix.
 double scaleOf(Matrix4 m) =>
@@ -33,22 +34,28 @@ void main() {
     expect(scaleOf(m), moreOrLessEquals(1, epsilon: 1e-9));
   });
 
-  test('the slide is the arc radius times one minus the cosine of the lean', () {
-    for (final slot in [6, 8, 10, 12, 14]) {
-      final m = arcTransform(
-        slot: slot,
-        scrollOffset: centring(10),
-        viewportHeight: viewport,
-        itemTilt: 6,
-      );
-      final radians = tiltOf(m) * math.pi / 180;
-      expect(
-        slideOf(m),
-        moreOrLessEquals(-kArcRadius * (1 - math.cos(radians)), epsilon: 1e-6),
-      );
-      expect(slideOf(m), lessThanOrEqualTo(0));
-    }
-  });
+  test(
+    'the slide is the arc radius times one minus the cosine of the lean',
+    () {
+      for (final slot in [6, 8, 10, 12, 14]) {
+        final m = arcTransform(
+          slot: slot,
+          scrollOffset: centring(10),
+          viewportHeight: viewport,
+          itemTilt: 6,
+        );
+        final radians = tiltOf(m) * math.pi / 180;
+        expect(
+          slideOf(m),
+          moreOrLessEquals(
+            -kArcRadius * (1 - math.cos(radians)),
+            epsilon: 1e-6,
+          ),
+        );
+        expect(slideOf(m), lessThanOrEqualTo(0));
+      }
+    },
+  );
 
   test('a card at the clamp is drawn at its smallest', () {
     // A whole viewport away is two half viewports, well past the 1.2 clamp,

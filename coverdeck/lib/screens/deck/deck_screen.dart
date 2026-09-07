@@ -23,9 +23,11 @@ class DeckScreen extends StatefulWidget {
   State<DeckScreen> createState() => _DeckScreenState();
 }
 
-class _DeckScreenState extends State<DeckScreen> with SingleTickerProviderStateMixin {
+class _DeckScreenState extends State<DeckScreen>
+    with SingleTickerProviderStateMixin {
   late final CoverflowController _deck =
-      widget.controller ?? CoverflowController(vsync: this, count: albums.length);
+      widget.controller ??
+      CoverflowController(vsync: this, count: albums.length);
   late int _index = _deck.index;
   bool _playing = false;
 
@@ -50,7 +52,13 @@ class _DeckScreenState extends State<DeckScreen> with SingleTickerProviderStateM
   }
 
   void _skip(int direction) {
-    _deck.scrollTo(clampDouble((_index + direction).toDouble(), 0, albums.length - 1).round());
+    _deck.scrollTo(
+      clampDouble(
+        (_index + direction).toDouble(),
+        0,
+        albums.length - 1,
+      ).round(),
+    );
   }
 
   @override
@@ -60,7 +68,8 @@ class _DeckScreenState extends State<DeckScreen> with SingleTickerProviderStateM
 
     return AnimatedBuilder(
       animation: _deck,
-      builder: (context, child) => ColoredBox(color: deckWash(_deck.scrollX), child: child),
+      builder: (context, child) =>
+          ColoredBox(color: deckWash(_deck.scrollX), child: child),
       child: Padding(
         padding: EdgeInsets.only(top: topInset + 12),
         child: Column(

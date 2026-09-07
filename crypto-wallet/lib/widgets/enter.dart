@@ -53,16 +53,18 @@ class _EnterState extends State<Enter> with TickerProviderStateMixin {
     vsync: this,
     duration: widget.duration ?? _defaultDuration,
   );
-  late final AnimationController _spring = AnimationController.unbounded(vsync: this);
+  late final AnimationController _spring = AnimationController.unbounded(
+    vsync: this,
+  );
   Timer? _delay;
 
   Duration get _defaultDuration => switch (widget.kind) {
-        EnterKind.fadeInDown => const Duration(milliseconds: 300),
-        EnterKind.liftIn => const Duration(milliseconds: 320),
-        EnterKind.scaleFadeIn => const Duration(milliseconds: 380),
-        EnterKind.zoomIn => const Duration(milliseconds: 300),
-        EnterKind.fadeIn => const Duration(milliseconds: 300),
-      };
+    EnterKind.fadeInDown => const Duration(milliseconds: 300),
+    EnterKind.liftIn => const Duration(milliseconds: 320),
+    EnterKind.scaleFadeIn => const Duration(milliseconds: 380),
+    EnterKind.zoomIn => const Duration(milliseconds: 300),
+    EnterKind.fadeIn => const Duration(milliseconds: 300),
+  };
 
   @override
   void initState() {
@@ -87,7 +89,11 @@ class _EnterState extends State<Enter> with TickerProviderStateMixin {
       case EnterKind.zoomIn:
         _spring.animateWith(
           SpringSimulation(
-            SpringDescription(mass: 1, stiffness: 100, damping: widget.springDamping ?? 10),
+            SpringDescription(
+              mass: 1,
+              stiffness: 100,
+              damping: widget.springDamping ?? 10,
+            ),
             0,
             1,
             0,
@@ -119,7 +125,10 @@ class _EnterState extends State<Enter> with TickerProviderStateMixin {
           case EnterKind.fadeInDown:
             return Opacity(
               opacity: t,
-              child: Transform.translate(offset: Offset(0, -25 * (1 - t)), child: child),
+              child: Transform.translate(
+                offset: Offset(0, -25 * (1 - t)),
+                child: child,
+              ),
             );
           case EnterKind.liftIn:
             return Opacity(

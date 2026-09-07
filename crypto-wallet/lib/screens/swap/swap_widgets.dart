@@ -33,7 +33,9 @@ SwapQuote computeSwapQuote(Token from, Token to, double amount) {
 }
 
 SwapVenue resolveSwapVenue(Token from, Token to) {
-  return from.id == TokenId.sol || to.id == TokenId.sol ? SwapVenue.jupiter : SwapVenue.uniswap;
+  return from.id == TokenId.sol || to.id == TokenId.sol
+      ? SwapVenue.jupiter
+      : SwapVenue.uniswap;
 }
 
 /// A token icon that nods when the token changes.
@@ -47,8 +49,11 @@ class _NoddingIcon extends StatefulWidget {
   State<_NoddingIcon> createState() => _NoddingIconState();
 }
 
-class _NoddingIconState extends State<_NoddingIcon> with SingleTickerProviderStateMixin {
-  late final AnimationController _rotation = AnimationController.unbounded(vsync: this);
+class _NoddingIconState extends State<_NoddingIcon>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _rotation = AnimationController.unbounded(
+    vsync: this,
+  );
 
   @override
   void didUpdateWidget(_NoddingIcon oldWidget) {
@@ -62,10 +67,10 @@ class _NoddingIconState extends State<_NoddingIcon> with SingleTickerProviderSta
     _rotation
         .animateTo(-0.16, duration: const Duration(milliseconds: 110))
         .whenComplete(() {
-      if (mounted) {
-        _rotation.animateWith(springTo(Springs.pop, _rotation.value, 0));
-      }
-    });
+          if (mounted) {
+            _rotation.animateWith(springTo(Springs.pop, _rotation.value, 0));
+          }
+        });
   }
 
   @override
@@ -84,7 +89,11 @@ class _NoddingIconState extends State<_NoddingIcon> with SingleTickerProviderSta
           child: AnimatedSwitcher(
             duration: const Duration(milliseconds: 220),
             reverseDuration: const Duration(milliseconds: 140),
-            child: TokenIcon(key: ValueKey(widget.token.id), id: widget.token.id, size: widget.size),
+            child: TokenIcon(
+              key: ValueKey(widget.token.id),
+              id: widget.token.id,
+              size: widget.size,
+            ),
           ),
         );
       },
@@ -133,9 +142,16 @@ class TokenChip extends StatelessWidget {
           children: [
             _NoddingIcon(token: token, size: 34),
             const SizedBox(width: 8),
-            FadeSwapText(text: token.symbol, style: text(16, weight: FontWeight.w700)),
+            FadeSwapText(
+              text: token.symbol,
+              style: text(16, weight: FontWeight.w700),
+            ),
             const SizedBox(width: 8),
-            const Icon(LucideIcons.chevronDown, size: 15, color: AppColors.subtle),
+            const Icon(
+              LucideIcons.chevronDown,
+              size: 15,
+              color: AppColors.subtle,
+            ),
           ],
         ),
       ),
@@ -187,7 +203,9 @@ class _SwapCardState extends State<SwapCard> with TickerProviderStateMixin {
     vsync: this,
     value: widget.flipped ? 1 : 0,
   );
-  late final AnimationController _rotation = AnimationController.unbounded(vsync: this);
+  late final AnimationController _rotation = AnimationController.unbounded(
+    vsync: this,
+  );
   final GlobalKey _rowA = GlobalKey();
   final GlobalKey _rowB = GlobalKey();
 
@@ -204,12 +222,16 @@ class _SwapCardState extends State<SwapCard> with TickerProviderStateMixin {
   void didUpdateWidget(SwapCard oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.flipped != widget.flipped) {
-      _phase.animateWith(springTo(Springs.sheet, _phase.value, widget.flipped ? 1 : 0));
+      _phase.animateWith(
+        springTo(Springs.sheet, _phase.value, widget.flipped ? 1 : 0),
+      );
     }
   }
 
   void _flip() {
-    _rotation.animateWith(springTo(Springs.pop, _rotation.value, _rotation.value + math.pi));
+    _rotation.animateWith(
+      springTo(Springs.pop, _rotation.value, _rotation.value + math.pi),
+    );
     widget.onFlip();
   }
 
@@ -239,7 +261,12 @@ class _SwapCardState extends State<SwapCard> with TickerProviderStateMixin {
   Widget _eyebrow(String label) {
     return Text(
       label.toUpperCase(),
-      style: text(11, weight: FontWeight.w600, color: AppColors.subtle, tracking: kTrackingWide),
+      style: text(
+        11,
+        weight: FontWeight.w600,
+        color: AppColors.subtle,
+        tracking: kTrackingWide,
+      ),
     );
   }
 
@@ -270,7 +297,8 @@ class _SwapCardState extends State<SwapCard> with TickerProviderStateMixin {
               Row(
                 children: [
                   FadeSwapText(
-                    text: 'Balance ${formatNumber(widget.fromToken.balance)} ${widget.fromToken.symbol}',
+                    text:
+                        'Balance ${formatNumber(widget.fromToken.balance)} ${widget.fromToken.symbol}',
                     style: text(12, color: AppColors.subtle),
                   ),
                   const SizedBox(width: 8),
@@ -279,12 +307,22 @@ class _SwapCardState extends State<SwapCard> with TickerProviderStateMixin {
                     haptic: HapticKind.selection,
                     onPress: widget.onMax,
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 2,
+                      ),
                       decoration: BoxDecoration(
                         color: AppColors.accentSoft,
                         borderRadius: BorderRadius.circular(999),
                       ),
-                      child: Text('MAX', style: text(11, weight: FontWeight.w700, color: AppColors.accent)),
+                      child: Text(
+                        'MAX',
+                        style: text(
+                          11,
+                          weight: FontWeight.w700,
+                          color: AppColors.accent,
+                        ),
+                      ),
                     ),
                   ),
                 ],
@@ -298,7 +336,13 @@ class _SwapCardState extends State<SwapCard> with TickerProviderStateMixin {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                _arcChip(a: true, child: TokenChip(token: widget.tokenA, onPress: widget.onPressChipA)),
+                _arcChip(
+                  a: true,
+                  child: TokenChip(
+                    token: widget.tokenA,
+                    onPress: widget.onPressChipA,
+                  ),
+                ),
                 Row(
                   children: [
                     RollingNumber(
@@ -318,7 +362,14 @@ class _SwapCardState extends State<SwapCard> with TickerProviderStateMixin {
             child: Stack(
               alignment: Alignment.center,
               children: [
-                const Positioned(left: 0, right: 0, child: SizedBox(height: 1, child: ColoredBox(color: AppColors.outline))),
+                const Positioned(
+                  left: 0,
+                  right: 0,
+                  child: SizedBox(
+                    height: 1,
+                    child: ColoredBox(color: AppColors.outline),
+                  ),
+                ),
                 PressableScale(
                   scaleTo: 0.9,
                   haptic: HapticKind.press,
@@ -343,7 +394,11 @@ class _SwapCardState extends State<SwapCard> with TickerProviderStateMixin {
                       animation: _rotation,
                       builder: (context, _) => Transform.rotate(
                         angle: _rotation.value,
-                        child: const Icon(LucideIcons.arrowUpDown, size: 22, color: AppColors.accent),
+                        child: const Icon(
+                          LucideIcons.arrowUpDown,
+                          size: 22,
+                          color: AppColors.accent,
+                        ),
                       ),
                     ),
                   ),
@@ -355,7 +410,10 @@ class _SwapCardState extends State<SwapCard> with TickerProviderStateMixin {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               _eyebrow('To'),
-              FadeSwapText(text: widget.rateText, style: text(12, color: AppColors.subtle)),
+              FadeSwapText(
+                text: widget.rateText,
+                style: text(12, color: AppColors.subtle),
+              ),
             ],
           ),
           const SizedBox(height: 8),
@@ -365,7 +423,13 @@ class _SwapCardState extends State<SwapCard> with TickerProviderStateMixin {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                _arcChip(a: false, child: TokenChip(token: widget.tokenB, onPress: widget.onPressChipB)),
+                _arcChip(
+                  a: false,
+                  child: TokenChip(
+                    token: widget.tokenB,
+                    onPress: widget.onPressChipB,
+                  ),
+                ),
                 RefreshableValue(
                   refreshing: widget.refreshing,
                   shimmerWidth: 96,
@@ -413,7 +477,12 @@ class SwapDetailsCard extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             Text(label, style: text(13, color: AppColors.subtle)),
-            RefreshableValue(refreshing: refreshing, shimmerWidth: 64, shimmerHeight: 14, child: child),
+            RefreshableValue(
+              refreshing: refreshing,
+              shimmerWidth: 64,
+              shimmerHeight: 14,
+              child: child,
+            ),
           ],
         ),
       ),
@@ -437,7 +506,8 @@ class SwapDetailsCard extends StatelessWidget {
             'Exchange rate',
             0,
             FadeSwapText(
-              text: '1 ${fromToken.symbol} = ${formatRate(quote.rate)} ${toToken.symbol}',
+              text:
+                  '1 ${fromToken.symbol} = ${formatRate(quote.rate)} ${toToken.symbol}',
               style: bold,
             ),
           ),
@@ -475,7 +545,9 @@ class SwapDetailsCard extends StatelessWidget {
             Row(
               children: [
                 RollingNumber(
-                  value: quote.minReceived.toStringAsFixed(math.min(toToken.displayDecimals, 4)),
+                  value: quote.minReceived.toStringAsFixed(
+                    math.min(toToken.displayDecimals, 4),
+                  ),
                   fontSize: 13,
                   color: AppColors.ink,
                   keyMode: RollingKeyMode.value,
@@ -506,7 +578,8 @@ class RouteCard extends StatefulWidget {
   State<RouteCard> createState() => _RouteCardState();
 }
 
-class _RouteCardState extends State<RouteCard> with SingleTickerProviderStateMixin {
+class _RouteCardState extends State<RouteCard>
+    with SingleTickerProviderStateMixin {
   late final AnimationController _clock = AnimationController(
     vsync: this,
     duration: _routeCycle,
@@ -536,7 +609,8 @@ class _RouteCardState extends State<RouteCard> with SingleTickerProviderStateMix
               height: _routeTrack,
               child: AnimatedBuilder(
                 animation: _clock,
-                builder: (context, _) => CustomPaint(painter: _RoutePainter(t: _clock.value)),
+                builder: (context, _) =>
+                    CustomPaint(painter: _RoutePainter(t: _clock.value)),
               ),
             ),
           ),
@@ -548,7 +622,12 @@ class _RouteCardState extends State<RouteCard> with SingleTickerProviderStateMix
             children: [
               Text(
                 'VIA',
-                style: text(10, weight: FontWeight.w600, color: AppColors.subtle, tracking: kTrackingWide),
+                style: text(
+                  10,
+                  weight: FontWeight.w600,
+                  color: AppColors.subtle,
+                  tracking: kTrackingWide,
+                ),
               ),
               FadeSwapText(
                 text: venue.label,
@@ -581,12 +660,18 @@ class _RoutePainter extends CustomPainter {
       canvas.drawCircle(
         Offset(cx, _routeTrack / 2),
         5.5,
-        Paint()..color = AppColors.accent.withValues(alpha: (fade * 0.22).clamp(0.0, 1.0)),
+        Paint()
+          ..color = AppColors.accent.withValues(
+            alpha: (fade * 0.22).clamp(0.0, 1.0),
+          ),
       );
       canvas.drawCircle(
         Offset(cx, _routeTrack / 2),
         2.2,
-        Paint()..color = AppColors.accent.withValues(alpha: (fade * 0.95).clamp(0.0, 1.0)),
+        Paint()
+          ..color = AppColors.accent.withValues(
+            alpha: (fade * 0.95).clamp(0.0, 1.0),
+          ),
       );
     }
   }

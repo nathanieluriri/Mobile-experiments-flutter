@@ -9,8 +9,11 @@ import '../widgets/dissolve/dissolve_particles.dart';
 /// Draws one card coming apart: an atlas of the card's own pixels, and over it
 /// a frost that blurs the card and clears early on.
 class DissolvePainter extends CustomPainter {
-  DissolvePainter({required this.image, required this.particles, required this.progress})
-    : super(repaint: progress);
+  DissolvePainter({
+    required this.image,
+    required this.particles,
+    required this.progress,
+  }) : super(repaint: progress);
 
   final ui.Image image;
   final DissolveParticles particles;
@@ -52,7 +55,11 @@ class DissolvePainter extends CustomPainter {
     if (sigma != _frostSigma) {
       _frostSigma = sigma;
       _frostPaint.imageFilter = sigma > 0
-          ? ui.ImageFilter.blur(sigmaX: sigma, sigmaY: sigma, tileMode: TileMode.decal)
+          ? ui.ImageFilter.blur(
+              sigmaX: sigma,
+              sigmaY: sigma,
+              tileMode: TileMode.decal,
+            )
           : null;
     }
     canvas.saveLayer(
@@ -70,5 +77,7 @@ class DissolvePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(DissolvePainter old) =>
-      old.image != image || old.particles != particles || old.progress != progress;
+      old.image != image ||
+      old.particles != particles ||
+      old.progress != progress;
 }

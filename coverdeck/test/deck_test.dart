@@ -10,8 +10,9 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'support/golden.dart';
 
-Finder _glyph(Glyph glyph) =>
-    find.byWidgetPredicate((widget) => widget is GlyphIcon && widget.glyph == glyph);
+Finder _glyph(Glyph glyph) => find.byWidgetPredicate(
+  (widget) => widget is GlyphIcon && widget.glyph == glyph,
+);
 
 void main() {
   testWidgets('deck at rest on the first album', (tester) async {
@@ -68,10 +69,12 @@ void main() {
     expect(find.text('Midnight Static'), findsOneWidget);
   });
 
-  testWidgets('the controls answer touches beyond their buttons', (tester) async {
+  testWidgets('the controls answer touches beyond their buttons', (
+    tester,
+  ) async {
     await pumpScreen(tester, const App());
-    // The visible button is 44 square and the source slops it by 14, so the
-    // target reaches 36 from the centre and stops there.
+    // The visible button is 44 square with 14 of hit slop, so the target
+    // reaches 36 from the centre and stops there.
     final centre = tester.getCenter(_glyph(Glyph.playFill));
     const reach = 22.0 + controlHitSlop - 1;
     for (final point in <Offset>[
@@ -83,17 +86,29 @@ void main() {
       await tester.tapAt(point);
       await tester.pump();
       await pumpMs(tester, 600);
-      expect(_glyph(Glyph.pauseFill), findsOneWidget, reason: '$point should play');
+      expect(
+        _glyph(Glyph.pauseFill),
+        findsOneWidget,
+        reason: '$point should play',
+      );
       await tester.tapAt(point);
       await tester.pump();
       await pumpMs(tester, 600);
-      expect(_glyph(Glyph.playFill), findsOneWidget, reason: '$point should pause');
+      expect(
+        _glyph(Glyph.playFill),
+        findsOneWidget,
+        reason: '$point should pause',
+      );
     }
 
     // Two points past the slop is nobody's business.
     await tester.tapAt(centre + const Offset(0, 22 + controlHitSlop + 2));
     await tester.pump();
     await pumpMs(tester, 600);
-    expect(_glyph(Glyph.playFill), findsOneWidget, reason: 'a miss changes nothing');
+    expect(
+      _glyph(Glyph.playFill),
+      findsOneWidget,
+      reason: 'a miss changes nothing',
+    );
   });
 }

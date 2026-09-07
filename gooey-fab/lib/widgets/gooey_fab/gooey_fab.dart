@@ -73,7 +73,9 @@ class _GooeyFabState extends State<GooeyFab> with TickerProviderStateMixin {
                   child: BackdropFilter(
                     filter: backdropFilterAt(progress),
                     child: ColoredBox(
-                      color: AppColors.onInk.withValues(alpha: progress * backdropWashOpacity),
+                      color: AppColors.onInk.withValues(
+                        alpha: progress * backdropWashOpacity,
+                      ),
                       child: child,
                     ),
                   ),
@@ -176,8 +178,12 @@ class _GooLayer extends StatelessWidget {
             animation: controller.animations,
             builder: (context, _) => CustomPaint(
               painter: GooCirclesPainter(
-                voiceCenterY: fabCenterY + controller.voiceDrive.value * voiceActionOffsetY,
-                videoCenterY: fabCenterY + controller.videoDrive.value * videoActionOffsetY,
+                voiceCenterY:
+                    fabCenterY +
+                    controller.voiceDrive.value * voiceActionOffsetY,
+                videoCenterY:
+                    fabCenterY +
+                    controller.videoDrive.value * videoActionOffsetY,
               ),
             ),
           ),

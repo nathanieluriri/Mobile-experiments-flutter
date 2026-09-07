@@ -71,7 +71,8 @@ class GlyphPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(GlyphPainter old) => old.glyph != glyph || old.color != color;
+  bool shouldRepaint(GlyphPainter old) =>
+      old.glyph != glyph || old.color != color;
 }
 
 /// Paints one of [TabGlyph] scaled to fill its box.
@@ -124,5 +125,6 @@ class TabGlyphPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(TabGlyphPainter old) => old.glyph != glyph || old.color != color;
+  bool shouldRepaint(TabGlyphPainter old) =>
+      old.glyph != glyph || old.color != color;
 }

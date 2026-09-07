@@ -24,7 +24,9 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  List<BookmarkCardDefinition> _cards = bookmarkCards.take(kInitialVisibleCards).toList();
+  List<BookmarkCardDefinition> _cards = bookmarkCards
+      .take(kInitialVisibleCards)
+      .toList();
   final Map<String, ui.Image> _snapshots = {};
   bool _restoring = false;
   Timer? _restoreTimer;
@@ -76,7 +78,11 @@ class _HomeScreenState extends State<HomeScreen> {
         right: false,
         bottom: false,
         child: Padding(
-          padding: const EdgeInsets.only(left: kBoardPadding, right: kBoardPadding, top: kBoardGap),
+          padding: const EdgeInsets.only(
+            left: kBoardPadding,
+            right: kBoardPadding,
+            top: kBoardGap,
+          ),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [

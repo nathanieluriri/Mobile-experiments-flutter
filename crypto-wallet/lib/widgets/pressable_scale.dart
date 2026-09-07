@@ -33,7 +33,9 @@ class PressableScale extends StatefulWidget {
 
 class _PressableScaleState extends State<PressableScale>
     with SingleTickerProviderStateMixin {
-  late final AnimationController _pressed = AnimationController.unbounded(vsync: this);
+  late final AnimationController _pressed = AnimationController.unbounded(
+    vsync: this,
+  );
 
   void _down(TapDownDetails details) {
     if (!widget.enabled) {

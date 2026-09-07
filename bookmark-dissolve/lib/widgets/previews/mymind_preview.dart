@@ -33,7 +33,11 @@ class MymindIcon extends StatelessWidget {
               top: 2.5,
               child: Transform.rotate(
                 angle: math.pi / 4,
-                child: Container(width: 6.5, height: 6.5, color: const Color(0xFFFFFFFF)),
+                child: Container(
+                  width: 6.5,
+                  height: 6.5,
+                  color: const Color(0xFFFFFFFF),
+                ),
               ),
             ),
           ],
@@ -51,7 +55,10 @@ class _Lobe extends StatelessWidget {
     return Container(
       width: 6.5,
       height: 6.5,
-      decoration: const BoxDecoration(color: Color(0xFFFFFFFF), shape: BoxShape.circle),
+      decoration: const BoxDecoration(
+        color: Color(0xFFFFFFFF),
+        shape: BoxShape.circle,
+      ),
     );
   }
 }
@@ -69,8 +76,7 @@ class MymindBody extends StatelessWidget {
           child: ColoredBox(
             color: const Color(0xFFFFFFFF),
             // The padding sits above the stack, so the saved card's percentage
-            // size and its offsets both resolve against the content box, the
-            // way they do in the source.
+            // size and its offsets both resolve against the content box.
             child: Padding(
               padding: const EdgeInsets.only(top: kStep * 2.5),
               child: Stack(
@@ -86,7 +92,11 @@ class MymindBody extends StatelessWidget {
                             child: Text(
                               _taglineLines[i],
                               textAlign: TextAlign.center,
-                              style: text(size: 22, lineHeight: 26, color: AppColors.mymindText),
+                              style: text(
+                                size: 22,
+                                lineHeight: 26,
+                                color: AppColors.mymindText,
+                              ),
                             ),
                           ),
                       ],
@@ -132,7 +142,11 @@ class _SavedCard extends StatelessWidget {
               children: [
                 Text(
                   'SHOP · Soap',
-                  style: text(size: 5, color: const Color(0xFFA9A49D), letterSpacing: 0.5),
+                  style: text(
+                    size: 5,
+                    color: const Color(0xFFA9A49D),
+                    letterSpacing: 0.5,
+                  ),
                 ),
                 Container(
                   width: 13,
@@ -140,14 +154,20 @@ class _SavedCard extends StatelessWidget {
                   alignment: Alignment.center,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    border: Border.all(color: const Color(0xFFC8C2B8), width: 0.8),
+                    border: Border.all(
+                      color: const Color(0xFFC8C2B8),
+                      width: 0.8,
+                    ),
                   ),
                   child: Container(
                     width: 4.5,
                     height: 5,
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(1),
-                      border: Border.all(color: const Color(0xFFC8C2B8), width: 0.8),
+                      border: Border.all(
+                        color: const Color(0xFFC8C2B8),
+                        width: 0.8,
+                      ),
                     ),
                   ),
                 ),

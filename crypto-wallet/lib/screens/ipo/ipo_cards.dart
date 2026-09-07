@@ -23,8 +23,16 @@ class SectionLabel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: EdgeInsets.only(top: 24, bottom: 10, left: inset ? 20 : 0, right: inset ? 20 : 0),
-      child: Text(label, style: text(13, weight: FontWeight.w600, color: AppColors.subtle)),
+      padding: EdgeInsets.only(
+        top: 24,
+        bottom: 10,
+        left: inset ? 20 : 0,
+        right: inset ? 20 : 0,
+      ),
+      child: Text(
+        label,
+        style: text(13, weight: FontWeight.w600, color: AppColors.subtle),
+      ),
     );
   }
 }
@@ -36,7 +44,8 @@ class _StatusPulse extends StatefulWidget {
   State<_StatusPulse> createState() => _StatusPulseState();
 }
 
-class _StatusPulseState extends State<_StatusPulse> with SingleTickerProviderStateMixin {
+class _StatusPulseState extends State<_StatusPulse>
+    with SingleTickerProviderStateMixin {
   late final AnimationController _pulse = AnimationController(
     vsync: this,
     duration: const Duration(milliseconds: 900),
@@ -61,7 +70,10 @@ class _StatusPulseState extends State<_StatusPulse> with SingleTickerProviderSta
             child: Container(
               width: 7,
               height: 7,
-              decoration: const BoxDecoration(color: AppColors.gain, shape: BoxShape.circle),
+              decoration: const BoxDecoration(
+                color: AppColors.gain,
+                shape: BoxShape.circle,
+              ),
             ),
           ),
         );
@@ -88,7 +100,10 @@ class _CountdownUnit extends StatelessWidget {
           keyMode: RollingKeyMode.value,
         ),
         const SizedBox(height: 2),
-        Text(unit, style: text(11, weight: FontWeight.w500, color: AppColors.subtle)),
+        Text(
+          unit,
+          style: text(11, weight: FontWeight.w500, color: AppColors.subtle),
+        ),
       ],
     );
   }
@@ -132,7 +147,11 @@ class IpoHeroCard extends StatelessWidget {
               Enter(
                 kind: EnterKind.scaleFadeIn,
                 delay: const Duration(milliseconds: 80),
-                child: CompanyLogo(size: 58, gradient: ipo.gradient, monogram: ipo.monogram),
+                child: CompanyLogo(
+                  size: 58,
+                  gradient: ipo.gradient,
+                  monogram: ipo.monogram,
+                ),
               ),
               const SizedBox(width: 16),
               Expanded(
@@ -141,12 +160,18 @@ class IpoHeroCard extends StatelessWidget {
                   children: [
                     Text(ipo.company, style: text(20, weight: FontWeight.w700)),
                     const SizedBox(height: 2),
-                    Text('${ipo.ticker} · ${ipo.industry}', style: text(13, color: AppColors.subtle)),
+                    Text(
+                      '${ipo.ticker} · ${ipo.industry}',
+                      style: text(13, color: AppColors.subtle),
+                    ),
                   ],
                 ),
               ),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 6,
+                ),
                 decoration: BoxDecoration(
                   color: subscribed ? AppColors.accentSoft : AppColors.gainSoft,
                   borderRadius: BorderRadius.circular(999),
@@ -154,7 +179,10 @@ class IpoHeroCard extends StatelessWidget {
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    if (!subscribed) ...[const _StatusPulse(), const SizedBox(width: 6)],
+                    if (!subscribed) ...[
+                      const _StatusPulse(),
+                      const SizedBox(width: 6),
+                    ],
                     Text(
                       subscribed ? 'Subscribed' : 'Open',
                       style: text(
@@ -175,9 +203,15 @@ class IpoHeroCard extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Expected Listing', style: text(12, color: AppColors.subtle)),
+                    Text(
+                      'Expected Listing',
+                      style: text(12, color: AppColors.subtle),
+                    ),
                     const SizedBox(height: 4),
-                    Text(ipo.listingDate, style: text(15, weight: FontWeight.w700)),
+                    Text(
+                      ipo.listingDate,
+                      style: text(15, weight: FontWeight.w700),
+                    ),
                   ],
                 ),
               ),
@@ -185,7 +219,10 @@ class IpoHeroCard extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Price Range', style: text(12, color: AppColors.subtle)),
+                    Text(
+                      'Price Range',
+                      style: text(12, color: AppColors.subtle),
+                    ),
                     const SizedBox(height: 4),
                     Text(
                       formatPriceRange(ipo.priceLow, ipo.priceHigh),
@@ -207,7 +244,10 @@ class IpoHeroCard extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Subscription closes in', style: text(12, color: AppColors.subtle)),
+                    Text(
+                      'Subscription closes in',
+                      style: text(12, color: AppColors.subtle),
+                    ),
                     const SizedBox(height: 10),
                     Row(
                       children: [
@@ -215,7 +255,10 @@ class IpoHeroCard extends StatelessWidget {
                         const SizedBox(width: 24),
                         _CountdownUnit(value: countdown.hours, unit: 'Hours'),
                         const SizedBox(width: 24),
-                        _CountdownUnit(value: countdown.minutes, unit: 'Minutes'),
+                        _CountdownUnit(
+                          value: countdown.minutes,
+                          unit: 'Minutes',
+                        ),
                       ],
                     ),
                   ],
@@ -273,14 +316,21 @@ class IpoDetailsList extends StatelessWidget {
                       color: AppColors.accentSoft,
                       shape: BoxShape.circle,
                     ),
-                    child: Icon(_detailIcon(details[i].icon), size: 17, color: AppColors.accent),
+                    child: Icon(
+                      _detailIcon(details[i].icon),
+                      size: 17,
+                      color: AppColors.accent,
+                    ),
                   ),
                   const SizedBox(width: 14),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(details[i].label, style: text(12, color: AppColors.subtle)),
+                        Text(
+                          details[i].label,
+                          style: text(12, color: AppColors.subtle),
+                        ),
                         const SizedBox(height: 2),
                         Text(
                           details[i].value,
@@ -313,12 +363,16 @@ class CompanyOverviewCard extends StatefulWidget {
 
 class _CompanyOverviewCardState extends State<CompanyOverviewCard>
     with SingleTickerProviderStateMixin {
-  late final AnimationController _progress = AnimationController.unbounded(vsync: this);
+  late final AnimationController _progress = AnimationController.unbounded(
+    vsync: this,
+  );
   bool _expanded = false;
 
   void _toggle() {
     setState(() => _expanded = !_expanded);
-    _progress.animateWith(springTo(Springs.layout, _progress.value, _expanded ? 1 : 0));
+    _progress.animateWith(
+      springTo(Springs.layout, _progress.value, _expanded ? 1 : 0),
+    );
   }
 
   @override
@@ -333,7 +387,10 @@ class _CompanyOverviewCardState extends State<CompanyOverviewCard>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(title, style: text(12, weight: FontWeight.w600, color: AppColors.accent)),
+          Text(
+            title,
+            style: text(12, weight: FontWeight.w600, color: AppColors.accent),
+          ),
           const SizedBox(height: 6),
           Text(body, style: text(13, lineHeight: 20)),
         ],
@@ -363,7 +420,10 @@ class _CompanyOverviewCardState extends State<CompanyOverviewCard>
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text('About ${ipo.company}', style: text(15, weight: FontWeight.w700)),
+                    Text(
+                      'About ${ipo.company}',
+                      style: text(15, weight: FontWeight.w700),
+                    ),
                     AnimatedBuilder(
                       animation: _progress,
                       builder: (context, _) {
@@ -377,7 +437,11 @@ class _CompanyOverviewCardState extends State<CompanyOverviewCard>
                               color: AppColors.chip,
                               shape: BoxShape.circle,
                             ),
-                            child: const Icon(LucideIcons.chevronDown, size: 17, color: AppColors.ink),
+                            child: const Icon(
+                              LucideIcons.chevronDown,
+                              size: 17,
+                              color: AppColors.ink,
+                            ),
                           ),
                         );
                       },
@@ -385,7 +449,10 @@ class _CompanyOverviewCardState extends State<CompanyOverviewCard>
                   ],
                 ),
                 const SizedBox(height: 10),
-                Text(ipo.description, style: text(13, color: AppColors.subtle, lineHeight: 20)),
+                Text(
+                  ipo.description,
+                  style: text(13, color: AppColors.subtle, lineHeight: 20),
+                ),
               ],
             ),
           ),
@@ -418,7 +485,11 @@ class _CompanyOverviewCardState extends State<CompanyOverviewCard>
 
 /// Six metric tiles in two columns.
 class FinancialMetricsGrid extends StatelessWidget {
-  const FinancialMetricsGrid({super.key, required this.metrics, this.baseDelay = 0});
+  const FinancialMetricsGrid({
+    super.key,
+    required this.metrics,
+    this.baseDelay = 0,
+  });
 
   final List<IpoMetric> metrics;
   final int baseDelay;
@@ -446,7 +517,10 @@ class FinancialMetricsGrid extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(metrics[i].label, style: text(12, color: AppColors.subtle)),
+                        Text(
+                          metrics[i].label,
+                          style: text(12, color: AppColors.subtle),
+                        ),
                         const SizedBox(height: 6),
                         RollingNumber(
                           value: metrics[i].value,
@@ -457,7 +531,11 @@ class FinancialMetricsGrid extends StatelessWidget {
                         const SizedBox(height: 4),
                         Text(
                           metrics[i].hint,
-                          style: text(11, weight: FontWeight.w500, color: AppColors.cents),
+                          style: text(
+                            11,
+                            weight: FontWeight.w500,
+                            color: AppColors.cents,
+                          ),
                         ),
                       ],
                     ),
@@ -485,7 +563,8 @@ class _Segment extends StatefulWidget {
   State<_Segment> createState() => _SegmentState();
 }
 
-class _SegmentState extends State<_Segment> with SingleTickerProviderStateMixin {
+class _SegmentState extends State<_Segment>
+    with SingleTickerProviderStateMixin {
   late final AnimationController _grow = AnimationController(
     vsync: this,
     duration: const Duration(milliseconds: 520),
@@ -547,7 +626,9 @@ class CompanyTimeline extends StatelessWidget {
         children: [
           for (var i = 0; i < events.length; i++)
             SizedBox(
-              width: i == events.length - 1 ? _timelineCard : _timelineCard + _timelineGap,
+              width: i == events.length - 1
+                  ? _timelineCard
+                  : _timelineCard + _timelineGap,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -558,7 +639,9 @@ class CompanyTimeline extends StatelessWidget {
                         height: _timelineDot,
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
-                          color: i == events.length - 1 ? AppColors.accent : AppColors.card,
+                          color: i == events.length - 1
+                              ? AppColors.accent
+                              : AppColors.card,
                           border: Border.all(
                             width: 2.5,
                             color: i == events.length - 1
@@ -586,14 +669,25 @@ class CompanyTimeline extends StatelessWidget {
                         children: [
                           Text(
                             events[i].year,
-                            style: text(11, weight: FontWeight.w600, color: AppColors.accent),
+                            style: text(
+                              11,
+                              weight: FontWeight.w600,
+                              color: AppColors.accent,
+                            ),
                           ),
                           const SizedBox(height: 4),
-                          Text(events[i].title, style: text(14, weight: FontWeight.w700)),
+                          Text(
+                            events[i].title,
+                            style: text(14, weight: FontWeight.w700),
+                          ),
                           const SizedBox(height: 4),
                           Text(
                             events[i].detail,
-                            style: text(11.5, color: AppColors.subtle, lineHeight: 16),
+                            style: text(
+                              11.5,
+                              color: AppColors.subtle,
+                              lineHeight: 16,
+                            ),
                           ),
                         ],
                       ),
@@ -700,7 +794,11 @@ class _RelatedIpoCard extends StatelessWidget {
           children: [
             Row(
               children: [
-                CompanyLogo(size: 40, gradient: ipo.gradient, monogram: ipo.monogram),
+                CompanyLogo(
+                  size: 40,
+                  gradient: ipo.gradient,
+                  monogram: ipo.monogram,
+                ),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(
@@ -713,7 +811,10 @@ class _RelatedIpoCard extends StatelessWidget {
                         style: text(14, weight: FontWeight.w700),
                       ),
                       const SizedBox(height: 2),
-                      Text(ipo.industry, style: text(11, color: AppColors.subtle)),
+                      Text(
+                        ipo.industry,
+                        style: text(11, color: AppColors.subtle),
+                      ),
                     ],
                   ),
                 ),
@@ -724,7 +825,10 @@ class _RelatedIpoCard extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 4,
+                  ),
                   decoration: BoxDecoration(
                     color: AppColors.chip,
                     borderRadius: BorderRadius.circular(999),
@@ -732,9 +836,16 @@ class _RelatedIpoCard extends StatelessWidget {
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Icon(LucideIcons.clock, size: 11, color: AppColors.subtle),
+                      const Icon(
+                        LucideIcons.clock,
+                        size: 11,
+                        color: AppColors.subtle,
+                      ),
                       const SizedBox(width: 4),
-                      Text('${ipo.daysLeft}d left', style: text(11, weight: FontWeight.w600)),
+                      Text(
+                        '${ipo.daysLeft}d left',
+                        style: text(11, weight: FontWeight.w600),
+                      ),
                     ],
                   ),
                 ),

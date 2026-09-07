@@ -34,16 +34,19 @@ class ChatsScreen extends StatelessWidget {
                       padding: EdgeInsets.zero,
                       itemCount: chats.length,
                       itemBuilder: (context, index) {
-                      final chat = chats[index];
-                      return ChatRow(key: ValueKey(chat.id), chat: chat);
-                    },
+                        final chat = chats[index];
+                        return ChatRow(key: ValueKey(chat.id), chat: chat);
+                      },
                     ),
                   ),
                 ],
               ),
             ),
             Positioned.fill(
-              child: GooeyFab(onVideoCall: onVideoCall, onVoiceCall: onVoiceCall),
+              child: GooeyFab(
+                onVideoCall: onVideoCall,
+                onVoiceCall: onVoiceCall,
+              ),
             ),
           ],
         ),

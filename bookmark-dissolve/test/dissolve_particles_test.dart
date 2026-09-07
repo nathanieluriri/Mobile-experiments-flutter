@@ -7,7 +7,11 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// A picture the size of a card, at the phone's pixel ratio.
-Future<ui.Image> cardSnapshot(WidgetTester tester, Size size, double pixelRatio) async {
+Future<ui.Image> cardSnapshot(
+  WidgetTester tester,
+  Size size,
+  double pixelRatio,
+) async {
   final key = GlobalKey();
   await tester.pumpWidget(
     Center(
@@ -21,7 +25,8 @@ Future<ui.Image> cardSnapshot(WidgetTester tester, Size size, double pixelRatio)
       ),
     ),
   );
-  final boundary = key.currentContext!.findRenderObject()! as RenderRepaintBoundary;
+  final boundary =
+      key.currentContext!.findRenderObject()! as RenderRepaintBoundary;
   return boundary.toImageSync(pixelRatio: pixelRatio);
 }
 
@@ -29,9 +34,15 @@ void main() {
   const size = Size(192, 204);
   const origin = Offset(228, 78);
 
-  testWidgets('the card is cut into three pixel tiles of its own picture', (tester) async {
+  testWidgets('the card is cut into three pixel tiles of its own picture', (
+    tester,
+  ) async {
     final image = await cardSnapshot(tester, size, 2);
-    final particles = DissolveParticles(image: image, origin: origin, size: size);
+    final particles = DissolveParticles(
+      image: image,
+      origin: origin,
+      size: size,
+    );
 
     expect(particles.cols, 64);
     expect(particles.rows, 68);
@@ -43,13 +54,24 @@ void main() {
     expect(particles.rects.sublist(0, 4), [0, 0, tile, tile]);
     expect(particles.rects.sublist(4, 8), [tile, 0, tile * 2, tile]);
     final secondRow = particles.cols * 4;
-    expect(particles.rects.sublist(secondRow, secondRow + 4), [0, tile, tile, tile * 2]);
+    expect(particles.rects.sublist(secondRow, secondRow + 4), [
+      0,
+      tile,
+      tile,
+      tile * 2,
+    ]);
     image.dispose();
   });
 
-  testWidgets('at the start every tile sits exactly where it was', (tester) async {
+  testWidgets('at the start every tile sits exactly where it was', (
+    tester,
+  ) async {
     final image = await cardSnapshot(tester, size, 2);
-    final particles = DissolveParticles(image: image, origin: origin, size: size)..update(0, 440);
+    final particles = DissolveParticles(
+      image: image,
+      origin: origin,
+      size: size,
+    )..update(0, 440);
 
     for (var i = 0; i < particles.count; i++) {
       final o = i * 4;
@@ -69,9 +91,15 @@ void main() {
     image.dispose();
   });
 
-  testWidgets('by the end every tile has shrunk, faded and blown right', (tester) async {
+  testWidgets('by the end every tile has shrunk, faded and blown right', (
+    tester,
+  ) async {
     final image = await cardSnapshot(tester, size, 2);
-    final particles = DissolveParticles(image: image, origin: origin, size: size)..update(1, 440);
+    final particles = DissolveParticles(
+      image: image,
+      origin: origin,
+      size: size,
+    )..update(1, 440);
 
     for (var i = 0; i < particles.count; i++) {
       final o = i * 4;
@@ -90,7 +118,8 @@ void main() {
       var total = 0.0;
       for (var row = 0; row < particles.rows; row++) {
         final o = (row * particles.cols + col) * 4;
-        total += particles.transforms[o + 2] - (origin.dx + col * kDissolveTileSize);
+        total +=
+            particles.transforms[o + 2] - (origin.dx + col * kDissolveTileSize);
       }
       return total / particles.rows;
     }
@@ -103,7 +132,10 @@ void main() {
   test('the left of the card starts moving before the right', () {
     // Column sweep: with the same seed, a later column starts later.
     const seed = 0.5;
-    expect(particleProgress(0.5, seed, 0), greaterThan(particleProgress(0.5, seed, 1)));
+    expect(
+      particleProgress(0.5, seed, 0),
+      greaterThan(particleProgress(0.5, seed, 1)),
+    );
     // Nothing has begun before the base delay.
     expect(particleProgress(ParticleDelay.base - 0.001, 0, 0), 0);
     expect(particleProgress(1, seed, 1), 1);

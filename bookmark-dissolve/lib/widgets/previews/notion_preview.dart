@@ -47,15 +47,27 @@ class NotionBody extends StatelessWidget {
             Text(
               'Write. Plan. Build.',
               textAlign: TextAlign.center,
-              style: text(size: 19, weight: FontWeight.w700, color: AppColors.ink),
+              style: text(
+                size: 19,
+                weight: FontWeight.w700,
+                color: AppColors.ink,
+              ),
             ),
             Padding(
-              padding: const EdgeInsets.only(top: kStep, left: kStep * 6, right: kStep * 6),
+              padding: const EdgeInsets.only(
+                top: kStep,
+                left: kStep * 6,
+                right: kStep * 6,
+              ),
               child: Text(
                 'One connected workspace for your notes, docs and projects \u2014 '
                 'where better, faster work happens together.',
                 textAlign: TextAlign.center,
-                style: text(size: 6.5, lineHeight: 9, color: AppColors.inkMuted),
+                style: text(
+                  size: 6.5,
+                  lineHeight: 9,
+                  color: AppColors.inkMuted,
+                ),
               ),
             ),
             Expanded(
@@ -71,7 +83,9 @@ class NotionBody extends StatelessWidget {
                     ),
                     decoration: BoxDecoration(
                       color: const Color(0xFFFFFFFF),
-                      borderRadius: const BorderRadius.vertical(top: Radius.circular(10)),
+                      borderRadius: const BorderRadius.vertical(
+                        top: Radius.circular(10),
+                      ),
                       border: const Border(
                         top: BorderSide(color: Color(0xFFECEAE5)),
                         left: BorderSide(color: Color(0xFFECEAE5)),
@@ -103,7 +117,9 @@ class NotionBody extends StatelessWidget {
                                   height: 6,
                                   decoration: BoxDecoration(
                                     borderRadius: BorderRadius.circular(2),
-                                    border: Border.all(color: const Color(0xFFD5D1C9)),
+                                    border: Border.all(
+                                      color: const Color(0xFFD5D1C9),
+                                    ),
                                   ),
                                 ),
                                 const SizedBox(width: kStep * 1.5),

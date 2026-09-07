@@ -33,14 +33,17 @@ class WalletScreen extends StatefulWidget {
   State<WalletScreen> createState() => _WalletScreenState();
 }
 
-class _WalletScreenState extends State<WalletScreen> with TickerProviderStateMixin {
+class _WalletScreenState extends State<WalletScreen>
+    with TickerProviderStateMixin {
   late final WalletRefreshController _controller = WalletRefreshController(
     vsync: this,
     initialBalance: kInitialBalance,
     initialGain: kInitialGain,
     random: appRandom,
   );
-  late final AnimationController _pull = AnimationController.unbounded(vsync: this);
+  late final AnimationController _pull = AnimationController.unbounded(
+    vsync: this,
+  );
   Timer? _autoRefresh;
   double _dragTotal = 0;
 
@@ -73,7 +76,11 @@ class _WalletScreenState extends State<WalletScreen> with TickerProviderStateMix
     if (_pull.value >= kPullTrigger) {
       _controller.refresh();
     }
-    _pull.animateTo(0, duration: const Duration(milliseconds: 420), curve: Eases.ios);
+    _pull.animateTo(
+      0,
+      duration: const Duration(milliseconds: 420),
+      curve: Eases.ios,
+    );
   }
 
   void _open(String route) => Navigator.of(context).pushNamed(route);
@@ -102,7 +109,9 @@ class _WalletScreenState extends State<WalletScreen> with TickerProviderStateMix
                     math.min(1.0, _pull.value / kPullTrigger),
                   );
                   return ClipRRect(
-                    borderRadius: const BorderRadius.vertical(bottom: Radius.circular(36)),
+                    borderRadius: const BorderRadius.vertical(
+                      bottom: Radius.circular(36),
+                    ),
                     child: ColoredBox(
                       color: AppColors.white,
                       child: Stack(
@@ -124,7 +133,9 @@ class _WalletScreenState extends State<WalletScreen> with TickerProviderStateMix
                             top: top + 4,
                             left: 0,
                             right: 0,
-                            child: Center(child: AppleSpinner(visibility: visibility)),
+                            child: Center(
+                              child: AppleSpinner(visibility: visibility),
+                            ),
                           ),
                         ],
                       ),
