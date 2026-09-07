@@ -36,6 +36,9 @@ class Coverflow extends StatelessWidget {
       ),
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
+        // Every point of travel counts, including the slop that starts the
+        // drag, so the deck never trails the finger.
+        dragStartBehavior: DragStartBehavior.down,
         onHorizontalDragUpdate: (details) {
           controller.dragTo(controller.scrollX - details.delta.dx / spacing);
         },
@@ -60,10 +63,14 @@ class Coverflow extends StatelessWidget {
             animation: controller,
             builder: (context, _) {
               final scrollX = controller.scrollX;
-              // Flutter has no z index, so the farthest covers are built first
-              // and the focused one lands on top.
+              // Flutter has no z index, so the covers are built in the order
+              // the deck's own z index would stack them: farthest first, and
+              // where two covers round to the same step the later album wins.
               final order = List.generate(albums.length, (i) => i)
-                ..sort((a, b) => (b - scrollX).abs().compareTo((a - scrollX).abs()));
+                ..sort((a, b) {
+                  final depth = coverZIndex(a, scrollX).compareTo(coverZIndex(b, scrollX));
+                  return depth != 0 ? depth : a.compareTo(b);
+                });
               return Stack(
                 clipBehavior: Clip.none,
                 children: [

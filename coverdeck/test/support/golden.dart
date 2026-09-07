@@ -52,7 +52,13 @@ Future<void> pumpMs(WidgetTester tester, int ms) {
 }
 
 /// Runs the clock far enough forward for any spring in flight to finish.
-Future<void> settle(WidgetTester tester) => tester.pump(const Duration(seconds: 3));
+///
+/// The first frame only starts the clock for a spring that has just been
+/// handed off, so it takes two: one to start and one long one to finish.
+Future<void> settle(WidgetTester tester) async {
+  await tester.pump();
+  await tester.pump(const Duration(seconds: 3));
+}
 
 /// Writes or compares `test/goldens/<name>.png` for whatever [finder] matches.
 Future<void> captureAt(WidgetTester tester, Finder finder, String name) async {

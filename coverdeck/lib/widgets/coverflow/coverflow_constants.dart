@@ -30,3 +30,7 @@ double tanh(double x) {
   final e = math.exp(2 * x);
   return (e - 1) / (e + 1);
 }
+
+/// Stacking step of the cover at [index] when the deck sits at [scrollX].
+/// Covers that round to the same step are stacked in album order.
+int coverZIndex(int index, double scrollX) => (1000 - (index - scrollX).abs() * 10).round();

@@ -3,6 +3,7 @@ import 'package:coverdeck/data/albums.dart';
 import 'package:coverdeck/painting/glyphs.dart';
 import 'package:coverdeck/screens/deck/deck_screen.dart';
 import 'package:coverdeck/screens/deck/progress_bar.dart';
+import 'package:coverdeck/screens/deck/transport_controls.dart';
 import 'package:coverdeck/widgets/glyph_icon.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -69,13 +70,15 @@ void main() {
 
   testWidgets('the controls answer touches beyond their buttons', (tester) async {
     await pumpScreen(tester, const App());
-    final button = tester.getRect(_glyph(Glyph.playFill));
-    // The source gives every control a hit slop of 14 on each side.
+    // The visible button is 44 square and the source slops it by 14, so the
+    // target reaches 36 from the centre and stops there.
+    final centre = tester.getCenter(_glyph(Glyph.playFill));
+    const reach = 22.0 + controlHitSlop - 1;
     for (final point in <Offset>[
-      button.topCenter - const Offset(0, 12),
-      button.bottomCenter + const Offset(0, 12),
-      button.centerLeft - const Offset(12, 0),
-      button.centerRight + const Offset(12, 0),
+      centre - const Offset(0, reach),
+      centre + const Offset(0, reach),
+      centre - const Offset(reach, 0),
+      centre + const Offset(reach, 0),
     ]) {
       await tester.tapAt(point);
       await tester.pump();
@@ -86,5 +89,11 @@ void main() {
       await pumpMs(tester, 600);
       expect(_glyph(Glyph.playFill), findsOneWidget, reason: '$point should pause');
     }
+
+    // Two points past the slop is nobody's business.
+    await tester.tapAt(centre + const Offset(0, 22 + controlHitSlop + 2));
+    await tester.pump();
+    await pumpMs(tester, 600);
+    expect(_glyph(Glyph.playFill), findsOneWidget, reason: 'a miss changes nothing');
   });
 }

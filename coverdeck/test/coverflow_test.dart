@@ -82,6 +82,16 @@ void main() {
       expect(card(9, 0).scale, closeTo(sideScale * 0.94, 0.001));
     });
 
+    test('covers stack nearest to farthest, ties going to the later album', () {
+      // The deck rounds its stacking step, so two covers an equal distance out
+      // land on the same step and the album order breaks the tie.
+      expect(coverZIndex(0, 0), 1000);
+      expect(coverZIndex(1, 0), 990);
+      expect(coverZIndex(0, 0.49), coverZIndex(1, 0.49), reason: 'both round to 995');
+      expect(coverZIndex(0, 0.55), lessThan(coverZIndex(1, 0.55)),
+          reason: 'past the crossover the second cover is the nearer one');
+    });
+
     test('covers fade out five and a half steps away', () {
       expect(card(0, 0).opacity, 1);
       expect(card(1, 0).opacity, closeTo(0.92, 0.001));
@@ -140,9 +150,14 @@ void main() {
       await tester.pump();
       await gesture.moveBy(Offset(-_spacing, 0));
       await tester.pump();
-      expect(controller.scrollX, closeTo(1, 0.001), reason: 'travel past the slop maps one to one');
+      expect(
+        controller.scrollX,
+        closeTo(1 + 40 / _spacing, 0.001),
+        reason: 'every point of travel counts, the slop that starts the drag included',
+      );
       await gesture.up();
       await tester.pump();
+      await settle(tester);
     });
 
     testWidgets('tapping a side cover brings it forward', (tester) async {

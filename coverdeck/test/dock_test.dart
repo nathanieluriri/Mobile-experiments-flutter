@@ -33,7 +33,9 @@ void main() {
   testWidgets('dock compact', (tester) async {
     final controller = TabBarController();
     addTearDown(controller.dispose);
-    await pumpScreen(tester, _strip(0, controller), phone: kStrip);
+    // Only a scrolling list collapses the dock, and Browse is the list that
+    // scrolls, so that is the tab the compact dock is ever seen on.
+    await pumpScreen(tester, _strip(1, controller), phone: kStrip);
     controller.handleScroll('browse', 200, 1000);
     await tester.pump();
     await pumpMs(tester, 1200);
