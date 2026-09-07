@@ -117,20 +117,23 @@ class _DissolveScopeState extends State<DissolveScope> {
         key: _overlayKey,
         children: [
           widget.child,
+          // The runs repaint every frame; the board below them must not.
           Positioned.fill(
-            child: IgnorePointer(
-              child: AnimatedBuilder(
-                animation: _controller,
-                builder: (context, _) => Stack(
-                  children: [
-                    for (final job in _controller.jobs)
-                      // The key sits on the stack's own child, so finishing one
-                      // run never restarts the ones still going.
-                      Positioned.fill(
-                        key: ValueKey(job.id),
-                        child: _DissolveRun(job: job, onDone: _controller.finish),
-                      ),
-                  ],
+            child: RepaintBoundary(
+              child: IgnorePointer(
+                child: AnimatedBuilder(
+                  animation: _controller,
+                  builder: (context, _) => Stack(
+                    children: [
+                      for (final job in _controller.jobs)
+                        // The key sits on the stack's own child, so finishing one
+                        // run never restarts the ones still going.
+                        Positioned.fill(
+                          key: ValueKey(job.id),
+                          child: _DissolveRun(job: job, onDone: _controller.finish),
+                        ),
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -169,7 +172,12 @@ class _DissolveRunState extends State<_DissolveRun> with SingleTickerProviderSta
   void initState() {
     super.initState();
     final job = widget.job;
-    _particles = DissolveParticles(image: job.image, origin: job.origin, size: job.size);
+    _particles = DissolveParticles(
+      image: job.image,
+      origin: job.origin,
+      size: job.size,
+      seed: job.id,
+    );
     _progress = AnimationController(
       vsync: this,
       duration: job.reverse ? kMaterializeDuration : kDissolveDuration,

@@ -56,6 +56,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _saveSnapshot(String cardId, ui.Image image) {
+    _snapshots.remove(cardId)?.dispose();
     _snapshots[cardId] = image;
   }
 

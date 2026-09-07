@@ -4,10 +4,17 @@ import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+/// The harness draws shadows without their blur by default, which would put a
+/// hard grey shelf under every card instead of the soft shadow the app paints.
+class _ShadowedTestBinding extends AutomatedTestWidgetsFlutterBinding {
+  @override
+  bool get disableShadows => false;
+}
+
 /// Loads the fonts under assets/fonts before any test runs, so goldens render
 /// real glyphs instead of the test harness placeholder font.
 Future<void> testExecutable(FutureOr<void> Function() testMain) async {
-  TestWidgetsFlutterBinding.ensureInitialized();
+  _ShadowedTestBinding();
   final loaders = <String, FontLoader>{};
   final dir = Directory('assets/fonts');
   if (dir.existsSync()) {

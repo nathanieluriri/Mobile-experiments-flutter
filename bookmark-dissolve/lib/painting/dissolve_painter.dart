@@ -17,6 +17,8 @@ class DissolvePainter extends CustomPainter {
   final Animation<double> progress;
 
   static final _atlasPaint = Paint()..filterQuality = FilterQuality.none;
+  final _frostPaint = Paint()..filterQuality = FilterQuality.low;
+  double _frostSigma = -1;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -47,13 +49,11 @@ class DissolvePainter extends CustomPainter {
       const [0, FrostEffect.maxBlur],
     );
     final card = particles.origin & particles.size;
-    final paint = Paint()..filterQuality = FilterQuality.low;
-    if (sigma > 0) {
-      paint.imageFilter = ui.ImageFilter.blur(
-        sigmaX: sigma,
-        sigmaY: sigma,
-        tileMode: TileMode.decal,
-      );
+    if (sigma != _frostSigma) {
+      _frostSigma = sigma;
+      _frostPaint.imageFilter = sigma > 0
+          ? ui.ImageFilter.blur(sigmaX: sigma, sigmaY: sigma, tileMode: TileMode.decal)
+          : null;
     }
     canvas.saveLayer(
       card.inflate(FrostEffect.maxBlur * 3),
@@ -63,7 +63,7 @@ class DissolvePainter extends CustomPainter {
       image,
       Offset.zero & Size(image.width.toDouble(), image.height.toDouble()),
       card,
-      paint,
+      _frostPaint,
     );
     canvas.restore();
   }

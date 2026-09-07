@@ -73,17 +73,16 @@ class ArcBody extends StatelessWidget {
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      _DownloadButton(
-                        background: const Color(0xFFFFFFFF),
+                      const _DownloadButton(
+                        background: Color(0xFFFFFFFF),
                         foreground: AppColors.arcBlue,
-                        label: 'Download Arc for Mac',
-                        mark: Mark.apple(size: 4.5, color: AppColors.arcBlue),
+                        label: ' Download Arc for Mac',
                       ),
                       const SizedBox(width: 4),
                       const _DownloadButton(
                         background: AppColors.arcNavy,
                         foreground: Color(0xFFFFFFFF),
-                        label: 'Download Arc for Windows',
+                        label: ' Download Arc for Windows',
                         mark: Mark.window(size: 4.5, color: Color(0xFFFFFFFF)),
                       ),
                     ],
@@ -153,13 +152,13 @@ class _DownloadButton extends StatelessWidget {
     required this.background,
     required this.foreground,
     required this.label,
-    required this.mark,
+    this.mark,
   });
 
   final Color background;
   final Color foreground;
   final String label;
-  final Widget mark;
+  final Widget? mark;
 
   @override
   Widget build(BuildContext context) {
@@ -170,8 +169,9 @@ class _DownloadButton extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          mark,
-          const SizedBox(width: 1.5),
+          // The label carries its own leading space, so the mark sits where
+          // the source's glyph does.
+          ?mark,
           Text(
             label,
             style: text(size: 6, weight: FontWeight.w700, color: foreground),

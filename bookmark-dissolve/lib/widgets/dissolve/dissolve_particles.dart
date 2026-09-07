@@ -24,12 +24,18 @@ double particleProgress(double progress, double delaySeed, double columnRatio) {
 /// square each particle carries and never changes. [transforms] and [colors]
 /// are rewritten every frame from [update].
 class DissolveParticles {
-  DissolveParticles({required ui.Image image, required this.origin, required this.size})
-    : cols = (size.width / kDissolveTileSize).ceil(),
-      rows = (size.height / kDissolveTileSize).ceil(),
-      pixelScale = image.width / size.width {
+  DissolveParticles({
+    required ui.Image image,
+    required this.origin,
+    required this.size,
+    int seed = 0,
+  }) : cols = (size.width / kDissolveTileSize).ceil(),
+       rows = (size.height / kDissolveTileSize).ceil(),
+       pixelScale = image.width / size.width {
     _seeds = Float32List(count * kSeedsPerParticle);
-    final random = math.Random(42);
+    // Fixed so a golden is the same every run, and offset per run so no two
+    // cards come apart along the same paths.
+    final random = math.Random(42 + seed);
     for (var i = 0; i < _seeds.length; i++) {
       _seeds[i] = random.nextDouble();
     }
