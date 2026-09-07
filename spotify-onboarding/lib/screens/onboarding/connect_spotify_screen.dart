@@ -32,9 +32,9 @@ class ConnectSpotifyScreen extends StatelessWidget {
           'Link Spotify to track favorite artists and get concert '
           'recommendations tailored to your listening.',
       items: artists,
-      ctaIcon: const SpotifyIcon(size: 20),
+      ctaIcon: (color) => SpotifyIcon(size: 20, color: color),
       ctaLabel: 'Connect Spotify',
-      ctaColor: AppColors.spotify,
+      accent: AppColors.spotify,
       onBack: onBack,
       onSkip: onSkip,
       onCta: onConnect,

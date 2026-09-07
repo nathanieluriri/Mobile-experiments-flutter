@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../data/marquee_item.dart';
-import '../../theme/colors.dart';
+import '../../theme/palette.dart';
 import '../../theme/typography.dart';
 import '../../widgets/card_marquee/card_marquee.dart';
 import '../../widgets/pressable_opacity.dart';
@@ -20,7 +20,7 @@ class OnboardingStepLayout extends StatelessWidget {
     required this.items,
     required this.ctaIcon,
     required this.ctaLabel,
-    required this.ctaColor,
+    required this.accent,
     this.onBack,
     this.onSkip,
     this.onCta,
@@ -33,9 +33,15 @@ class OnboardingStepLayout extends StatelessWidget {
   final Widget titleIcon;
   final String subtitle;
   final List<MarqueeItem> items;
-  final Widget ctaIcon;
+
+  /// The step's mark, drawn in whichever colour the button carries.
+  final Widget Function(Color color) ctaIcon;
+
   final String ctaLabel;
-  final Color ctaColor;
+
+  /// The colour this step is built around.
+  final Color accent;
+
   final VoidCallback? onBack;
   final VoidCallback? onSkip;
   final VoidCallback? onCta;
@@ -45,9 +51,11 @@ class OnboardingStepLayout extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final palette = AppPalette.of(context);
     final insets = MediaQuery.paddingOf(context);
+    final ctaContent = palette.ctaContent(accent);
     return Material(
-      color: AppColors.white,
+      color: palette.background,
       child: Padding(
         padding: EdgeInsets.only(top: insets.top),
         child: Stack(
@@ -61,14 +69,22 @@ class OnboardingStepLayout extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(titleLine1, style: AppText.headline),
+                      Text(
+                        titleLine1,
+                        style: AppText.headline.copyWith(color: palette.ink),
+                      ),
                       Padding(
                         padding: const EdgeInsets.only(top: 2),
                         child: Row(
                           children: [
                             titleIcon,
                             const SizedBox(width: 10),
-                            Text(titleLine2, style: AppText.headline),
+                            Text(
+                              titleLine2,
+                              style: AppText.headline.copyWith(
+                                color: palette.ink,
+                              ),
+                            ),
                           ],
                         ),
                       ),
@@ -76,7 +92,10 @@ class OnboardingStepLayout extends StatelessWidget {
                         padding: const EdgeInsets.only(top: 12),
                         child: ConstrainedBox(
                           constraints: const BoxConstraints(maxWidth: 320),
-                          child: Text(subtitle, style: AppText.body),
+                          child: Text(
+                            subtitle,
+                            style: AppText.body.copyWith(color: palette.muted),
+                          ),
                         ),
                       ),
                     ],
@@ -102,18 +121,18 @@ class OnboardingStepLayout extends StatelessWidget {
                 onTap: onCta,
                 child: Container(
                   height: 56,
-                  decoration: const BoxDecoration(
-                    color: AppColors.ink,
-                    borderRadius: BorderRadius.all(Radius.circular(28)),
+                  decoration: BoxDecoration(
+                    color: palette.ctaSurface(accent),
+                    borderRadius: const BorderRadius.all(Radius.circular(28)),
                   ),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      ctaIcon,
+                      ctaIcon(ctaContent),
                       const SizedBox(width: 8),
                       Text(
                         ctaLabel,
-                        style: AppText.button.copyWith(color: ctaColor),
+                        style: AppText.button.copyWith(color: ctaContent),
                       ),
                     ],
                   ),

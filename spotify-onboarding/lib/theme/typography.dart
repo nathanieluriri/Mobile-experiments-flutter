@@ -1,7 +1,5 @@
 import 'package:flutter/painting.dart';
 
-import 'colors.dart';
-
 /// Font family bundled with the app.
 const kFontFamily = 'Inter';
 
@@ -11,6 +9,9 @@ const kFontFamily = 'Inter';
 /// change a size, a weight, or the spacing between letters. Line heights are
 /// multipliers of the font size, and the extra leading is split evenly above
 /// and below the glyphs, which is how the design's line heights are measured.
+///
+/// Colour is not part of the scale. It comes from the palette at the point the
+/// text is written, because it depends on the ground the flow is drawn on.
 abstract final class AppText {
   static const headline = TextStyle(
     inherit: false,
@@ -19,7 +20,6 @@ abstract final class AppText {
     height: 38 / 34,
     letterSpacing: -1,
     fontWeight: FontWeight.w700,
-    color: AppColors.ink,
     leadingDistribution: TextLeadingDistribution.even,
   );
 
@@ -39,7 +39,6 @@ abstract final class AppText {
     fontSize: 13,
     height: 19 / 13,
     fontWeight: FontWeight.w400,
-    color: AppColors.muted,
     leadingDistribution: TextLeadingDistribution.even,
   );
 
@@ -48,7 +47,6 @@ abstract final class AppText {
     fontFamily: kFontFamily,
     fontSize: 13,
     fontWeight: FontWeight.w600,
-    color: AppColors.ink,
   );
 
   static const labelMuted = TextStyle(
@@ -56,7 +54,6 @@ abstract final class AppText {
     fontFamily: kFontFamily,
     fontSize: 13,
     fontWeight: FontWeight.w400,
-    color: AppColors.muted,
   );
 
   static const button = TextStyle(
@@ -71,6 +68,5 @@ abstract final class AppText {
     fontFamily: kFontFamily,
     fontSize: 11,
     fontWeight: FontWeight.w500,
-    color: AppColors.pillLabel,
   );
 }

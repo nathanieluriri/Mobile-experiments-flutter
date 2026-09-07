@@ -1,6 +1,6 @@
 import 'package:flutter/widgets.dart';
 
-import '../../theme/colors.dart';
+import '../../theme/palette.dart';
 import '../../theme/typography.dart';
 import '../../widgets/hit_slop.dart';
 import '../../widgets/icons/back_arrow_icon.dart';
@@ -31,6 +31,7 @@ class OnboardingHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final palette = AppPalette.of(context);
     return SizedBox(
       height: _headerHeight,
       child: Stack(
@@ -45,11 +46,11 @@ class OnboardingHeader extends StatelessWidget {
                     const TextSpan(text: 'Connection '),
                     TextSpan(
                       text: '\u2014 $step of $kTotalOnboardingSteps',
-                      style: AppText.labelMuted,
+                      style: AppText.labelMuted.copyWith(color: palette.muted),
                     ),
                   ],
                 ),
-                style: AppText.label,
+                style: AppText.label.copyWith(color: palette.ink),
               ),
             ),
           ),
@@ -64,9 +65,9 @@ class OnboardingHeader extends StatelessWidget {
                 child: GestureDetector(
                   behavior: HitTestBehavior.opaque,
                   onTap: onBack,
-                  child: const Align(
+                  child: Align(
                     alignment: Alignment.centerLeft,
-                    child: BackArrowIcon(),
+                    child: BackArrowIcon(color: palette.ink),
                   ),
                 ),
               ),
@@ -84,7 +85,7 @@ class OnboardingHeader extends StatelessWidget {
               child: Center(
                 child: HitSlop(
                   slop: 8,
-                    child: PressableOpacity(
+                  child: PressableOpacity(
                     pressedOpacity: 0.7,
                     onTap: onSkip,
                     child: Container(
@@ -92,11 +93,18 @@ class OnboardingHeader extends StatelessWidget {
                         horizontal: 12,
                         vertical: 4,
                       ),
-                      decoration: const BoxDecoration(
-                        color: AppColors.pill,
-                        borderRadius: BorderRadius.all(Radius.circular(9999)),
+                      decoration: BoxDecoration(
+                        color: palette.pill,
+                        borderRadius: const BorderRadius.all(
+                          Radius.circular(9999),
+                        ),
                       ),
-                      child: const Text('Skip', style: AppText.caption),
+                      child: Text(
+                        'Skip',
+                        style: AppText.caption.copyWith(
+                          color: palette.pillLabel,
+                        ),
+                      ),
                     ),
                   ),
                 ),

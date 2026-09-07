@@ -1,6 +1,7 @@
 import 'package:flutter/widgets.dart';
 
 import '../../data/marquee_item.dart';
+import '../../theme/palette.dart';
 import 'marquee_arc_item.dart';
 import 'marquee_bottom_fade.dart';
 import 'marquee_constants.dart';
@@ -49,6 +50,7 @@ class _CardMarqueeState extends State<CardMarquee> {
     return LayoutBuilder(
       builder: (context, constraints) {
         final viewportHeight = constraints.maxHeight;
+        final ground = AppPalette.of(context).background;
         return ClipRect(
           child: Stack(
             children: [
@@ -80,7 +82,7 @@ class _CardMarqueeState extends State<CardMarquee> {
                   },
                 ),
               ),
-              const Positioned(
+              Positioned(
                 left: 0,
                 right: 0,
                 top: 0,
@@ -91,7 +93,7 @@ class _CardMarqueeState extends State<CardMarquee> {
                       gradient: LinearGradient(
                         begin: Alignment.topCenter,
                         end: Alignment.bottomCenter,
-                        colors: [Color(0xFFFFFFFF), Color(0x00FFFFFF)],
+                        colors: [ground, ground.withValues(alpha: 0)],
                       ),
                     ),
                   ),

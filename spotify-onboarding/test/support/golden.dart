@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:spotify_onboarding/theme/app_theme.dart';
 
 /// Font family bundled with this app.
 const kFontFamily = 'Inter';
@@ -56,13 +57,22 @@ Future<void> capture(WidgetTester tester, String name) async {
   );
 }
 
-/// Wraps [home] in the app shell the goldens are rendered through.
+/// Wraps [home] in the app shell the goldens are rendered through, with the
+/// same two grounds the app itself offers.
 Widget hostApp(Widget home) {
   return MaterialApp(
     debugShowCheckedModeBanner: false,
-    theme: ThemeData(fontFamily: kFontFamily),
+    themeMode: ThemeMode.system,
+    theme: appTheme(Brightness.light),
+    darkTheme: appTheme(Brightness.dark),
     home: home,
   );
+}
+
+/// Renders everything that follows on the dark ground. Call before pumping.
+void useDarkGround(WidgetTester tester) {
+  tester.platformDispatcher.platformBrightnessTestValue = Brightness.dark;
+  addTearDown(tester.platformDispatcher.clearPlatformBrightnessTestValue);
 }
 
 /// Decodes every picture in [assets], not just the ones on screen, so cards

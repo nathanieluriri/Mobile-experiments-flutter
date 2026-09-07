@@ -2,6 +2,7 @@ import 'dart:ui';
 
 import 'package:flutter/widgets.dart';
 
+import '../../theme/palette.dart';
 import 'marquee_constants.dart';
 
 /// The blur ramp, bottom edge first: how tall each layer is and how much blur
@@ -16,12 +17,13 @@ const _layers = <({double height, double sigma})>[
 ];
 
 /// Blurs the cards more and more as they run off the bottom of the marquee,
-/// then washes them out to white.
+/// then washes them out into the ground the flow is drawn on.
 class MarqueeBottomFade extends StatelessWidget {
   const MarqueeBottomFade({super.key});
 
   @override
   Widget build(BuildContext context) {
+    final ground = AppPalette.of(context).background;
     return IgnorePointer(
       child: SizedBox(
         height: kBottomFadeHeight,
@@ -43,7 +45,7 @@ class MarqueeBottomFade extends StatelessWidget {
                   ),
                 ),
               ),
-            const Positioned(
+            Positioned(
               left: 0,
               right: 0,
               bottom: 0,
@@ -53,7 +55,10 @@ class MarqueeBottomFade extends StatelessWidget {
                   gradient: LinearGradient(
                     begin: Alignment.topCenter,
                     end: Alignment.bottomCenter,
-                    colors: [Color(0x00FFFFFF), Color(0xD9FFFFFF)],
+                    colors: [
+                      ground.withValues(alpha: 0),
+                      ground.withValues(alpha: 0.85),
+                    ],
                   ),
                 ),
               ),

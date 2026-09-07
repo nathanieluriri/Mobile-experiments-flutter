@@ -2,10 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'screens/onboarding/onboarding_flow.dart';
-import 'theme/colors.dart';
-import 'theme/typography.dart';
+import 'theme/app_theme.dart';
 
-/// The connection flow.
+/// The connection flow. It follows whatever ground the device is set to.
 class App extends StatelessWidget {
   const App({super.key});
 
@@ -14,21 +13,18 @@ class App extends StatelessWidget {
     return MaterialApp(
       title: 'Spotify Onboarding',
       debugShowCheckedModeBanner: false,
-      // The flow is drawn on white, so it stays light whatever the system is
-      // set to, and the status bar keeps its dark glyphs.
-      themeMode: ThemeMode.light,
-      theme: ThemeData(
-        brightness: Brightness.light,
-        fontFamily: kFontFamily,
-        scaffoldBackgroundColor: AppColors.white,
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: AppColors.spotify,
-          surface: AppColors.white,
-        ),
-      ),
-      home: const AnnotatedRegion<SystemUiOverlayStyle>(
-        value: SystemUiOverlayStyle.dark,
-        child: ColoredBox(color: AppColors.white, child: OnboardingFlow()),
+      themeMode: ThemeMode.system,
+      theme: appTheme(Brightness.light),
+      darkTheme: appTheme(Brightness.dark),
+      home: Builder(
+        builder: (context) {
+          final dark = Theme.of(context).brightness == Brightness.dark;
+          return AnnotatedRegion<SystemUiOverlayStyle>(
+            // Glyphs in the status bar read against the ground behind them.
+            value: dark ? SystemUiOverlayStyle.light : SystemUiOverlayStyle.dark,
+            child: const OnboardingFlow(),
+          );
+        },
       ),
     );
   }

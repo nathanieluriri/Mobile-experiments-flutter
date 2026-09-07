@@ -33,9 +33,9 @@ class FindConcertsScreen extends StatelessWidget {
           'Turn on location to discover gigs, venues and festivals happening '
           'around you.',
       items: cities,
-      ctaIcon: const LocationIcon(size: 20, color: AppColors.locationAccent),
+      ctaIcon: (color) => LocationIcon(size: 20, color: color),
       ctaLabel: 'Enable Location',
-      ctaColor: AppColors.locationAccent,
+      accent: AppColors.locationAccent,
       onSkip: onSkip,
       onCta: onEnable,
       marqueeController: marqueeController,
