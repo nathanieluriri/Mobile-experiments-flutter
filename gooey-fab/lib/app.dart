@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 
+import 'screens/chats/chats_screen.dart';
+import 'theme/colors.dart';
+
 class App extends StatelessWidget {
   const App({super.key});
 
@@ -10,11 +13,11 @@ class App extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         fontFamily: 'Inter',
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.black),
+        platform: TargetPlatform.iOS,
+        scaffoldBackgroundColor: AppColors.canvas,
+        colorScheme: ColorScheme.fromSeed(seedColor: AppColors.ink),
       ),
-      home: const Scaffold(
-        body: Center(child: Text('Gooey FAB')),
-      ),
+      home: const ChatsScreen(),
     );
   }
 }

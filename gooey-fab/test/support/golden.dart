@@ -50,8 +50,5 @@ Future<void> pumpMs(WidgetTester tester, int ms) {
 
 /// Writes or compares `test/goldens/<name>.png` for the whole screen.
 Future<void> capture(WidgetTester tester, String name) async {
-  await expectLater(
-    find.byType(MaterialApp).first,
-    matchesGoldenFile('goldens/$name.png'),
-  );
+  await expectLater(find.byType(MaterialApp).first, matchesGoldenFile('goldens/$name.png'));
 }
