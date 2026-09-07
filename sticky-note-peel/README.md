@@ -12,10 +12,15 @@ travels into it and shrinks away, and the list springs closed over the gap.
 
 ## Writing a note
 
-The pencil opens a blank sheet: pick the paper, give it a title, then write
-either a note or a list, one item per line. Naming a list on the sheet files the
-note under it. Saved notes go to the top and are kept on the device, so they are
-still there next time.
+The pencil opens a blank sheet: a title, a line to start writing on, and a plus.
+The plus turns into a cross and rolls out what else a note can hold: prose, a
+to-do, the list it belongs in, and the colour of the paper. Return at the end of
+a to-do starts the next one; backspace on an empty one takes it away.
+
+Tapping a note opens it again with everything already on it. Saving does not
+swap one thing for another: the sheet travels to the place the list has made for
+it and settles there. Notes are kept on the device, so they are still there next
+time.
 
 ## Finding a note
 
