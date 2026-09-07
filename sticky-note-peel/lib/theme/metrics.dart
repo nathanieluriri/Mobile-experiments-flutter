@@ -57,6 +57,11 @@ const kDrawerFoldInset = 13.0;
 const kDrawerScrimOpacity = 0.66;
 const kDrawerFlingVelocity = 400.0;
 
+// Writing a new note.
+const kSwatchSize = 34.0;
+const kSwatchFoldInset = 9.0;
+const kComposeMargin = 24.0;
+
 // The dock.
 const kDockGap = 18.0;
 const kDockButtonSize = 54.0;

@@ -1,5 +1,6 @@
 import 'package:flutter/widgets.dart';
 
+import '../../data/note.dart';
 import '../../data/note_actions.dart';
 import '../../data/note_store.dart';
 import '../../theme/colors.dart';
@@ -10,6 +11,7 @@ import '../../theme/typography.dart';
 import '../../widgets/note_column.dart';
 import '../../widgets/sticky_note.dart';
 import 'compose_note_button.dart';
+import 'compose_sheet.dart';
 import 'note_list_transition.dart';
 import 'notes_drawer.dart';
 import 'notes_header.dart';
@@ -38,9 +40,11 @@ class _NotesScreenState extends State<NotesScreen>
   late final AnimationController _reflow;
   late final AnimationController _drawer;
   late final AnimationController _search;
+  late final AnimationController _compose;
   late final SpringCurve _reflowCurve;
   late final SpringCurve _drawerCurve;
   late final SpringCurve _searchCurve;
+  late final SpringCurve _composeCurve;
 
   String? _activeNoteId;
   int? _reflowIndex;
@@ -71,6 +75,9 @@ class _NotesScreenState extends State<NotesScreen>
     _search = AnimationController(vsync: this, duration: reflowDuration);
     _searchCurve =
         SpringCurve(AppSprings.noteListLayout, duration: reflowDuration);
+    _compose = AnimationController(vsync: this, duration: reflowDuration);
+    _composeCurve =
+        SpringCurve(AppSprings.noteListLayout, duration: reflowDuration);
 
     _list.sync(widget.store.visible);
   }
@@ -90,6 +97,7 @@ class _NotesScreenState extends State<NotesScreen>
     _reflow.dispose();
     _drawer.dispose();
     _search.dispose();
+    _compose.dispose();
     _scroll.dispose();
     _query.dispose();
     _queryFocus.dispose();
@@ -134,6 +142,38 @@ class _NotesScreenState extends State<NotesScreen>
     widget.store.setQuery('');
     _search.reverse();
     setState(() {});
+  }
+
+  void _openCompose() {
+    FocusManager.instance.primaryFocus?.unfocus();
+    _compose.forward();
+  }
+
+  void _closeCompose() {
+    FocusManager.instance.primaryFocus?.unfocus();
+    _compose.reverse();
+  }
+
+  /// Files a freshly written note at the top of the list and gets out of the
+  /// way so it can be seen arriving.
+  void _saveComposed(
+    Color color,
+    String title,
+    String? body,
+    List<String>? checklist,
+    List<String> tags,
+  ) {
+    widget.store.add(
+      Note(
+        id: widget.store.nextId(title),
+        color: color,
+        title: title,
+        body: body,
+        checklist: checklist,
+        tags: tags,
+      ),
+    );
+    _closeCompose();
   }
 
   void _openDrawer() => _drawer.forward();
@@ -273,13 +313,74 @@ class _NotesScreenState extends State<NotesScreen>
               builder: (context, _) => ComposeNoteButton(
                 dim: _dim.value,
                 isInteractive: _activeNoteId == null,
-                onTap: () {},
+                onTap: _openCompose,
               ),
             ),
           ),
           _drawerLayer(panelWidth, padding),
+          _composeLayer(padding),
         ],
       ),
+    );
+  }
+
+  Widget _composeLayer(EdgeInsets padding) {
+    return AnimatedBuilder(
+      animation: _compose,
+      builder: (context, _) {
+        final open = _composeCurve.transform(_compose.value);
+        if (open <= 0) {
+          return const SizedBox.shrink();
+        }
+        final insets = MediaQuery.viewInsetsOf(context);
+        return Stack(
+          children: [
+            Positioned.fill(
+              child: GestureDetector(
+                onTap: _closeCompose,
+                child: ColoredBox(
+                  color: AppColors.ink
+                      .withValues(alpha: kDrawerScrimOpacity * open),
+                ),
+              ),
+            ),
+            Positioned.fill(
+              child: SafeArea(
+                bottom: false,
+                child: Padding(
+                  padding: EdgeInsets.only(
+                    left: kScreenHorizontalPadding,
+                    right: kScreenHorizontalPadding,
+                    top: kComposeMargin,
+                    bottom: insets.bottom + kComposeMargin,
+                  ),
+                  child: Align(
+                    alignment: Alignment.topCenter,
+                    child: SingleChildScrollView(
+                      child: Opacity(
+                        opacity: open,
+                        // The sheet comes up out of the button that asked for
+                        // it rather than appearing on top of everything.
+                        child: Transform.translate(
+                          offset: Offset(0, (1 - open) * 260),
+                          child: Transform.scale(
+                            scale: 0.72 + 0.28 * open,
+                            alignment: Alignment.bottomCenter,
+                            child: ComposeSheet(
+                              onCancel: _closeCompose,
+                              onSave: _saveComposed,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 
