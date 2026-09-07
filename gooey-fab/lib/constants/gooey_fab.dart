@@ -1,3 +1,5 @@
+import 'dart:ui' as ui;
+
 import 'package:flutter/physics.dart';
 
 const fabDiameter = 64.0;
@@ -50,4 +52,22 @@ const voiceIconSize = 20.0;
 double interpolateClamped(double value, List<double> inputRange, List<double> outputRange) {
   final t = ((value - inputRange[0]) / (inputRange[1] - inputRange[0])).clamp(0.0, 1.0);
   return outputRange[0] + (outputRange[1] - outputRange[0]) * t;
+}
+
+/// The backdrop filter at [progress] through the open animation.
+///
+/// The blur is always full strength; what fades is the filtered image's alpha,
+/// so it composites over the untouched screen as a cross fade. Ramping the blur
+/// radius instead would leave no sharp component at all part way through, and
+/// text would smear rather than fade.
+ui.ImageFilter backdropFilterAt(double progress) {
+  return ui.ImageFilter.compose(
+    outer: ui.ColorFilter.matrix(<double>[
+      1, 0, 0, 0, 0, //
+      0, 1, 0, 0, 0, //
+      0, 0, 1, 0, 0, //
+      0, 0, 0, progress, 0, //
+    ]),
+    inner: ui.ImageFilter.blur(sigmaX: backdropBlurSigma, sigmaY: backdropBlurSigma),
+  );
 }

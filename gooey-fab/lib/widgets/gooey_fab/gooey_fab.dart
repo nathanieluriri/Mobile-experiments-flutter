@@ -1,11 +1,11 @@
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
-import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../constants/gooey_fab.dart';
+import '../../painting/feather_video_icon.dart';
 import '../../painting/goo_circles_painter.dart';
 import '../../theme/colors.dart';
 import 'fab_action_button.dart';
@@ -46,10 +46,7 @@ class _GooeyFabState extends State<GooeyFab> with TickerProviderStateMixin {
     super.dispose();
   }
 
-  void _toggle() {
-    HapticFeedback.selectionClick();
-    _controller.toggle();
-  }
+  void _toggle() => _controller.toggle();
 
   void _select(VoidCallback? action) {
     _toggle();
@@ -68,15 +65,12 @@ class _GooeyFabState extends State<GooeyFab> with TickerProviderStateMixin {
               animation: _controller.progress,
               builder: (context, child) {
                 final progress = _controller.progress.value.clamp(0.0, 1.0);
-                if (progress == 0) {
+                if (progress < 0.001) {
                   return const SizedBox.shrink();
                 }
                 return ClipRect(
                   child: BackdropFilter(
-                    filter: ui.ImageFilter.blur(
-                      sigmaX: progress * backdropBlurSigma,
-                      sigmaY: progress * backdropBlurSigma,
-                    ),
+                    filter: backdropFilterAt(progress),
                     child: ColoredBox(
                       color: AppColors.onInk.withValues(alpha: progress * backdropWashOpacity),
                       child: child,
@@ -107,7 +101,7 @@ class _GooeyFabState extends State<GooeyFab> with TickerProviderStateMixin {
                 offsetY: videoActionOffsetY,
                 interactive: isOpen,
                 onPressed: () => _select(widget.onVideoCall),
-                child: const Icon(LucideIcons.video, size: videoIconSize, color: AppColors.onInk),
+                child: const FeatherVideoIcon(size: videoIconSize, color: AppColors.onInk),
               ),
               FabActionButton(
                 drive: _controller.voiceDrive,

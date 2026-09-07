@@ -123,6 +123,28 @@ void main() {
     expect(_videoDrive(tester), closeTo(0, 0.01));
   });
 
+  testWidgets('a stagger lets the animation it interrupts finish out the delay', (tester) async {
+    await pumpScreen(tester, _app());
+
+    await tester.tap(find.byIcon(LucideIcons.plus));
+    await tester.pump();
+    await pumpMs(tester, 30);
+    final atInterrupt = _voiceDrive(tester);
+
+    // Closing delays the voice circle by the stagger. The open spring keeps
+    // running through it rather than freezing, so the circle drifts further out
+    // before it turns around.
+    await tester.tap(find.byIcon(LucideIcons.plus));
+    await tester.pump();
+    await pumpMs(tester, 30);
+    expect(_voiceDrive(tester), greaterThan(atInterrupt));
+    await pumpMs(tester, 25);
+    expect(_voiceDrive(tester), greaterThan(atInterrupt));
+
+    await tester.pump(const Duration(seconds: 2));
+    expect(_voiceDrive(tester), closeTo(0, 0.01));
+  });
+
   testWidgets('the open spring overshoots past its target', (tester) async {
     await pumpScreen(tester, _app());
     await tester.tap(find.byIcon(LucideIcons.plus));

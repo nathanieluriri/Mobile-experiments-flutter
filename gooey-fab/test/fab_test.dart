@@ -15,7 +15,10 @@ void main() {
     await pumpMs(tester, 100);
     await capture(tester, 'fab__t0100');
 
-    await pumpMs(tester, 120);
+    await pumpMs(tester, 70);
+    await capture(tester, 'fab__t0170');
+
+    await pumpMs(tester, 50);
     await capture(tester, 'fab__t0220');
 
     await pumpMs(tester, 380);
