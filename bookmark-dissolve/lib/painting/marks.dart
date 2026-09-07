@@ -40,11 +40,16 @@ class _MarkPainter extends CustomPainter {
   bool shouldRepaint(_MarkPainter old) => old.draw != draw || old.color != color;
 }
 
-/// A four pointed star with concave sides.
+/// A four pointed star whose sides curve in, so the arms taper to a point
+/// instead of bulging into a diamond.
 void _sparkle(Canvas canvas, Size size, Color color) {
   final r = size.width / 2;
   final c = Offset(r, r);
-  final waist = r * 0.24;
+  // How far from the centre the narrowest part of the outline sits, as a
+  // fraction of an arm. A quadratic through its control point passes at
+  // (r + sqrt2 * control) * sqrt2 / 4, so solve that for the control point.
+  const waistRatio = 0.32;
+  final waist = (waistRatio * r * 4 / math.sqrt2 - r) / math.sqrt2;
   final path = Path()..moveTo(c.dx, c.dy - r);
   for (var i = 0; i < 4; i++) {
     final from = i * math.pi / 2 - math.pi / 2;
