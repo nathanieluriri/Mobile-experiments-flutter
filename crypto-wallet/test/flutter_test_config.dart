@@ -4,8 +4,8 @@ import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-/// Loads the fonts under assets/fonts before any test runs, so goldens render
-/// real glyphs instead of the test harness placeholder font.
+/// Loads the fonts under assets/fonts and the icon font before any test runs,
+/// so goldens render real glyphs instead of the test harness placeholder font.
 Future<void> testExecutable(FutureOr<void> Function() testMain) async {
   TestWidgetsFlutterBinding.ensureInitialized();
   final loaders = <String, FontLoader>{};
@@ -22,6 +22,9 @@ Future<void> testExecutable(FutureOr<void> Function() testMain) async {
           .addFont(Future.value(ByteData.sublistView(bytes)));
     }
   }
+  loaders['packages/lucide_icons_flutter/Lucide'] =
+      FontLoader('packages/lucide_icons_flutter/Lucide')
+        ..addFont(rootBundle.load('packages/lucide_icons_flutter/assets/lucide.ttf'));
   for (final loader in loaders.values) {
     await loader.load();
   }
