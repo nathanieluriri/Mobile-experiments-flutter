@@ -8,14 +8,23 @@ import '../../theme/shadows.dart';
 /// The floating button that starts a new note. It fades back with the rest of
 /// the chrome while a note is lifted.
 class ComposeNoteButton extends StatelessWidget {
-  const ComposeNoteButton({super.key, required this.dim});
+  const ComposeNoteButton({
+    super.key,
+    required this.dim,
+    required this.isInteractive,
+  });
 
+  /// 0 when nothing is lifted, 1 when a note is.
   final double dim;
+
+  /// False while a note is lifted, so the button cannot be tapped through the
+  /// dimmed chrome even before the fade finishes.
+  final bool isInteractive;
 
   @override
   Widget build(BuildContext context) {
     return IgnorePointer(
-      ignoring: dim > 0,
+      ignoring: !isInteractive,
       child: Opacity(
         opacity: 1 - kChromeDimAmount * dim,
         child: Center(

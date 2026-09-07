@@ -121,6 +121,7 @@ class _DockButtonState extends State<DockButton>
     if (_highlighted != wasHighlighted) {
       _hover.animateTo(
         _highlighted ? 1 : 0,
+        duration: kDockHoverDuration,
         curve: easeOutQuad,
       );
       if (_highlighted) {
@@ -130,7 +131,11 @@ class _DockButtonState extends State<DockButton>
     final presenceTarget = _receded ? 0.0 : 1.0;
     if (presenceTarget != _presenceTarget) {
       _presenceTarget = presenceTarget;
-      _presence.animateTo(presenceTarget, curve: easeInOutQuad);
+      _presence.animateTo(
+        presenceTarget,
+        duration: kDockRecedeDuration,
+        curve: easeInOutQuad,
+      );
     }
     _retarget();
   }
@@ -187,7 +192,8 @@ class _DockButtonState extends State<DockButton>
         final hover = _hover.value;
         final presence = _presence.value;
         final entered = interval.transform(widget.enter.value);
-        final opacity = presence * entered * (1 - widget.exit.value);
+        final left = easeInOutQuad.transform(widget.exit.value);
+        final opacity = presence * entered * (1 - left);
         return Opacity(
           opacity: opacity.clamp(0, 1),
           child: Transform.translate(

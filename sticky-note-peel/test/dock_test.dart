@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sticky_note_peel/app.dart';
 import 'package:sticky_note_peel/data/note_actions.dart';
 import 'package:sticky_note_peel/theme/colors.dart';
+import 'package:sticky_note_peel/theme/easings.dart';
 import 'package:sticky_note_peel/theme/metrics.dart';
 import 'package:sticky_note_peel/widgets/action_dock.dart';
 
@@ -57,6 +58,33 @@ void main() {
     await tester.pumpAndSettle();
   });
 
+  testWidgets('the dock fades out on the same curve it arrived on',
+      (tester) async {
+    await pumpScreen(tester, const App());
+    await tester.pump();
+
+    final gesture = await liftNote(tester, 0);
+    expect(buttonOpacityOf(tester, 0), closeTo(1, 0.001));
+
+    await gesture.up();
+    await tester.pump();
+    const step = 35;
+    for (var elapsed = step;
+        elapsed <= kDockExitDuration.inMilliseconds;
+        elapsed += step) {
+      await pumpMs(tester, step);
+      final progress = elapsed / kDockExitDuration.inMilliseconds;
+      expect(
+        buttonOpacityOf(tester, 0),
+        closeTo(1 - easeInOutQuad.transform(progress), 0.002),
+        reason: 'at $elapsed ms into the exit',
+      );
+    }
+
+    await tester.pumpAndSettle();
+    expect(find.byType(DockButton), findsNothing);
+  });
+
   testWidgets('a hovered button takes its accent colour and shows its label',
       (tester) async {
     await pumpScreen(tester, const App());
@@ -78,6 +106,18 @@ void main() {
     await gesture.up();
     await tester.pumpAndSettle();
   });
+}
+
+/// How visible dock button [index] is as a whole.
+double buttonOpacityOf(WidgetTester tester, int index) {
+  final opacities = tester.widgetList<Opacity>(
+    find.descendant(
+      of: find.byType(DockButton).at(index),
+      matching: find.byType(Opacity),
+      matchRoot: true,
+    ),
+  );
+  return opacities.isEmpty ? 0 : opacities.first.opacity;
 }
 
 /// The fill of dock button [index]'s circle.

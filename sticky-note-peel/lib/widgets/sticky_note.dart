@@ -170,7 +170,7 @@ class _StickyNoteState extends State<StickyNote> with TickerProviderStateMixin {
       _dragY = kFoldRestInset;
       _hovered = -1;
     });
-    _lift.forward();
+    _lift.animateTo(1, duration: kLiftDuration);
     HapticFeedback.mediumImpact();
     widget.onFocus(widget.note.id);
   }
@@ -228,7 +228,7 @@ class _StickyNoteState extends State<StickyNote> with TickerProviderStateMixin {
       _fromY = _dragY;
     });
     _snap.forward(from: 0);
-    _lift.reverse();
+    _lift.animateBack(0, duration: kSettleDuration);
     _shimmer.forward(from: 0);
     widget.onBlur();
   }

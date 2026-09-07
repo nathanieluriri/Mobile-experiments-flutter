@@ -59,12 +59,12 @@ class _NotesScreenState extends State<NotesScreen>
 
   void _focus(String id) {
     setState(() => _activeNoteId = id);
-    _dim.animateTo(1, curve: easeInOutQuad);
+    _dim.animateTo(1, duration: kDimDuration, curve: easeInOutQuad);
   }
 
   void _blur() {
     setState(() => _activeNoteId = null);
-    _dim.animateTo(0, curve: easeInOutQuad);
+    _dim.animateTo(0, duration: kDimDuration, curve: easeInOutQuad);
   }
 
   void _remove(String id, NoteAction action) {
@@ -79,7 +79,7 @@ class _NotesScreenState extends State<NotesScreen>
       _reflowIndex = index + 1;
       _reflowSpace = height + kNoteListGap;
     });
-    _dim.animateTo(0, curve: easeInOutQuad);
+    _dim.animateTo(0, duration: kDimDuration, curve: easeInOutQuad);
     _reflow.forward(from: 0);
   }
 
@@ -158,7 +158,10 @@ class _NotesScreenState extends State<NotesScreen>
             bottom: padding.bottom + kComposeButtonBottomMargin,
             child: AnimatedBuilder(
               animation: _dim,
-              builder: (context, _) => ComposeNoteButton(dim: _dim.value),
+              builder: (context, _) => ComposeNoteButton(
+                dim: _dim.value,
+                isInteractive: _activeNoteId == null,
+              ),
             ),
           ),
         ],
