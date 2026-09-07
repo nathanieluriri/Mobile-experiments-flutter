@@ -75,22 +75,29 @@ class OnboardingHeader extends StatelessWidget {
             right: _edgeGap,
             top: 0,
             bottom: 0,
+            // The outer one reaches out from the full height of the header, so
+            // the sides are not cut off; the inner one reaches out from the
+            // pill itself, so the top and bottom are measured from the pill
+            // rather than from the header.
             child: HitSlop(
               slop: 8,
               child: Center(
-                child: PressableOpacity(
-                  pressedOpacity: 0.7,
-                  onTap: onSkip,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 4,
+                child: HitSlop(
+                  slop: 8,
+                    child: PressableOpacity(
+                    pressedOpacity: 0.7,
+                    onTap: onSkip,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 4,
+                      ),
+                      decoration: const BoxDecoration(
+                        color: AppColors.pill,
+                        borderRadius: BorderRadius.all(Radius.circular(9999)),
+                      ),
+                      child: const Text('Skip', style: AppText.caption),
                     ),
-                    decoration: const BoxDecoration(
-                      color: AppColors.pill,
-                      borderRadius: BorderRadius.all(Radius.circular(9999)),
-                    ),
-                    child: const Text('Skip', style: AppText.caption),
                   ),
                 ),
               ),

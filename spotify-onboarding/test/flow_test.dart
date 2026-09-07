@@ -175,9 +175,17 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Connect Your'), findsOne);
 
-    // Five points below the pill, still inside the header.
-    await tester.tapAt(const Offset(8, 100));
+    // Four points below the Skip pill.
+    await tester.tapAt(const Offset(360, 98));
     await tester.pumpAndSettle();
-    expect(find.text('Find Concerts'), findsOne);
+    expect(find.text('Connect Your'), findsOne);
+
+    await tester.tap(find.byType(BackArrowIcon));
+    await tester.pumpAndSettle();
+
+    // Four points above the Skip pill.
+    await tester.tapAt(const Offset(360, 70));
+    await tester.pumpAndSettle();
+    expect(find.text('Connect Your'), findsOne);
   });
 }
