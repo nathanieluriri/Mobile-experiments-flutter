@@ -72,7 +72,7 @@ class MymindBody extends StatelessWidget {
               children: [
                 Positioned.fill(
                   child: Padding(
-                    padding: const EdgeInsets.only(top: 10),
+                    padding: const EdgeInsets.only(top: kStep * 2.5),
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
@@ -90,8 +90,8 @@ class MymindBody extends StatelessWidget {
                   ),
                 ),
                 Positioned(
-                  bottom: -4,
-                  right: 10,
+                  bottom: -kStep,
+                  right: kStep * 2.5,
                   width: constraints.maxWidth * 0.68,
                   height: constraints.maxHeight * 0.52,
                   child: const _SavedCard(),
@@ -111,17 +111,17 @@ class _SavedCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(8),
+      padding: const EdgeInsets.all(kStep * 2),
       decoration: BoxDecoration(
         color: const Color(0xFFFFFFFF),
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(kRem),
         boxShadow: AppShadows.floating,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 2),
+            padding: const EdgeInsets.symmetric(horizontal: kStep * 0.5),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               crossAxisAlignment: CrossAxisAlignment.center,
@@ -152,11 +152,11 @@ class _SavedCard extends StatelessWidget {
           ),
           Expanded(
             child: Container(
-              margin: const EdgeInsets.only(top: 6),
+              margin: const EdgeInsets.only(top: kStep * 1.5),
               clipBehavior: Clip.antiAlias,
               decoration: BoxDecoration(
                 color: const Color(0xFFF4EDE4),
-                borderRadius: BorderRadius.circular(8),
+                borderRadius: BorderRadius.circular(kRem / 2),
               ),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -166,8 +166,8 @@ class _SavedCard extends StatelessWidget {
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         Container(
-                          width: 32,
-                          height: 36,
+                          width: kStep * 8,
+                          height: kStep * 9,
                           decoration: BoxDecoration(
                             color: const Color(0xFFE3D0B7),
                             borderRadius: BorderRadius.circular(3),
@@ -176,7 +176,7 @@ class _SavedCard extends StatelessWidget {
                         Opacity(
                           opacity: 0.7,
                           child: Container(
-                            width: 40,
+                            width: kStep * 10,
                             height: 7,
                             decoration: BoxDecoration(
                               color: const Color(0xFFE9DFD0),
@@ -188,7 +188,7 @@ class _SavedCard extends StatelessWidget {
                     ),
                   ),
                   SizedBox(
-                    width: 16,
+                    width: kStep * 4,
                     child: Center(
                       child: Transform.rotate(
                         angle: math.pi / 2,

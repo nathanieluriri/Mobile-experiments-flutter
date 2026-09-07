@@ -44,7 +44,7 @@ class PlayBody extends StatelessWidget {
           children: [
             Positioned.fill(
               child: Padding(
-                padding: const EdgeInsets.only(left: 12, right: 12, top: 14),
+                padding: const EdgeInsets.only(left: kStep * 3, right: kStep * 3, top: kStep * 3.5),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
@@ -59,7 +59,11 @@ class PlayBody extends StatelessWidget {
                       ),
                     ),
                     Padding(
-                      padding: const EdgeInsets.only(top: 8, left: 8, right: 8),
+                      padding: const EdgeInsets.only(
+                        top: kStep * 2,
+                        left: kStep * 2,
+                        right: kStep * 2,
+                      ),
                       child: Text(
                         'Sketch, prototype and ship native interactions directly from '
                         'your pocket \u2014 with all the craft and fidelity of a full '
@@ -69,7 +73,7 @@ class PlayBody extends StatelessWidget {
                       ),
                     ),
                     Padding(
-                      padding: const EdgeInsets.only(top: 10),
+                      padding: const EdgeInsets.only(top: kStep * 2.5),
                       child: Text(
                         'Start Creating Today  →',
                         textAlign: TextAlign.center,
@@ -81,15 +85,18 @@ class PlayBody extends StatelessWidget {
                       ),
                     ),
                     const Expanded(
-                      child: Padding(padding: EdgeInsets.only(top: 14), child: _EditorWireframe()),
+                      child: Padding(
+                        padding: EdgeInsets.only(top: kStep * 3.5),
+                        child: _EditorWireframe(),
+                      ),
                     ),
                   ],
                 ),
               ),
             ),
             Positioned(
-              bottom: 6,
-              right: 16,
+              bottom: kStep * 1.5,
+              right: kStep * 4,
               child: Transform.rotate(
                 angle: -38 * math.pi / 180,
                 child: const CustomPaint(
@@ -114,16 +121,16 @@ class _EditorWireframe extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Container(
-          width: 28,
+          width: kStep * 7,
           decoration: const BoxDecoration(
             color: Color(0xFF151517),
             borderRadius: BorderRadius.vertical(top: Radius.circular(5)),
           ),
         ),
-        const SizedBox(width: 6),
+        const SizedBox(width: kStep * 1.5),
         Expanded(
           child: Container(
-            padding: const EdgeInsets.only(left: 8, right: 8, top: 8),
+            padding: const EdgeInsets.only(left: kStep * 2, right: kStep * 2, top: kStep * 2),
             decoration: const BoxDecoration(
               color: Color(0xFF131315),
               borderRadius: BorderRadius.vertical(top: Radius.circular(5)),
@@ -133,13 +140,13 @@ class _EditorWireframe extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _bar(40, const Color(0xFF2A2A2E)),
-                  const SizedBox(height: 6),
-                  _bar(56, const Color(0xFF232327)),
-                  const SizedBox(height: 10),
+                  _bar(kStep * 10, const Color(0xFF2A2A2E)),
+                  const SizedBox(height: kStep * 1.5),
+                  _bar(kStep * 14, const Color(0xFF232327)),
+                  const SizedBox(height: kStep * 2.5),
                   Container(
-                    width: 44,
-                    height: 16,
+                    width: kStep * 11,
+                    height: kStep * 4,
                     decoration: BoxDecoration(
                       color: const Color(0xFF1D1D20),
                       borderRadius: BorderRadius.circular(4),

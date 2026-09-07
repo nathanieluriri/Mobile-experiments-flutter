@@ -8,9 +8,9 @@ const _sidebarBars = [24.0, 18.0, 21.0, 14.0, 19.0];
 const _petals = [
   (9.0, Color(0xFFC4485C)),
   (11.0, Color(0xFFA93248)),
-  (8.0, Color(0xFFE2707F)),
+  (kStep * 2, Color(0xFFE2707F)),
   (7.0, Color(0xFF8A2C3B)),
-  (8.0, Color(0xFFD05A6A)),
+  (kStep * 2, Color(0xFFD05A6A)),
 ];
 
 /// The pale circle with a violet sparkle in it.
@@ -39,7 +39,7 @@ class ArcBody extends StatelessWidget {
     return ClipRect(
       child: Container(
         color: AppColors.arcBlue,
-        padding: const EdgeInsets.only(top: 10),
+        padding: const EdgeInsets.only(top: kStep * 2.5),
         child: Column(
           children: [
             Text(
@@ -53,7 +53,7 @@ class ArcBody extends StatelessWidget {
               ),
             ),
             Padding(
-              padding: const EdgeInsets.only(top: 6),
+              padding: const EdgeInsets.only(top: kStep * 1.5),
               child: Text(
                 'WIRED',
                 style: text(
@@ -65,7 +65,7 @@ class ArcBody extends StatelessWidget {
               ),
             ),
             Padding(
-              padding: const EdgeInsets.only(top: 10),
+              padding: const EdgeInsets.only(top: kStep * 2.5),
               child: IntrinsicHeight(
                 child: Spill(
                   horizontal: true,
@@ -78,7 +78,7 @@ class ArcBody extends StatelessWidget {
                         foreground: AppColors.arcBlue,
                         label: ' Download Arc for Mac',
                       ),
-                      const SizedBox(width: 4),
+                      const SizedBox(width: kStep),
                       const _DownloadButton(
                         background: AppColors.arcNavy,
                         foreground: Color(0xFFFFFFFF),
@@ -92,21 +92,21 @@ class ArcBody extends StatelessWidget {
             ),
             Expanded(
               child: Padding(
-                padding: const EdgeInsets.only(top: 12),
+                padding: const EdgeInsets.only(top: kStep * 3),
                 child: FractionallySizedBox(
                   widthFactor: 0.86,
                   child: ClipRRect(
                     borderRadius: const BorderRadius.vertical(top: Radius.circular(10)),
                     child: Container(
                       color: const Color(0xFFF6D9DC),
-                      padding: const EdgeInsets.only(left: 8, top: 8),
+                      padding: const EdgeInsets.only(left: kStep * 2, top: kStep * 2),
                       child: Row(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
                           SizedBox(
-                            width: 32,
+                            width: kStep * 8,
                             child: Padding(
-                              padding: const EdgeInsets.only(top: 4),
+                              padding: const EdgeInsets.only(top: kStep),
                               child: Spill(
                                 vertical: true,
                                 child: Column(
@@ -129,7 +129,7 @@ class ArcBody extends StatelessWidget {
                           ),
                           const Expanded(
                             child: Padding(
-                              padding: EdgeInsets.only(left: 4),
+                              padding: EdgeInsets.only(left: kStep),
                               child: _BrowserPane(),
                             ),
                           ),
@@ -163,7 +163,7 @@ class _DownloadButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+      padding: const EdgeInsets.symmetric(horizontal: kStep * 2, vertical: 5),
       decoration: BoxDecoration(color: background, borderRadius: BorderRadius.circular(4)),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -201,7 +201,7 @@ class _BrowserPane extends StatelessWidget {
             child: Column(
               children: [
                 Padding(
-                  padding: const EdgeInsets.only(left: 4, right: 4, top: 4),
+                  padding: const EdgeInsets.only(left: kStep, right: kStep, top: kStep),
                   child: Wrap(
                     spacing: 1,
                     runSpacing: 1,
@@ -219,8 +219,8 @@ class _BrowserPane extends StatelessWidget {
                 ),
                 Container(width: 2, height: 5, color: const Color(0xFF7E9463)),
                 Container(
-                  width: 20,
-                  height: 28,
+                  width: kStep * 5,
+                  height: kStep * 7,
                   decoration: const BoxDecoration(
                     color: Color(0xFFDED7CC),
                     borderRadius: BorderRadius.only(

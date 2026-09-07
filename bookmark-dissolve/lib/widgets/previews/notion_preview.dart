@@ -41,7 +41,7 @@ class NotionBody extends StatelessWidget {
     return ClipRect(
       child: Container(
         color: const Color(0xFFFFFEFB),
-        padding: const EdgeInsets.only(top: 12),
+        padding: const EdgeInsets.only(top: kStep * 3),
         child: Column(
           children: [
             Text(
@@ -50,7 +50,7 @@ class NotionBody extends StatelessWidget {
               style: text(size: 19, weight: FontWeight.w700, color: AppColors.ink),
             ),
             Padding(
-              padding: const EdgeInsets.only(top: 4, left: 24, right: 24),
+              padding: const EdgeInsets.only(top: kStep, left: kStep * 6, right: kStep * 6),
               child: Text(
                 'One connected workspace for your notes, docs and projects \u2014 '
                 'where better, faster work happens together.',
@@ -60,11 +60,15 @@ class NotionBody extends StatelessWidget {
             ),
             Expanded(
               child: Padding(
-                padding: const EdgeInsets.only(top: 12),
+                padding: const EdgeInsets.only(top: kStep * 3),
                 child: FractionallySizedBox(
                   widthFactor: 0.74,
                   child: Container(
-                    padding: const EdgeInsets.only(left: 12, right: 12, top: 10),
+                    padding: const EdgeInsets.only(
+                      left: kStep * 3,
+                      right: kStep * 3,
+                      top: kStep * 2.5,
+                    ),
                     decoration: BoxDecoration(
                       color: const Color(0xFFFFFFFF),
                       borderRadius: const BorderRadius.vertical(top: Radius.circular(10)),
@@ -80,15 +84,15 @@ class NotionBody extends StatelessWidget {
                       children: [
                         const Mark.rocket(size: 8),
                         Container(
-                          width: 80,
+                          width: kStep * 20,
                           height: 4,
-                          margin: const EdgeInsets.only(top: 6),
+                          margin: const EdgeInsets.only(top: kStep * 1.5),
                           decoration: BoxDecoration(
                             color: const Color(0xFFE7E4DE),
                             borderRadius: BorderRadius.circular(2),
                           ),
                         ),
-                        const SizedBox(height: 8),
+                        const SizedBox(height: kStep * 2),
                         for (var i = 0; i < _checklistRows.length; i++)
                           Padding(
                             padding: EdgeInsets.only(top: i == 0 ? 0 : 5),
@@ -102,7 +106,7 @@ class NotionBody extends StatelessWidget {
                                     border: Border.all(color: const Color(0xFFD5D1C9)),
                                   ),
                                 ),
-                                const SizedBox(width: 6),
+                                const SizedBox(width: kStep * 1.5),
                                 Container(
                                   width: _checklistRows[i].$2,
                                   height: 3,
