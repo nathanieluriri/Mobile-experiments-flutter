@@ -4,6 +4,27 @@ library;
 
 // Screen layout.
 const kScreenHorizontalPadding = 20.0;
+const kHeaderHorizontalPadding = 17.5;
+const kHeaderVerticalPadding = 7.0;
+const kHeaderButtonSize = 38.5;
+const kHeaderButtonRadius = 14.0;
+const kLargeTitleTopMargin = 7.0;
+
+// Inside a note.
+const kNoteRadius = 14.0;
+const kNotePadding = 14.0;
+const kNoteTitleRightPadding = 28.0;
+const kNoteTitleBottomMargin = 7.0;
+const kChipRowTopMargin = 10.5;
+const kChipGap = 7.0;
+const kChipHorizontalPadding = 10.5;
+const kChipVerticalPadding = 5.0;
+const kChipIconGap = 3.5;
+const kChecklistRowGap = 9.0;
+const kChecklistLabelGap = 10.0;
+const kChecklistBoxSize = 17.0;
+const kChecklistBoxStroke = 1.5;
+const kMetaTopMargin = 10.0;
 const kNoteListGap = 16.0;
 const kNoteListBottomPadding = 130.0;
 const kComposeButtonBottomMargin = 22.0;

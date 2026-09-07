@@ -187,7 +187,7 @@ class _NotesScreenState extends State<NotesScreen>
         );
       },
       child: const Padding(
-        padding: EdgeInsets.only(top: 8),
+        padding: EdgeInsets.only(top: kLargeTitleTopMargin),
         child: Text(
           kNotesScreenTitle,
           style: TextStyle(

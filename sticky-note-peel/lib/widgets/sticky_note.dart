@@ -341,15 +341,15 @@ class _StickyNoteState extends State<StickyNote> with TickerProviderStateMixin {
       child: DecoratedBox(
         decoration: BoxDecoration(
           color: widget.note.color,
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(kNoteRadius),
           boxShadow: AppShadows.liftedNote(kLiftShadowOpacity * lift),
         ),
         child: ClipRRect(
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(kNoteRadius),
           child: Stack(
             children: [
               Padding(
-                padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+                padding: const EdgeInsets.all(kNotePadding),
                 child: NoteContent(note: widget.note),
               ),
               Shimmer(

@@ -22,8 +22,8 @@ class NotesHeader extends StatelessWidget {
       opacity: 1 - kChromeDimAmount * dim,
       child: Padding(
         padding: const EdgeInsets.symmetric(
-          horizontal: kScreenHorizontalPadding,
-          vertical: 8,
+          horizontal: kHeaderHorizontalPadding,
+          vertical: kHeaderVerticalPadding,
         ),
         child: Stack(
           alignment: Alignment.center,
@@ -48,12 +48,12 @@ class NotesHeader extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Container(
-                  width: 44,
-                  height: 44,
+                  width: kHeaderButtonSize,
+                  height: kHeaderButtonSize,
                   alignment: Alignment.center,
                   decoration: BoxDecoration(
                     color: AppColors.surface,
-                    borderRadius: BorderRadius.circular(16),
+                    borderRadius: BorderRadius.circular(kHeaderButtonRadius),
                   ),
                   child: const Icon(
                     LucideIcons.menu,
@@ -62,8 +62,8 @@ class NotesHeader extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(
-                  width: 44,
-                  height: 44,
+                  width: kHeaderButtonSize,
+                  height: kHeaderButtonSize,
                   child: Center(
                     child: Icon(
                       LucideIcons.search,

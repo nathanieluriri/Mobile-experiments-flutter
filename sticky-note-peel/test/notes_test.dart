@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:sticky_note_peel/app.dart';
 import 'package:sticky_note_peel/data/notes.dart';
+import 'package:sticky_note_peel/screens/notes/compose_note_button.dart';
+import 'package:sticky_note_peel/theme/metrics.dart';
 import 'package:sticky_note_peel/widgets/sticky_note.dart';
 
 import 'support/golden.dart';
@@ -29,6 +32,43 @@ void main() {
     expect(find.text('Suitcase/travel backpack'), findsOneWidget);
     expect(find.text('+5 checked items'), findsOneWidget);
     expect(find.text('May 3 2020, 00:00'), findsOneWidget);
+  });
+
+  testWidgets('the screen is laid out on the design grid', (tester) async {
+    await pumpScreen(tester, const App());
+    await tester.pump();
+
+    final menu = tester.getRect(
+      find.ancestor(
+        of: find.byIcon(LucideIcons.menu),
+        matching: find.byType(Container),
+      ).first,
+    );
+    expect(menu.size, const Size(kHeaderButtonSize, kHeaderButtonSize));
+    expect(menu.left, kHeaderHorizontalPadding);
+    expect(menu.top, kPhone.top + kHeaderVerticalPadding);
+
+    final first = tester.getRect(find.byType(StickyNote).at(0));
+    final second = tester.getRect(find.byType(StickyNote).at(1));
+    expect(first.left, kScreenHorizontalPadding);
+    expect(first.width, 402 - kScreenHorizontalPadding * 2);
+    expect(first.top, closeTo(171.25, 0.5));
+    expect(first.height, closeTo(201.25, 0.5));
+    expect(second.height, closeTo(289.25, 0.5));
+    expect(second.top - first.bottom, kNoteListGap);
+
+    final compose = tester.getRect(
+      find.descendant(
+        of: find.byType(ComposeNoteButton),
+        matching: find.byType(Container),
+      ),
+    );
+    expect(compose.size, const Size(58, 58));
+    expect(compose.bottom, 874 - kPhone.bottom - kComposeButtonBottomMargin);
+  });
+
+  testWidgets('goldens are rendered with real shadow blur', (tester) async {
+    expect(debugDisableShadows, isFalse);
   });
 
   testWidgets('the title swaps from the list into the header on scroll',

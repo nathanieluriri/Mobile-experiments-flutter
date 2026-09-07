@@ -3,6 +3,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../data/note.dart';
 import '../theme/colors.dart';
+import '../theme/metrics.dart';
 import '../theme/typography.dart';
 
 /// Everything printed on a note: title, then either a body or a checklist, then
@@ -20,7 +21,10 @@ class NoteContent extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       children: [
         Padding(
-          padding: const EdgeInsets.only(right: 32, bottom: 8),
+          padding: const EdgeInsets.only(
+            right: kNoteTitleRightPadding,
+            bottom: kNoteTitleBottomMargin,
+          ),
           child: Text(
             note.title,
             style: const TextStyle(
@@ -48,7 +52,7 @@ class NoteContent extends StatelessWidget {
         if (checklist != null) NoteChecklist(items: checklist),
         if (note.meta != null)
           Padding(
-            padding: const EdgeInsets.only(top: 10),
+            padding: const EdgeInsets.only(top: kMetaTopMargin),
             child: Text(
               note.meta!,
               style: TextStyle(
@@ -62,16 +66,18 @@ class NoteContent extends StatelessWidget {
           ),
         if (note.tags.isNotEmpty || note.date != null)
           Padding(
-            padding: const EdgeInsets.only(top: 12),
+            padding: const EdgeInsets.only(top: kChipRowTopMargin),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                for (final tag in note.tags) ...[
+                for (final (index, tag) in note.tags.indexed) ...[
+                  if (index > 0) const SizedBox(width: kChipGap),
                   NoteChip(label: tag),
-                  const SizedBox(width: 8),
                 ],
-                if (note.date != null)
+                if (note.date != null) ...[
+                  if (note.tags.isNotEmpty) const SizedBox(width: kChipGap),
                   NoteChip(label: note.date!, icon: LucideIcons.clock),
+                ],
               ],
             ),
           ),
@@ -93,22 +99,22 @@ class NoteChecklist extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       children: [
         for (var i = 0; i < items.length; i++) ...[
-          if (i > 0) const SizedBox(height: 9),
+          if (i > 0) const SizedBox(height: kChecklistRowGap),
           Row(
             mainAxisSize: MainAxisSize.min,
             children: [
               Container(
-                width: 17,
-                height: 17,
+                width: kChecklistBoxSize,
+                height: kChecklistBoxSize,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   border: Border.all(
                     color: AppColors.noteText.withValues(alpha: 0.75),
-                    width: 1.5,
+                    width: kChecklistBoxStroke,
                   ),
                 ),
               ),
-              const SizedBox(width: 10),
+              const SizedBox(width: kChecklistLabelGap),
               Text(
                 items[i],
                 style: TextStyle(
@@ -137,7 +143,10 @@ class NoteChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+      padding: const EdgeInsets.symmetric(
+        horizontal: kChipHorizontalPadding,
+        vertical: kChipVerticalPadding,
+      ),
       decoration: BoxDecoration(
         color: AppColors.white.withValues(alpha: 0.75),
         borderRadius: BorderRadius.circular(9999),
@@ -147,7 +156,7 @@ class NoteChip extends StatelessWidget {
         children: [
           if (icon != null) ...[
             Icon(icon, size: 11, color: AppColors.noteText),
-            const SizedBox(width: 4),
+            const SizedBox(width: kChipIconGap),
           ],
           Text(
             label,
