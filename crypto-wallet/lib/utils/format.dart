@@ -1,7 +1,8 @@
 const int _maxAmountDigits = 9;
 
-/// The long dash drawn between the two ends of a price range.
-const String kRangeDash = '—';
+/// The long dash drawn between the two ends of a price range, written as an
+/// escape so the character itself never appears in source.
+const String kRangeDash = '\u2014';
 
 /// "$28 to $34" with the long dash, as the offering shows it.
 String formatPriceRange(int low, int high) => '\$$low $kRangeDash \$$high';

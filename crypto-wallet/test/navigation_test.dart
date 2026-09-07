@@ -33,7 +33,13 @@ void main() {
   testWidgets('the wallet recedes behind an opening flow', (tester) async {
     await pumpScreen(tester, const App());
     await tester.tap(find.text('IPO'));
+    // One frame starts the transition, then 120 ms into it.
+    await tester.pump();
     await pumpMs(tester, 120);
+    // The wallet has shrunk: its top-left corner is inside the screen.
+    final wallet = tester.getTopLeft(find.text('Total Balance'));
+    expect(wallet.dy, greaterThan(62 + 16 + 48 + 24 + 8));
+    expect(find.text('IPO Market'), findsOneWidget);
     await capture(tester, 'flow__opening_t0120');
   });
 }

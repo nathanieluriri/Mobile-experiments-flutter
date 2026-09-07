@@ -1,4 +1,5 @@
 import 'package:crypto_wallet/app.dart';
+import 'package:crypto_wallet/screens/send/send_screen.dart';
 import 'package:crypto_wallet/utils/format.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -10,9 +11,15 @@ void main() {
     await pumpScreen(tester, const App(initialRoute: Routes.send));
     await pumpFor(tester, 1500);
     expect(find.text('Paste or scan wallet address'), findsOneWidget);
-    // The fee card is on screen at rest: the amount block yields, not the cards.
+    // The amount keeps its natural height and the page scrolls, so the fee
+    // card starts below the fold and nothing overdraws the recents.
+    final amountTop = tester.getTopLeft(find.byType(AmountDisplay)).dy;
+    final recentsBottom = tester.getBottomLeft(find.byType(RecentRecipients)).dy;
+    expect(amountTop, greaterThanOrEqualTo(recentsBottom + 20));
+    final amountHeight = tester.getSize(find.byType(AmountDisplay)).height;
+    expect(amountHeight, greaterThan(85), reason: 'natural height, not squeezed');
     expect(find.text('ARRIVAL'), findsOneWidget);
-    expect(tester.getBottomLeft(find.text('ARRIVAL')).dy, lessThan(874 - 34));
+    expect(tester.getTopLeft(find.text('ARRIVAL')).dy, greaterThan(500));
     // All five recents fit on screen.
     expect(tester.getTopRight(find.text('Vault')).dx, lessThan(402));
     await capture(tester, 'send__default');

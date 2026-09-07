@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../data/fixtures.dart';
@@ -143,23 +142,19 @@ class _SendScreenState extends State<SendScreen> {
                                   ),
                                 ),
                               ),
-                              // Like the source's flex 1 with a zero basis: this
-                              // block takes whatever height is left and lets its
-                              // glyphs overdraw when there is not enough.
+                              // Like the source's flex 1 block inside a scroll
+                              // view: it grows to fill spare height on tall
+                              // screens and keeps its natural height, letting
+                              // the page scroll, when the content is taller.
                               Expanded(
-                                child: _ZeroIntrinsicHeight(
-                                  child: OverflowBox(
-                                    alignment: Alignment.center,
-                                    minHeight: 0,
-                                    maxHeight: double.infinity,
-                                    child: Padding(
-                                      padding: const EdgeInsets.symmetric(vertical: 20),
-                                      child: Enter(
-                                        kind: EnterKind.fadeInDown,
-                                        delay: const Duration(milliseconds: 180),
-                                        duration: const Duration(milliseconds: 420),
-                                        child: AmountDisplay(value: _amount, token: _token),
-                                      ),
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(vertical: 20),
+                                  child: Center(
+                                    child: Enter(
+                                      kind: EnterKind.fadeInDown,
+                                      delay: const Duration(milliseconds: 180),
+                                      duration: const Duration(milliseconds: 420),
+                                      child: AmountDisplay(value: _amount, token: _token),
                                     ),
                                   ),
                                 ),
@@ -216,28 +211,6 @@ class _SendScreenState extends State<SendScreen> {
       ),
     );
   }
-}
-
-/// The amount block's vertical padding, which is also the smallest height a
-/// flex item with a zero basis keeps in the original layout engine.
-const double _amountBlockFloor = 40;
-
-/// Lays out its child normally but reports only the padding floor as its
-/// intrinsic height, so a flexible parent measures it the way a flex basis of
-/// 0 behaves and the content overdraws when space is short.
-class _ZeroIntrinsicHeight extends SingleChildRenderObjectWidget {
-  const _ZeroIntrinsicHeight({required Widget super.child});
-
-  @override
-  RenderObject createRenderObject(BuildContext context) => _RenderZeroIntrinsicHeight();
-}
-
-class _RenderZeroIntrinsicHeight extends RenderProxyBox {
-  @override
-  double computeMinIntrinsicHeight(double width) => _amountBlockFloor;
-
-  @override
-  double computeMaxIntrinsicHeight(double width) => _amountBlockFloor;
 }
 
 const double _amountFontSize = 58;
