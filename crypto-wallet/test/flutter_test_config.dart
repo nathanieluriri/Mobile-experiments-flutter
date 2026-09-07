@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -29,7 +28,5 @@ Future<void> testExecutable(FutureOr<void> Function() testMain) async {
   for (final loader in loaders.values) {
     await loader.load();
   }
-  // Render soft shadows in goldens instead of the test default hard bands.
-  debugDisableShadows = false;
   await testMain();
 }
