@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
 import '../../data/fixtures.dart';
@@ -85,6 +86,7 @@ class _WalletScreenState extends State<WalletScreen> with TickerProviderStateMix
       child: ColoredBox(
         color: AppColors.band,
         child: GestureDetector(
+          dragStartBehavior: DragStartBehavior.down,
           onVerticalDragStart: _onDragStart,
           onVerticalDragUpdate: _onDragUpdate,
           onVerticalDragEnd: _onDragEnd,

@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
 
+import 'screens/ipo/ipo_screen.dart';
+import 'screens/receive/receive_screen.dart';
+import 'screens/send/send_screen.dart';
+import 'screens/swap/swap_screen.dart';
 import 'screens/wallet/wallet_screen.dart';
 import 'theme/theme.dart';
 
@@ -45,27 +49,16 @@ class App extends StatelessWidget {
 Route<void> generateRoute(RouteSettings settings) {
   switch (settings.name) {
     case Routes.send:
-      return FlowRoute(settings: settings, builder: (_) => const _Placeholder('Send'));
+      return FlowRoute(settings: settings, builder: (_) => const SendScreen());
     case Routes.receive:
-      return FlowRoute(settings: settings, builder: (_) => const _Placeholder('Receive'));
+      return FlowRoute(settings: settings, builder: (_) => const ReceiveScreen());
     case Routes.swap:
-      return FlowRoute(settings: settings, builder: (_) => const _Placeholder('Swap'));
+      return FlowRoute(settings: settings, builder: (_) => const SwapScreen());
     case Routes.ipo:
-      return FlowRoute(settings: settings, builder: (_) => const _Placeholder('IPO'));
+      return FlowRoute(settings: settings, builder: (_) => const IpoScreen());
     case Routes.wallet:
     default:
       return WalletRoute(settings: settings, builder: (_) => const WalletScreen());
-  }
-}
-
-class _Placeholder extends StatelessWidget {
-  const _Placeholder(this.title);
-
-  final String title;
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(body: Center(child: Text(title)));
   }
 }
 

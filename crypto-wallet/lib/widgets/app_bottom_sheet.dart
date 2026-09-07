@@ -32,7 +32,7 @@ class AppBottomSheet extends StatefulWidget {
 class _AppBottomSheetState extends State<AppBottomSheet>
     with SingleTickerProviderStateMixin {
   final GlobalKey _sheetKey = GlobalKey();
-  late final AnimationController _translateY = AnimationController.unbounded(vsync: this);
+  late final AnimationController _translateY;
   bool _mounted = false;
   double _windowHeight = 874;
   double _dragStart = 0;
@@ -45,6 +45,7 @@ class _AppBottomSheetState extends State<AppBottomSheet>
   @override
   void initState() {
     super.initState();
+    _translateY = AnimationController.unbounded(vsync: this);
     if (widget.open) {
       _present();
     }

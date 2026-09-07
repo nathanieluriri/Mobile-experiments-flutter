@@ -1,5 +1,11 @@
 const int _maxAmountDigits = 9;
 
+/// The long dash drawn between the two ends of a price range.
+const String kRangeDash = '—';
+
+/// "$28 to $34" with the long dash, as the offering shows it.
+String formatPriceRange(int low, int high) => '\$$low $kRangeDash \$$high';
+
 String formatSigned(double value) {
   final sign = value >= 0 ? '+' : '-';
   return '$sign\$${value.abs().toStringAsFixed(2)}';

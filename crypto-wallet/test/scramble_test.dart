@@ -1,4 +1,7 @@
+import 'dart:math' as math;
+
 import 'package:crypto_wallet/app.dart';
+import 'package:crypto_wallet/data/models.dart';
 import 'package:crypto_wallet/screens/wallet/wallet_refresh_controller.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -37,18 +40,33 @@ void main() {
     await capture(tester, 'scramble__settled');
   });
 
-  testWidgets('a second pull during a refresh is ignored', (tester) async {
-    await pumpScreen(tester, const App());
-    await pullToRefresh(tester);
+  testWidgets('a second refresh during a refresh is ignored', (tester) async {
+    await tester.pumpWidget(const SizedBox());
+    final controller = WalletRefreshController(
+      vsync: const TestVSync(),
+      initialBalance: 2378.12,
+      initialGain: const Gain(amount: 52.36, percent: 1.74),
+      random: math.Random(42),
+    );
+    addTearDown(controller.dispose);
+    controller.refresh();
+    await pumpMs(tester, 16);
     await pumpMs(tester, 800);
-    final before = tester.widget<Text>(find.text('Total Balance'));
-    expect(before, isNotNull);
-    // The spinner is at full strength mid-refresh; a second pull must not
-    // restart the sequence, so the balance still lands at 2000 ms.
-    await pullToRefresh(tester);
-    await pumpMs(tester, 1300);
-    // 2148 ms after the first trigger: digits have started locking.
-    expect(find.textContaining('\$'), findsWidgets);
+    expect(controller.time, closeTo(800, 1));
+    expect(controller.refreshing, isTrue);
+    controller.refresh();
+    await pumpMs(tester, 100);
+    expect(controller.time, closeTo(900, 1), reason: 'the busy guard keeps the clock');
+    expect(controller.digits, '237812', reason: 'no fetch before 2000 ms');
+    await pumpMs(tester, 1200);
+    expect(controller.time, closeTo(2100, 1));
+    expect(controller.digits, isNot('237812'), reason: 'fetched at 2000 ms');
+    expect(controller.settle, closeTo(100 / 340, 0.01));
+    await pumpMs(tester, 600);
+    expect(controller.refreshing, isFalse, reason: 'finished at 2660 ms');
+    await pumpMs(tester, 100);
+    expect(controller.time, 0, reason: 'ticker stopped at 2680 ms');
+    expect(controller.settle, 1);
   });
 
   test('digits lock left to right on settle', () {

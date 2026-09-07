@@ -68,6 +68,7 @@ class _ShimmerPainter extends CustomPainter {
           AppColors.shimmerHighlight,
           AppColors.shimmerBase,
         ],
+        const [0, 0.5, 1],
       );
     canvas.drawRRect(
       RRect.fromRectAndRadius(Offset.zero & size, Radius.circular(radius)),
