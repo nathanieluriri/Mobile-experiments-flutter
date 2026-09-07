@@ -41,6 +41,32 @@ void main() {
     await capture(tester, 'dock__compact');
   });
 
+  testWidgets('the pill springs across the whole shape change', (tester) async {
+    final controller = TabBarController();
+    addTearDown(controller.dispose);
+    await pumpScreen(tester, _strip(0, controller), phone: kStrip);
+    final expanded = tester.getSize(find.byType(BottomDock));
+
+    controller.handleScroll(200, 1000);
+    await tester.pump();
+    expect(find.text('Deck'), findsNothing, reason: 'the contents change at once');
+    expect(
+      tester.getSize(find.byType(BottomDock)),
+      expanded,
+      reason: 'while the pill itself has not started to move',
+    );
+
+    await pumpMs(tester, 60);
+    final midway = tester.getSize(find.byType(BottomDock));
+    expect(midway.width, lessThan(expanded.width));
+    expect(midway.height, lessThan(expanded.height));
+
+    await pumpMs(tester, 1200);
+    final compact = tester.getSize(find.byType(BottomDock));
+    expect(compact.width, lessThan(midway.width), reason: 'and keeps shrinking');
+    expect(compact.height, lessThan(midway.height));
+  });
+
   group('the compact latch', () {
     test('stays open near the top of a list', () {
       final controller = TabBarController();

@@ -80,11 +80,13 @@ class _PlaylistRow extends StatelessWidget {
         children: [
           DecoratedBox(
             position: DecorationPosition.foreground,
-            decoration: BoxDecoration(
-              borderRadius: radius,
-              border: Border.all(color: AppColors.coverBorder, width: hairlineWidth(context)),
+            decoration: ShapeDecoration(
+              shape: RoundedSuperellipseBorder(
+                borderRadius: radius,
+                side: BorderSide(color: AppColors.coverBorder, width: hairlineWidth(context)),
+              ),
             ),
-            child: ClipRRect(
+            child: ClipRSuperellipse(
               borderRadius: radius,
               child: Image.asset(
                 albums[playlist.coverIndex].imageAsset,

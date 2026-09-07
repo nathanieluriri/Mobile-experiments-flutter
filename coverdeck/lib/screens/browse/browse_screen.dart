@@ -95,11 +95,13 @@ class _Tile extends StatelessWidget {
     const radius = BorderRadius.all(Radius.circular(10));
     return DecoratedBox(
       position: DecorationPosition.foreground,
-      decoration: BoxDecoration(
-        borderRadius: radius,
-        border: Border.all(color: AppColors.coverBorder, width: hairlineWidth(context)),
+      decoration: ShapeDecoration(
+        shape: RoundedSuperellipseBorder(
+          borderRadius: radius,
+          side: BorderSide(color: AppColors.coverBorder, width: hairlineWidth(context)),
+        ),
       ),
-      child: ClipRRect(
+      child: ClipRSuperellipse(
         borderRadius: radius,
         child: Image.asset(asset, width: size, height: size, fit: BoxFit.cover),
       ),

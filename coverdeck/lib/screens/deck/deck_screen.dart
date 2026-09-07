@@ -69,6 +69,7 @@ class _DeckScreenState extends State<DeckScreen> with SingleTickerProviderStateM
               width: double.infinity,
               child: Text(
                 'NOW PLAYING',
+                semanticsLabel: 'Now Playing',
                 textAlign: TextAlign.center,
                 style: AppText.eyebrow,
               ),

@@ -5,8 +5,9 @@ import 'colors.dart';
 /// Family every label in the app is set in.
 const appFontFamily = 'Inter';
 
-/// The app's type scale. Each style carries its own family, colour and blank
-/// decoration so text reads the same wherever it is placed.
+/// The app's type scale. Each style states its family, weight, colour and
+/// blank decoration outright, so text reads the same wherever it is placed and
+/// never picks up a value from whatever happens to be above it.
 abstract final class AppText {
   /// Small tracked capitals above the deck.
   static const eyebrow = TextStyle(
@@ -33,7 +34,8 @@ abstract final class AppText {
     decoration: TextDecoration.none,
     fontSize: 16,
     color: AppColors.secondaryLabel,
-  );
+    fontWeight: FontWeight.w400,
+);
 
   /// Elapsed and total time, in figures of even width so nothing shifts.
   static const time = TextStyle(
@@ -42,7 +44,8 @@ abstract final class AppText {
     fontSize: 12,
     color: AppColors.tertiaryLabel,
     fontFeatures: [FontFeature.tabularFigures()],
-  );
+    fontWeight: FontWeight.w400,
+);
 
   /// Screen heading on the list tabs.
   static const heading = TextStyle(
@@ -68,7 +71,8 @@ abstract final class AppText {
     decoration: TextDecoration.none,
     fontSize: 13,
     color: AppColors.secondaryLabel,
-  );
+    fontWeight: FontWeight.w400,
+);
 
   /// Playlist name in a library row.
   static const rowTitle = TextStyle(
@@ -85,7 +89,8 @@ abstract final class AppText {
     decoration: TextDecoration.none,
     fontSize: 13,
     color: AppColors.secondaryLabel,
-  );
+    fontWeight: FontWeight.w400,
+);
 
   /// Dock label, tinted by whether its tab is selected.
   static const dockLabel = TextStyle(

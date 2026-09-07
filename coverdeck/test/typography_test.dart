@@ -1,3 +1,4 @@
+import 'package:coverdeck/theme/typography.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -32,5 +33,28 @@ void main() {
       ),
     );
     await capture(tester, 'typography__weights');
+  });
+
+  test('every style states its own family, weight and decoration', () {
+    // Nothing above these labels supplies a text style, so a style that leaves
+    // a field out inherits the framework's fallback rather than the app's.
+    const scale = <String, TextStyle>{
+      'eyebrow': AppText.eyebrow,
+      'nowPlayingTitle': AppText.nowPlayingTitle,
+      'nowPlayingArtist': AppText.nowPlayingArtist,
+      'time': AppText.time,
+      'heading': AppText.heading,
+      'tileTitle': AppText.tileTitle,
+      'tileArtist': AppText.tileArtist,
+      'rowTitle': AppText.rowTitle,
+      'rowSubtitle': AppText.rowSubtitle,
+      'dockLabel': AppText.dockLabel,
+    };
+    scale.forEach((name, style) {
+      expect(style.fontFamily, appFontFamily, reason: name);
+      expect(style.fontWeight, isNotNull, reason: name);
+      expect(style.fontSize, isNotNull, reason: name);
+      expect(style.decoration, TextDecoration.none, reason: name);
+    });
   });
 }
