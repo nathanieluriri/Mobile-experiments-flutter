@@ -60,8 +60,14 @@ class _TransportGlyphPainter extends CustomPainter {
     canvas.restore();
   }
 
-  static Path _playPath() =>
-      _roundedPolygon(const [Offset(5, 3), Offset(21, 12), Offset(5, 21)], 2);
+  // Lucide's play, taken from its own path: a triangle with its corners cut to
+  // a radius of 2, which the 2 wide stroke then carries out to the edges of the
+  // grid, the same 20 units of height the pause bars fill.
+  static Path _playPath() => _roundedPolygon(const [
+    Offset(5, 1.518),
+    Offset(22.971, 12),
+    Offset(5, 22.482),
+  ], 2);
 
   static Path _pausePath() => Path()
     ..addRRect(RRect.fromLTRBR(5, 3, 10, 21, const Radius.circular(1)))

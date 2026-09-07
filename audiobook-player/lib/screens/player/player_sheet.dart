@@ -1,6 +1,10 @@
 import 'dart:ui' as ui;
 
-import 'package:flutter/gestures.dart' show DragStartBehavior;
+import 'package:flutter/gestures.dart'
+    show
+        DeviceGestureSettings,
+        DragStartBehavior,
+        VerticalDragGestureRecognizer;
 import 'package:flutter/widgets.dart';
 
 import '../../state/player_scope.dart';
@@ -12,6 +16,9 @@ import 'sheet_transition.dart';
 
 /// How far past the pill the handle still answers a tap.
 const _handleHitSlop = 14.0;
+
+/// How far a finger has to travel before the sheet starts following it.
+const _dragActivation = 12.0;
 
 /// The mini player and the full player: one sheet, one progress value.
 class PlayerSheet extends StatefulWidget {
@@ -45,20 +52,34 @@ class _PlayerSheetState extends State<PlayerSheet> {
               right: 0,
               bottom: sheet.bottom,
               height: sheet.height,
-              child: GestureDetector(
-                // Measured from where the finger went down, so the distance
-                // that woke the drag counts toward it.
-                dragStartBehavior: DragStartBehavior.down,
-                onVerticalDragStart: (_) {
-                  _travelled = 0;
-                  player.onDragStart();
+              child: RawGestureDetector(
+                behavior: HitTestBehavior.opaque,
+                gestures: {
+                  VerticalDragGestureRecognizer:
+                      GestureRecognizerFactoryWithHandlers<
+                        VerticalDragGestureRecognizer
+                      >(VerticalDragGestureRecognizer.new, (recognizer) {
+                        recognizer
+                          // Travel is measured from where the finger went
+                          // down, so the distance that woke the drag counts
+                          // toward it.
+                          ..dragStartBehavior = DragStartBehavior.down
+                          ..gestureSettings = const DeviceGestureSettings(
+                            touchSlop: _dragActivation,
+                          )
+                          ..onStart = (_) {
+                            _travelled = 0;
+                            player.onDragStart();
+                          }
+                          ..onUpdate = (details) {
+                            _travelled += details.delta.dy;
+                            player.onDragUpdate(_travelled, sheet.dragRange);
+                          }
+                          ..onEnd = (details) => player.onDragEnd(
+                            details.velocity.pixelsPerSecond.dy,
+                          );
+                      }),
                 },
-                onVerticalDragUpdate: (details) {
-                  _travelled += details.delta.dy;
-                  player.onDragUpdate(_travelled, sheet.dragRange);
-                },
-                onVerticalDragEnd: (details) =>
-                    player.onDragEnd(details.velocity.pixelsPerSecond.dy),
                 child: ClipRRect(
                   borderRadius: BorderRadius.vertical(
                     top: Radius.circular(sheet.topRadius),

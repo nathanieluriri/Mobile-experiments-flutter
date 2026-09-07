@@ -138,6 +138,54 @@ void main() {
     expect(player.sheetProgress.value, closeTo(0, 0.001));
   });
 
+  testWidgets('the handle opens a shut sheet', (tester) async {
+    await pumpScreen(tester, bookApp());
+    final player = playerOf(tester);
+    await tester.tapAt(const Offset(220, 800));
+    await settle(tester);
+    expect(player.sheetProgress.value, closeTo(1, 0.001));
+  });
+
+  testWidgets('a flick is what decides it, either side of 500 a second', (
+    tester,
+  ) async {
+    await pumpScreen(tester, bookApp());
+    final player = playerOf(tester);
+
+    Future<double> release(double from, double velocity) async {
+      player.sheetProgress.value = from;
+      player.onDragEnd(velocity);
+      await settle(tester);
+      return player.sheetProgress.value;
+    }
+
+    // Above the middle it opens unless the flick is downward and hard enough.
+    expect(await release(0.6, 499), closeTo(1, 0.001));
+    expect(await release(0.6, 501), closeTo(0, 0.001));
+    // Below the middle it shuts unless the flick is upward and hard enough.
+    expect(await release(0.4, -499), closeTo(0, 0.001));
+    expect(await release(0.4, -501), closeTo(1, 0.001));
+  });
+
+  testWidgets('the sheet starts following the finger after 12 pixels', (
+    tester,
+  ) async {
+    await pumpScreen(tester, bookApp());
+    final player = playerOf(tester);
+    final gesture = await tester.startGesture(
+      _grip,
+      kind: PointerDeviceKind.touch,
+    );
+    await gesture.moveBy(const Offset(0, -11));
+    await tester.pump();
+    expect(player.sheetProgress.value, 0);
+    await gesture.moveBy(const Offset(0, -2));
+    await tester.pump();
+    expect(player.sheetProgress.value, closeTo(13 / 790, 0.0001));
+    await gesture.up();
+    await tester.pump();
+  });
+
   testWidgets('the transport starts and stops the track', (tester) async {
     await pumpScreen(tester, bookApp());
     final player = playerOf(tester);

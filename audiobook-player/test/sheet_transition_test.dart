@@ -79,4 +79,28 @@ void main() {
   test('dragging the whole range opens the sheet', () {
     expect(at(0).dragRange, 790);
   });
+
+  test('the full player slides its last 32 pixels as it fades in', () {
+    expect(at(0.2).expandedTranslateY, 32);
+    expect(at(0.45).expandedTranslateY, 32);
+    expect(at(0.725).expandedTranslateY, closeTo(16, 0.001));
+    expect(at(1).expandedTranslateY, 0);
+  });
+
+  test('the blur and the wash build the whole way up', () {
+    expect(at(0.5).blurSigma, closeTo(5, 0.001));
+    expect(at(1).blurSigma, 10);
+    expect(at(0.5).tintOpacity, closeTo(0.21, 0.001));
+    expect(at(1).tintOpacity, closeTo(0.42, 0.001));
+    expect(at(0.5).scrimOpacity, closeTo(0.175, 0.001));
+    expect(at(1).scrimOpacity, closeTo(0.35, 0.001));
+  });
+
+  test('only one of the two layers answers a tap at a time', () {
+    expect(at(0).miniTakesTaps, isTrue);
+    expect(at(0.049).miniTakesTaps, isTrue);
+    expect(at(0.05).miniTakesTaps, isFalse);
+    expect(at(0.95).expandedTakesTaps, isFalse);
+    expect(at(0.951).expandedTakesTaps, isTrue);
+  });
 }

@@ -2,6 +2,7 @@ import 'package:flutter/widgets.dart';
 
 import '../painting/transport_glyph.dart';
 import '../theme/colors.dart';
+import 'pressable.dart';
 
 /// The black disc that starts and stops playback.
 class PlayPauseButton extends StatelessWidget {
@@ -22,9 +23,9 @@ class PlayPauseButton extends StatelessWidget {
   Widget build(BuildContext context) {
     // The play triangle sits a shade right of centre so it looks centred.
     final nudge = isPlaying ? 0.0 : (iconSize / 8).roundToDouble() / 2;
-    return GestureDetector(
+    return Pressable(
+      heldOpacity: 0.8,
       onTap: onPressed,
-      behavior: HitTestBehavior.opaque,
       child: Container(
         width: diameter,
         height: diameter,

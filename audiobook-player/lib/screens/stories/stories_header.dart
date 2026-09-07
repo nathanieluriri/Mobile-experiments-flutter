@@ -2,6 +2,7 @@ import 'package:flutter/widgets.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../theme/colors.dart';
+import '../../widgets/pressable.dart';
 import '../../widgets/screen_title.dart';
 
 /// The Stories title with its two round buttons.
@@ -37,15 +38,18 @@ class _HeaderIconButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: 40,
-      height: 40,
-      alignment: Alignment.center,
-      decoration: const BoxDecoration(
-        color: AppColors.white,
-        shape: BoxShape.circle,
+    return Pressable(
+      heldOpacity: 0.7,
+      child: Container(
+        width: 40,
+        height: 40,
+        alignment: Alignment.center,
+        decoration: const BoxDecoration(
+          color: AppColors.white,
+          shape: BoxShape.circle,
+        ),
+        child: Icon(icon, size: 20, color: AppColors.ink),
       ),
-      child: Icon(icon, size: 20, color: AppColors.ink),
     );
   }
 }
