@@ -64,11 +64,14 @@ Route<void> generateRoute(RouteSettings settings) {
 
 final SpringCurve _screenCurve = SpringCurve(Springs.screen);
 
-/// A flow screen that slides up from the bottom on the screen spring.
+/// A flow screen that slides up from the bottom on the screen spring, and
+/// settles back down on a fresh spring when it closes.
 class FlowRoute<T> extends PageRoute<T> {
   FlowRoute({required this.builder, super.settings});
 
   final WidgetBuilder builder;
+
+  CurvedAnimation? _progress;
 
   @override
   Color? get barrierColor => null;
@@ -104,15 +107,24 @@ class FlowRoute<T> extends PageRoute<T> {
     Animation<double> secondaryAnimation,
     Widget child,
   ) {
+    final progress = _progress ??= _screenCurve.drive(animation);
     final height = MediaQuery.sizeOf(context).height;
     return AnimatedBuilder(
-      animation: animation,
+      animation: progress,
       child: child,
       builder: (context, child) {
-        final p = _screenCurve.transform(animation.value);
-        return Transform.translate(offset: Offset(0, (1 - p) * height), child: child);
+        return Transform.translate(
+          offset: Offset(0, (1 - progress.value) * height),
+          child: child,
+        );
       },
     );
+  }
+
+  @override
+  void dispose() {
+    _progress?.dispose();
+    super.dispose();
   }
 }
 
@@ -121,6 +133,8 @@ class WalletRoute<T> extends PageRoute<T> {
   WalletRoute({required this.builder, super.settings});
 
   final WidgetBuilder builder;
+
+  CurvedAnimation? _recede;
 
   @override
   Color? get barrierColor => null;
@@ -150,11 +164,12 @@ class WalletRoute<T> extends PageRoute<T> {
     Animation<double> secondaryAnimation,
     Widget child,
   ) {
+    final recede = _recede ??= _screenCurve.drive(secondaryAnimation);
     return AnimatedBuilder(
-      animation: secondaryAnimation,
+      animation: recede,
       child: child,
       builder: (context, child) {
-        final q = _screenCurve.transform(secondaryAnimation.value);
+        final q = recede.value;
         return ColoredBox(
           color: AppColors.band,
           child: Transform.scale(
@@ -175,5 +190,11 @@ class WalletRoute<T> extends PageRoute<T> {
         );
       },
     );
+  }
+
+  @override
+  void dispose() {
+    _recede?.dispose();
+    super.dispose();
   }
 }

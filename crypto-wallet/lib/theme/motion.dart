@@ -54,4 +54,15 @@ class SpringCurve extends Curve {
   double transformInternal(double t) {
     return _simulation.x(t * duration.inMicroseconds / 1e6);
   }
+
+  /// Drives [parent] through this spring.
+  ///
+  /// Running in reverse starts a fresh spring that settles from 1 back to 0,
+  /// the way releasing a value to its resting position does, instead of
+  /// replaying the forward curve backwards in time (which would hold still
+  /// while the spring's long tail unwinds and then rush the last stretch).
+  /// The caller owns the returned animation and must dispose it.
+  CurvedAnimation drive(Animation<double> parent) {
+    return CurvedAnimation(parent: parent, curve: this, reverseCurve: flipped);
+  }
 }
