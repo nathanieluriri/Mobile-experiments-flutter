@@ -1,5 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:sticky_note_peel/widgets/marked_text.dart';
+
+/// Finds a line of writing wherever it appears, whether it is plain text or a
+/// line on a note, which is painted so a search can mark words in it.
+Finder findText(String text) => find.byWidgetPredicate(
+      (widget) =>
+          (widget is Text && widget.data == text) ||
+          (widget is MarkedText && widget.text == text),
+    );
 
 /// Font family bundled with this app.
 const kFontFamily = 'Quicksand';

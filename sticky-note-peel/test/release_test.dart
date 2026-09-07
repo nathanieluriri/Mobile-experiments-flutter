@@ -64,7 +64,7 @@ void main() {
     expect(find.byType(StickyNote), findsNWidgets(kNotes.length - 1));
     expect(find.byType(ActionDock), findsNothing);
     expect(
-      find.text('Useful hints to build a perfect design for iPhone Xs'),
+      findText('Useful hints to build a perfect design for iPhone Xs'),
       findsNothing,
     );
 

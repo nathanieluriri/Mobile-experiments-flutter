@@ -13,6 +13,9 @@ abstract final class AppColors {
   static const success = Color(0xFF3DBB7E);
 }
 
+/// The wash a search leaves over a word it found on a note.
+const kMarkerOnNote = Color(0x2E31374F);
+
 /// Scales every channel of [color] by `1 + amount`, clamped to a byte.
 /// A negative amount darkens; the fold flap uses -0.2.
 Color shade(Color color, double amount) {

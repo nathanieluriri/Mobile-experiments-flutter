@@ -13,6 +13,7 @@ import 'compose_note_button.dart';
 import 'note_list_transition.dart';
 import 'notes_drawer.dart';
 import 'notes_header.dart';
+import 'search_field.dart';
 
 /// The only screen: a scrolling column of notes over a dark ground, with the
 /// list of lists sliding in over it.
@@ -29,13 +30,17 @@ class _NotesScreenState extends State<NotesScreen>
     with TickerProviderStateMixin {
   final Map<String, double> _heights = <String, double>{};
   final ScrollController _scroll = ScrollController();
+  final TextEditingController _query = TextEditingController();
+  final FocusNode _queryFocus = FocusNode();
 
   late final NoteListTransition _list;
   late final AnimationController _dim;
   late final AnimationController _reflow;
   late final AnimationController _drawer;
+  late final AnimationController _search;
   late final SpringCurve _reflowCurve;
   late final SpringCurve _drawerCurve;
+  late final SpringCurve _searchCurve;
 
   String? _activeNoteId;
   int? _reflowIndex;
@@ -63,6 +68,9 @@ class _NotesScreenState extends State<NotesScreen>
     _drawer = AnimationController(vsync: this, duration: reflowDuration);
     _drawerCurve =
         SpringCurve(AppSprings.noteListLayout, duration: reflowDuration);
+    _search = AnimationController(vsync: this, duration: reflowDuration);
+    _searchCurve =
+        SpringCurve(AppSprings.noteListLayout, duration: reflowDuration);
 
     _list.sync(widget.store.visible);
   }
@@ -81,7 +89,10 @@ class _NotesScreenState extends State<NotesScreen>
     _dim.dispose();
     _reflow.dispose();
     _drawer.dispose();
+    _search.dispose();
     _scroll.dispose();
+    _query.dispose();
+    _queryFocus.dispose();
     super.dispose();
   }
 
@@ -110,6 +121,19 @@ class _NotesScreenState extends State<NotesScreen>
     widget.store.remove(id);
     _dim.animateTo(0, duration: kDimDuration, curve: easeInOutQuad);
     _reflow.forward(from: 0);
+  }
+
+  void _openSearch() {
+    _search.forward();
+    _queryFocus.requestFocus();
+  }
+
+  void _closeSearch() {
+    _queryFocus.unfocus();
+    _query.clear();
+    widget.store.setQuery('');
+    _search.reverse();
+    setState(() {});
   }
 
   void _openDrawer() => _drawer.forward();
@@ -163,13 +187,20 @@ class _NotesScreenState extends State<NotesScreen>
             child: Column(
               children: [
                 AnimatedBuilder(
-                  animation: Listenable.merge([_dim, _scroll]),
+                  animation: Listenable.merge([_dim, _scroll, _search]),
                   builder: (context, _) => NotesHeader(
                     scrollY: _scrollY,
                     dim: _dim.value,
                     title: widget.store.title,
                     onMenu: _openDrawer,
-                    onSearch: () {},
+                    search: SearchField(
+                      open: _searchCurve.transform(_search.value),
+                      controller: _query,
+                      focusNode: _queryFocus,
+                      onOpen: _openSearch,
+                      onClose: _closeSearch,
+                      onChanged: widget.store.setQuery,
+                    ),
                   ),
                 ),
                 Expanded(
@@ -186,7 +217,7 @@ class _NotesScreenState extends State<NotesScreen>
                       bottom: kNoteListBottomPadding,
                     ),
                     child: AnimatedBuilder(
-                      animation: _reflow,
+                      animation: Listenable.merge([_reflow, _search]),
                       builder: (context, _) => NoteColumn(
                         gap: kNoteListGap,
                         paintLast: activeIndex < 0 ? null : activeIndex + 1,
@@ -196,7 +227,11 @@ class _NotesScreenState extends State<NotesScreen>
                             : _reflowSpace *
                                 (1 - _reflowCurve.transform(_reflow.value)),
                         children: [
-                          _largeTitle(),
+                          NoteSlot(
+                            key: const ValueKey<String>('title-slot'),
+                            factor: 1 - _searchCurve.transform(_search.value),
+                            child: _largeTitle(),
+                          ),
                           for (final note in notes)
                             NoteSlot(
                               key: ValueKey<String>('slot-${note.id}'),
@@ -215,9 +250,12 @@ class _NotesScreenState extends State<NotesScreen>
                                   onRemove: _remove,
                                   onHeight: (id, height) =>
                                       _heights[id] = height,
+                                  query: widget.store.query,
                                 ),
                               ),
                             ),
+                          if (notes.isEmpty)
+                            _emptyState(key: const ValueKey<String>('empty')),
                         ],
                       ),
                     ),
@@ -290,17 +328,50 @@ class _NotesScreenState extends State<NotesScreen>
     );
   }
 
+  /// What the list says when there is nothing in it to say.
+  Widget _emptyState({Key? key}) {
+    final store = widget.store;
+    final String message;
+    if (store.isSearching) {
+      message = 'Nothing matches "${store.query.trim()}"';
+    } else if (store.tagFilter != null) {
+      message = 'Nothing in this list yet';
+    } else {
+      message = 'No notes yet';
+    }
+    return Padding(
+      key: key,
+      padding: const EdgeInsets.only(top: 72),
+      child: Center(
+        child: Text(
+          message,
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontFamily: kFontFamily,
+            fontWeight: FontWeights.medium,
+            fontSize: 14,
+            height: kLineHeight,
+            color: AppColors.dockLabel.withValues(alpha: 0.45),
+          ),
+        ),
+      ),
+    );
+  }
+
   double get _scrollY => _scroll.hasClients ? _scroll.offset : 0;
 
   Widget _largeTitle() {
     return AnimatedBuilder(
       key: const ValueKey<String>('title'),
-      animation: Listenable.merge([_dim, _scroll]),
+      animation: Listenable.merge([_dim, _scroll, _search]),
       builder: (context, child) {
         final collapse = rangeProgress(_scrollY, kLargeTitleRange);
         final overscroll = rangeProgress(_scrollY, kOverscrollRange);
+        final searching = _searchCurve.transform(_search.value);
         return Opacity(
-          opacity: (1 - collapse) * (1 - kChromeDimAmount * _dim.value),
+          opacity: (1 - collapse) *
+              (1 - searching) *
+              (1 - kChromeDimAmount * _dim.value),
           child: Transform.scale(
             scale: kOverscrollScale + (1 - kOverscrollScale) * overscroll,
             child: Transform.translate(

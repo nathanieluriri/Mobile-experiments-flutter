@@ -43,6 +43,7 @@ class StickyNote extends StatefulWidget {
     required this.onBlur,
     required this.onRemove,
     required this.onHeight,
+    this.query = '',
   });
 
   final Note note;
@@ -53,6 +54,9 @@ class StickyNote extends StatefulWidget {
   final VoidCallback onBlur;
   final void Function(String id, NoteAction action) onRemove;
   final void Function(String id, double height) onHeight;
+
+  /// What is being searched for, marked wherever it appears on this note.
+  final String query;
 
   @override
   State<StickyNote> createState() => _StickyNoteState();
@@ -361,7 +365,7 @@ class _StickyNoteState extends State<StickyNote> with TickerProviderStateMixin {
             children: [
               Padding(
                 padding: const EdgeInsets.all(kNotePadding),
-                child: NoteContent(note: widget.note),
+                child: NoteContent(note: widget.note, query: widget.query),
               ),
               Shimmer(
                 progress: easeInOutQuad.transform(_shimmer.value),

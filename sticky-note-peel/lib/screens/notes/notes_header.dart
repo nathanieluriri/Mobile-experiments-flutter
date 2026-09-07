@@ -5,6 +5,7 @@ import '../../theme/colors.dart';
 import '../../theme/metrics.dart';
 import '../../theme/typography.dart';
 import '../../widgets/press_fade.dart';
+import 'search_field.dart';
 
 /// Menu and search either side of the title that fades in as the list scrolls
 /// under it.
@@ -15,7 +16,7 @@ class NotesHeader extends StatelessWidget {
     required this.dim,
     required this.title,
     required this.onMenu,
-    required this.onSearch,
+    required this.search,
   });
 
   final double scrollY;
@@ -27,11 +28,13 @@ class NotesHeader extends StatelessWidget {
   final String title;
 
   final VoidCallback onMenu;
-  final VoidCallback onSearch;
+
+  /// The magnifier, and the field it grows into.
+  final SearchField search;
 
   @override
   Widget build(BuildContext context) {
-    final t = rangeProgress(scrollY, kSmallTitleRange);
+    final t = rangeProgress(scrollY, kSmallTitleRange) * (1 - search.open);
     return Opacity(
       opacity: 1 - kChromeDimAmount * dim,
       child: Padding(
@@ -62,44 +65,47 @@ class NotesHeader extends StatelessWidget {
                 ),
               ),
             ),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                PressFade(
-                  onTap: onMenu,
-                  semanticLabel: 'Lists',
-                  child: Container(
-                    width: kHeaderButtonSize,
-                    height: kHeaderButtonSize,
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(
-                      color: AppColors.surface,
-                      borderRadius:
-                          BorderRadius.circular(kHeaderButtonRadius),
-                    ),
-                    child: const Icon(
-                      LucideIcons.menu,
-                      size: 18,
-                      color: AppColors.white,
-                    ),
-                  ),
-                ),
-                PressFade(
-                  onTap: onSearch,
-                  semanticLabel: 'Search',
-                  child: const SizedBox(
-                    width: kHeaderButtonSize,
-                    height: kHeaderButtonSize,
-                    child: Center(
-                      child: Icon(
-                        LucideIcons.search,
-                        size: 21,
-                        color: AppColors.white,
+            // The menu steps aside as the field reaches across for its room.
+            Align(
+              alignment: Alignment.centerLeft,
+              child: IgnorePointer(
+                ignoring: search.open > 0.5,
+                child: Opacity(
+                  opacity: (1 - search.open * 2).clamp(0, 1),
+                  child: Transform.translate(
+                    offset: Offset(-kHeaderButtonSize * search.open, 0),
+                    child: PressFade(
+                      onTap: onMenu,
+                      semanticLabel: 'Lists',
+                      child: Container(
+                        width: kHeaderButtonSize,
+                        height: kHeaderButtonSize,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: AppColors.surface,
+                          borderRadius:
+                              BorderRadius.circular(kHeaderButtonRadius),
+                        ),
+                        child: const Icon(
+                          LucideIcons.menu,
+                          size: 18,
+                          color: AppColors.white,
+                        ),
                       ),
                     ),
                   ),
                 ),
-              ],
+              ),
+            ),
+            LayoutBuilder(
+              builder: (context, constraints) => Align(
+                alignment: Alignment.centerRight,
+                child: SizedBox(
+                  width: kHeaderButtonSize +
+                      (constraints.maxWidth - kHeaderButtonSize) * search.open,
+                  child: search,
+                ),
+              ),
             ),
           ],
         ),

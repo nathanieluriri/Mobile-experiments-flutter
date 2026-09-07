@@ -5,13 +5,17 @@ import '../data/note.dart';
 import '../theme/colors.dart';
 import '../theme/metrics.dart';
 import '../theme/typography.dart';
+import 'marked_text.dart';
 
 /// Everything printed on a note: title, then either a body or a checklist, then
 /// an optional counter and a row of chips.
 class NoteContent extends StatelessWidget {
-  const NoteContent({super.key, required this.note});
+  const NoteContent({super.key, required this.note, this.query = ''});
 
   final Note note;
+
+  /// What is being searched for, marked wherever it appears.
+  final String query;
 
   @override
   Widget build(BuildContext context) {
@@ -25,8 +29,10 @@ class NoteContent extends StatelessWidget {
             right: kNoteTitleRightPadding,
             bottom: kNoteTitleBottomMargin,
           ),
-          child: Text(
+          child: MarkedText(
             note.title,
+            query: query,
+            markerColor: kMarkerOnNote,
             style: const TextStyle(
               fontFamily: kFontFamily,
               fontWeight: FontWeights.bold,
@@ -38,8 +44,10 @@ class NoteContent extends StatelessWidget {
           ),
         ),
         if (note.body != null)
-          Text(
+          MarkedText(
             note.body!,
+            query: query,
+            markerColor: kMarkerOnNote,
             style: TextStyle(
               fontFamily: kFontFamily,
               fontWeight: FontWeights.medium,
@@ -49,7 +57,7 @@ class NoteContent extends StatelessWidget {
               color: AppColors.noteText.withValues(alpha: 0.9),
             ),
           ),
-        if (checklist != null) NoteChecklist(items: checklist),
+        if (checklist != null) NoteChecklist(items: checklist, query: query),
         if (note.meta != null)
           Padding(
             padding: const EdgeInsets.only(top: kMetaTopMargin),
@@ -72,11 +80,15 @@ class NoteContent extends StatelessWidget {
               children: [
                 for (final (index, tag) in note.tags.indexed) ...[
                   if (index > 0) const SizedBox(width: kChipGap),
-                  NoteChip(label: tag),
+                  NoteChip(label: tag, query: query),
                 ],
                 if (note.date != null) ...[
                   if (note.tags.isNotEmpty) const SizedBox(width: kChipGap),
-                  NoteChip(label: note.date!, icon: LucideIcons.clock),
+                  NoteChip(
+                    label: note.date!,
+                    icon: LucideIcons.clock,
+                    query: query,
+                  ),
                 ],
               ],
             ),
@@ -88,9 +100,10 @@ class NoteContent extends StatelessWidget {
 
 /// A column of unticked items.
 class NoteChecklist extends StatelessWidget {
-  const NoteChecklist({super.key, required this.items});
+  const NoteChecklist({super.key, required this.items, this.query = ''});
 
   final List<String> items;
+  final String query;
 
   @override
   Widget build(BuildContext context) {
@@ -115,14 +128,18 @@ class NoteChecklist extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: kChecklistLabelGap),
-              Text(
-                items[i],
-                style: TextStyle(
-                  fontFamily: kFontFamily,
-                  fontWeight: FontWeights.medium,
-                  fontSize: 12.5,
-                  height: kLineHeight,
-                  color: AppColors.noteText.withValues(alpha: 0.95),
+              Flexible(
+                child: MarkedText(
+                  items[i],
+                  query: query,
+                  markerColor: kMarkerOnNote,
+                  style: TextStyle(
+                    fontFamily: kFontFamily,
+                    fontWeight: FontWeights.medium,
+                    fontSize: 12.5,
+                    height: kLineHeight,
+                    color: AppColors.noteText.withValues(alpha: 0.95),
+                  ),
                 ),
               ),
             ],
@@ -135,10 +152,16 @@ class NoteChecklist extends StatelessWidget {
 
 /// A translucent pill carrying a tag or a date.
 class NoteChip extends StatelessWidget {
-  const NoteChip({super.key, required this.label, this.icon});
+  const NoteChip({
+    super.key,
+    required this.label,
+    this.icon,
+    this.query = '',
+  });
 
   final String label;
   final IconData? icon;
+  final String query;
 
   @override
   Widget build(BuildContext context) {
@@ -158,8 +181,10 @@ class NoteChip extends StatelessWidget {
             Icon(icon, size: 11, color: AppColors.noteText),
             const SizedBox(width: kChipIconGap),
           ],
-          Text(
+          MarkedText(
             label,
+            query: query,
+            markerColor: kMarkerOnNote,
             style: const TextStyle(
               fontFamily: kFontFamily,
               fontWeight: FontWeights.semiBold,

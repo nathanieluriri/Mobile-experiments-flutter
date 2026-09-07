@@ -58,9 +58,9 @@ void main() {
     expect(store.tagFilter, 'Travel');
     expect(find.byType(NotesDrawer), findsNothing, reason: 'it closes behind');
     expect(find.byType(StickyNote), findsOneWidget);
-    expect(find.text('Europe travel packing list'), findsOneWidget);
+    expect(findText('Europe travel packing list'), findsOneWidget);
     expect(
-      find.text('Travel'),
+      findText('Travel'),
       findsNWidgets(3),
       reason: 'the heading over the list, the header echo of it, and the chip '
           'on the note it kept',

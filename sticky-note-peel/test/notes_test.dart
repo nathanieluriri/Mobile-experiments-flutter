@@ -28,10 +28,10 @@ void main() {
     await pumpScreen(tester, const App());
     await tester.pump();
     expect(find.byType(StickyNote), findsNWidgets(kNotes.length));
-    expect(find.text('Design'), findsOneWidget);
-    expect(find.text('Suitcase/travel backpack'), findsOneWidget);
-    expect(find.text('+5 checked items'), findsOneWidget);
-    expect(find.text('May 3 2020, 00:00'), findsOneWidget);
+    expect(findText('Design'), findsOneWidget);
+    expect(findText('Suitcase/travel backpack'), findsOneWidget);
+    expect(findText('+5 checked items'), findsOneWidget);
+    expect(findText('May 3 2020, 00:00'), findsOneWidget);
   });
 
   testWidgets('the screen is laid out on the design grid', (tester) async {
