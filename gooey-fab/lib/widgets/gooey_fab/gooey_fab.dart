@@ -2,10 +2,9 @@ import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/widgets.dart';
-import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../constants/gooey_fab.dart';
-import '../../painting/feather_video_icon.dart';
+import '../../painting/feather_icons.dart';
 import '../../painting/goo_circles_painter.dart';
 import '../../theme/colors.dart';
 import 'fab_action_button.dart';
@@ -101,14 +100,22 @@ class _GooeyFabState extends State<GooeyFab> with TickerProviderStateMixin {
                 offsetY: videoActionOffsetY,
                 interactive: isOpen,
                 onPressed: () => _select(widget.onVideoCall),
-                child: const FeatherVideoIcon(size: videoIconSize, color: AppColors.onInk),
+                child: const FeatherIcon(
+                  FeatherGlyph.video,
+                  size: videoIconSize,
+                  color: AppColors.onInk,
+                ),
               ),
               FabActionButton(
                 drive: _controller.voiceDrive,
                 offsetY: voiceActionOffsetY,
                 interactive: isOpen,
                 onPressed: () => _select(widget.onVoiceCall),
-                child: const Icon(LucideIcons.phone, size: voiceIconSize, color: AppColors.onInk),
+                child: const FeatherIcon(
+                  FeatherGlyph.phone,
+                  size: voiceIconSize,
+                  color: AppColors.onInk,
+                ),
               ),
               Positioned(
                 left: fabCenterX - fabDiameter / 2,
@@ -129,8 +136,8 @@ class _GooeyFabState extends State<GooeyFab> with TickerProviderStateMixin {
                             180,
                         child: child,
                       ),
-                      child: const Icon(
-                        LucideIcons.plus,
+                      child: const FeatherIcon(
+                        FeatherGlyph.plus,
                         size: plusIconSize,
                         color: AppColors.onInk,
                       ),

@@ -1,14 +1,18 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gooey_fab/app.dart';
-import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:gooey_fab/painting/feather_icons.dart';
 
 import 'support/golden.dart';
+
+/// Finds the button carrying [glyph].
+Finder _glyph(FeatherGlyph glyph) =>
+    find.byWidgetPredicate((widget) => widget is FeatherIcon && widget.glyph == glyph);
 
 void main() {
   testWidgets('opening keyframes', (tester) async {
     await pumpScreen(tester, const App());
 
-    await tester.tap(find.byIcon(LucideIcons.plus));
+    await tester.tap(_glyph(FeatherGlyph.plus));
     await tester.pump();
     await capture(tester, 'fab__t0000');
 
@@ -28,11 +32,11 @@ void main() {
   testWidgets('closing keyframe', (tester) async {
     await pumpScreen(tester, const App());
 
-    await tester.tap(find.byIcon(LucideIcons.plus));
+    await tester.tap(_glyph(FeatherGlyph.plus));
     await tester.pump();
     await tester.pump(const Duration(seconds: 2));
 
-    await tester.tap(find.byIcon(LucideIcons.plus));
+    await tester.tap(_glyph(FeatherGlyph.plus));
     await tester.pump();
     await pumpMs(tester, 300);
     await capture(tester, 'fab_close__t0300');

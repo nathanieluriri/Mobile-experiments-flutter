@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gooey_fab/screens/chats/chats_screen.dart';
 import 'package:gooey_fab/widgets/gooey_fab/fab_action_button.dart';
-import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:gooey_fab/painting/feather_icons.dart';
 
 import 'support/golden.dart';
 
@@ -20,18 +20,22 @@ Widget _app({VoidCallback? onVideoCall, VoidCallback? onVoiceCall}) => MaterialA
   home: ChatsScreen(onVideoCall: onVideoCall, onVoiceCall: onVoiceCall),
 );
 
+/// Finds the button carrying [glyph].
+Finder _glyph(FeatherGlyph glyph) =>
+    find.byWidgetPredicate((widget) => widget is FeatherIcon && widget.glyph == glyph);
+
 void main() {
   testWidgets('tapping the plus opens, tapping it again closes', (tester) async {
     await pumpScreen(tester, _app());
 
     expect(_voiceDrive(tester), 0);
-    await tester.tap(find.byIcon(LucideIcons.plus));
+    await tester.tap(_glyph(FeatherGlyph.plus));
     await tester.pump();
     await tester.pump(const Duration(seconds: 2));
     expect(_voiceDrive(tester), closeTo(1, 0.01));
     expect(_videoDrive(tester), closeTo(1, 0.01));
 
-    await tester.tap(find.byIcon(LucideIcons.plus));
+    await tester.tap(_glyph(FeatherGlyph.plus));
     await tester.pump();
     await tester.pump(const Duration(seconds: 2));
     expect(_voiceDrive(tester), closeTo(0, 0.01));
@@ -40,7 +44,7 @@ void main() {
 
   testWidgets('voice leads the video circle by the stagger when opening', (tester) async {
     await pumpScreen(tester, _app());
-    await tester.tap(find.byIcon(LucideIcons.plus));
+    await tester.tap(_glyph(FeatherGlyph.plus));
     await tester.pump();
 
     await pumpMs(tester, 59);
@@ -54,11 +58,11 @@ void main() {
 
   testWidgets('video leads the voice circle by the stagger when closing', (tester) async {
     await pumpScreen(tester, _app());
-    await tester.tap(find.byIcon(LucideIcons.plus));
+    await tester.tap(_glyph(FeatherGlyph.plus));
     await tester.pump();
     await tester.pump(const Duration(seconds: 2));
 
-    await tester.tap(find.byIcon(LucideIcons.plus));
+    await tester.tap(_glyph(FeatherGlyph.plus));
     await tester.pump();
     await pumpMs(tester, 59);
     expect(_voiceDrive(tester), closeTo(1, 0.001), reason: 'voice waits out the stagger');
@@ -69,11 +73,11 @@ void main() {
     var voiceCalls = 0;
     await pumpScreen(tester, _app(onVoiceCall: () => voiceCalls++));
 
-    await tester.tap(find.byIcon(LucideIcons.plus));
+    await tester.tap(_glyph(FeatherGlyph.plus));
     await tester.pump();
     await tester.pump(const Duration(seconds: 2));
 
-    await tester.tap(find.byIcon(LucideIcons.phone));
+    await tester.tap(_glyph(FeatherGlyph.phone));
     await tester.pump();
     await tester.pump(const Duration(seconds: 2));
 
@@ -90,7 +94,7 @@ void main() {
     await tester.pump(const Duration(seconds: 2));
     expect(_voiceDrive(tester), 0, reason: 'the backdrop is inert while closed');
 
-    await tester.tap(find.byIcon(LucideIcons.plus));
+    await tester.tap(_glyph(FeatherGlyph.plus));
     await tester.pump();
     await tester.pump(const Duration(seconds: 2));
 
@@ -103,14 +107,14 @@ void main() {
   testWidgets('closing part way through an open picks up from where it is', (tester) async {
     await pumpScreen(tester, _app());
 
-    await tester.tap(find.byIcon(LucideIcons.plus));
+    await tester.tap(_glyph(FeatherGlyph.plus));
     await tester.pump();
     await pumpMs(tester, 100);
     final voiceAtInterrupt = _voiceDrive(tester);
     expect(voiceAtInterrupt, greaterThan(0.15));
     expect(voiceAtInterrupt, lessThan(0.9));
 
-    await tester.tap(find.byIcon(LucideIcons.plus));
+    await tester.tap(_glyph(FeatherGlyph.plus));
     await tester.pump();
     expect(
       _voiceDrive(tester),
@@ -126,7 +130,7 @@ void main() {
   testWidgets('a stagger lets the animation it interrupts finish out the delay', (tester) async {
     await pumpScreen(tester, _app());
 
-    await tester.tap(find.byIcon(LucideIcons.plus));
+    await tester.tap(_glyph(FeatherGlyph.plus));
     await tester.pump();
     await pumpMs(tester, 30);
     final atInterrupt = _voiceDrive(tester);
@@ -134,7 +138,7 @@ void main() {
     // Closing delays the voice circle by the stagger. The open spring keeps
     // running through it rather than freezing, so the circle drifts further out
     // before it turns around.
-    await tester.tap(find.byIcon(LucideIcons.plus));
+    await tester.tap(_glyph(FeatherGlyph.plus));
     await tester.pump();
     await pumpMs(tester, 30);
     expect(_voiceDrive(tester), greaterThan(atInterrupt));
@@ -147,7 +151,7 @@ void main() {
 
   testWidgets('the open spring overshoots past its target', (tester) async {
     await pumpScreen(tester, _app());
-    await tester.tap(find.byIcon(LucideIcons.plus));
+    await tester.tap(_glyph(FeatherGlyph.plus));
     await tester.pump();
 
     var peak = 0.0;

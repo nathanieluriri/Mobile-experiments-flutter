@@ -1,15 +1,19 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gooey_fab/app.dart';
 import 'package:gooey_fab/constants/gooey_fab.dart';
-import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:gooey_fab/painting/feather_icons.dart';
 
 import 'support/golden.dart';
+
+/// Finds the button carrying [glyph].
+Finder _glyph(FeatherGlyph glyph) =>
+    find.byWidgetPredicate((widget) => widget is FeatherIcon && widget.glyph == glyph);
 
 void main() {
   testWidgets('backdrop blurs and dims the list while open', (tester) async {
     await pumpScreen(tester, const App());
 
-    await tester.tap(find.byIcon(LucideIcons.plus));
+    await tester.tap(_glyph(FeatherGlyph.plus));
     await tester.pump();
     await tester.pump(const Duration(seconds: 2));
 
