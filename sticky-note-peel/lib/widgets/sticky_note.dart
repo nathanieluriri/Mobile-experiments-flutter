@@ -78,8 +78,11 @@ class _StickyNoteState extends State<StickyNote> with TickerProviderStateMixin {
   );
 
   _Phase _phase = _Phase.idle;
-  double _dragX = 0;
-  double _dragY = kFoldRestInset;
+
+  /// How far the finger has carried the fold away from its rest inset. Kept as
+  /// a translation rather than a point, so a note that is laid out at a new
+  /// width still folds from its own corner.
+  Offset _drag = Offset.zero;
   double _fromX = 0;
   double _fromY = 0;
   double _toX = 0;
@@ -91,11 +94,12 @@ class _StickyNoteState extends State<StickyNote> with TickerProviderStateMixin {
   bool _dockMounted = false;
 
   double get _restX => widget.width - kFoldRestInset;
+  double get _dragX => _restX + _drag.dx;
+  double get _dragY => kFoldRestInset + _drag.dy;
 
   @override
   void initState() {
     super.initState();
-    _dragX = _restX;
     _lift = AnimationController(
       vsync: this,
       duration: kLiftDuration,
@@ -113,8 +117,7 @@ class _StickyNoteState extends State<StickyNote> with TickerProviderStateMixin {
       if (status == AnimationStatus.completed) {
         setState(() {
           _phase = _Phase.idle;
-          _dragX = _restX;
-          _dragY = kFoldRestInset;
+          _drag = Offset.zero;
         });
       }
     });
@@ -166,8 +169,7 @@ class _StickyNoteState extends State<StickyNote> with TickerProviderStateMixin {
     _snap.stop();
     setState(() {
       _phase = _Phase.idle;
-      _dragX = _restX;
-      _dragY = kFoldRestInset;
+      _drag = Offset.zero;
       _hovered = -1;
     });
     _lift.animateTo(1, duration: kLiftDuration);
@@ -176,8 +178,9 @@ class _StickyNoteState extends State<StickyNote> with TickerProviderStateMixin {
   }
 
   void _onLongPressMoveUpdate(LongPressMoveUpdateDetails details) {
-    final dragX = _restX + details.offsetFromOrigin.dx;
-    final dragY = kFoldRestInset + details.offsetFromOrigin.dy;
+    final drag = details.offsetFromOrigin;
+    final dragX = _restX + drag.dx;
+    final dragY = kFoldRestInset + drag.dy;
     final dockCenterY = dockRowCenterY(_noteHeight);
     var hovered = -1;
     for (var i = 0; i < kNoteActions.length; i++) {
@@ -189,8 +192,7 @@ class _StickyNoteState extends State<StickyNote> with TickerProviderStateMixin {
     }
     final changed = hovered != _hovered;
     setState(() {
-      _dragX = dragX;
-      _dragY = dragY;
+      _drag = drag;
       _hovered = hovered;
     });
     if (changed && hovered >= 0) {

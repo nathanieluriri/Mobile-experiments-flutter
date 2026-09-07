@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sticky_note_peel/app.dart';
 import 'package:sticky_note_peel/data/notes.dart';
+import 'package:sticky_note_peel/painting/fold_painter.dart';
 import 'package:sticky_note_peel/theme/metrics.dart';
 import 'package:sticky_note_peel/widgets/action_dock.dart';
 import 'package:sticky_note_peel/widgets/shimmer.dart';
@@ -107,6 +108,23 @@ void main() {
     await tester.pumpAndSettle();
   });
 
+  testWidgets('the fold sits on the corner of whatever width the note gets',
+      (tester) async {
+    const narrow = Phone('narrow', Size(300, 700), top: 24, bottom: 24);
+    await pumpScreen(tester, const App(), phone: narrow);
+    await tester.pump();
+    expect(foldOf(tester, 0).dragX, 260 - kFoldRestInset);
+
+    // A window can report one size on its first frame and another once it has
+    // settled, so the rest point has to be read from the note, not remembered.
+    tester.view.physicalSize = const Size(360, 800) * kDpr;
+    await tester.pump();
+    await tester.pump();
+    expect(tester.getRect(find.byType(StickyNote).at(0)).width, 320);
+    expect(foldOf(tester, 0).dragX, 320 - kFoldRestInset);
+    expect(foldOf(tester, 0).dragY, kFoldRestInset);
+  });
+
   testWidgets('a cancelled peel puts the note back', (tester) async {
     await pumpScreen(tester, const App());
     await tester.pump();
@@ -143,6 +161,20 @@ void main() {
 
     expect(find.byType(StickyNote), findsNWidgets(kNotes.length));
   });
+}
+
+/// The fold the note at [index] is currently painting.
+FoldPainter foldOf(WidgetTester tester, int index) {
+  return tester
+      .widgetList<CustomPaint>(
+        find.descendant(
+          of: find.byType(StickyNote).at(index),
+          matching: find.byType(CustomPaint),
+        ),
+      )
+      .map((paint) => paint.painter)
+      .whereType<FoldPainter>()
+      .first;
 }
 
 /// How far the shimmer band on the first note has travelled from the left edge.
