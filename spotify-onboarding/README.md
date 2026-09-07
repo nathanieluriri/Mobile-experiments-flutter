@@ -1,6 +1,10 @@
 # Spotify Onboarding
 
-A connect flow with an arcing, endlessly scrolling card marquee.
+A two step connection flow. Each step asks for one thing, explains why, and
+shows an endless column of cards wrapped around an arc behind the ask: cities
+on the first step, artists on the second. The cards lean, slide, and shrink the
+further they sit from the middle of the screen, blur into a white wash as they
+run off the bottom, and come to rest on a card boundary when you let go.
 
 ## Run
 
@@ -11,5 +15,5 @@ A connect flow with an arcing, endlessly scrolling card marquee.
 
     flutter test
 
-The images under `test/goldens` were rendered on Windows. Regenerate them with
-`flutter test --update-goldens` before comparing on another platform.
+The reference images under `test/goldens` were rendered on Windows and may
+differ by a pixel on another platform.
