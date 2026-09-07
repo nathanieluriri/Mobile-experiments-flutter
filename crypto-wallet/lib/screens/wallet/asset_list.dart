@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../data/models.dart';
 import '../../painting/glyphs.dart';
@@ -87,7 +86,7 @@ class AssetIcon extends StatelessWidget {
         ),
       TokenId.usdc => (
           const Color(0xFF2775CA),
-          const Icon(LucideIcons.dollarSign, size: 18, color: AppColors.white),
+          const DollarGlyph(size: 18, color: AppColors.white),
         ),
       TokenId.sol => (
           const Color(0xFF101014),

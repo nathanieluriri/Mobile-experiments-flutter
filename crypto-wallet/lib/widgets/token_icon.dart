@@ -21,7 +21,7 @@ class TokenIcon extends StatelessWidget {
         ),
       TokenId.usdc => (
           const Color(0xFF2775CA),
-          Icon(LucideIcons.dollarSign, size: iconSize * 0.8, color: Colors.white),
+          DollarGlyph(size: iconSize * 0.8, color: Colors.white),
         ),
       TokenId.btc => (
           const Color(0xFFF7931A),
