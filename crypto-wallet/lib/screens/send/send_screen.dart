@@ -218,8 +218,13 @@ class _SendScreenState extends State<SendScreen> {
   }
 }
 
-/// Lays out its child normally but reports no intrinsic height, so a flexible
-/// parent measures it as zero, the way a flex basis of 0 behaves.
+/// The amount block's vertical padding, which is also the smallest height a
+/// flex item with a zero basis keeps in the original layout engine.
+const double _amountBlockFloor = 40;
+
+/// Lays out its child normally but reports only the padding floor as its
+/// intrinsic height, so a flexible parent measures it the way a flex basis of
+/// 0 behaves and the content overdraws when space is short.
 class _ZeroIntrinsicHeight extends SingleChildRenderObjectWidget {
   const _ZeroIntrinsicHeight({required Widget super.child});
 
@@ -229,10 +234,10 @@ class _ZeroIntrinsicHeight extends SingleChildRenderObjectWidget {
 
 class _RenderZeroIntrinsicHeight extends RenderProxyBox {
   @override
-  double computeMinIntrinsicHeight(double width) => 0;
+  double computeMinIntrinsicHeight(double width) => _amountBlockFloor;
 
   @override
-  double computeMaxIntrinsicHeight(double width) => 0;
+  double computeMaxIntrinsicHeight(double width) => _amountBlockFloor;
 }
 
 const double _amountFontSize = 58;
