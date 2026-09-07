@@ -1,4 +1,4 @@
-# crypto_wallet
+# Crypto Wallet
 
 A wallet whose balance falls apart when you pull down on it. The six digits slot-machine through random characters, tint with occasional accent colours and jitter behind a blur while the new balance loads, then lock back in one at a time from left to right as the blur unwinds. Tapping the balance refreshes it too.
 
