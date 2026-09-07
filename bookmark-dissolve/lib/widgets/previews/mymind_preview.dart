@@ -68,11 +68,15 @@ class MymindBody extends StatelessWidget {
         return ClipRect(
           child: ColoredBox(
             color: const Color(0xFFFFFFFF),
-            child: Stack(
-              children: [
-                Positioned.fill(
-                  child: Padding(
-                    padding: const EdgeInsets.only(top: kStep * 2.5),
+            // The padding sits above the stack, so the saved card's percentage
+            // size and its offsets both resolve against the content box, the
+            // way they do in the source.
+            child: Padding(
+              padding: const EdgeInsets.only(top: kStep * 2.5),
+              child: Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  Positioned.fill(
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
@@ -88,15 +92,15 @@ class MymindBody extends StatelessWidget {
                       ],
                     ),
                   ),
-                ),
-                Positioned(
-                  bottom: -kStep,
-                  right: kStep * 2.5,
-                  width: constraints.maxWidth * 0.68,
-                  height: constraints.maxHeight * 0.52,
-                  child: const _SavedCard(),
-                ),
-              ],
+                  Positioned(
+                    bottom: -kStep,
+                    right: kStep * 2.5,
+                    width: constraints.maxWidth * 0.68,
+                    height: (constraints.maxHeight - kStep * 2.5) * 0.52,
+                    child: const _SavedCard(),
+                  ),
+                ],
+              ),
             ),
           ),
         );

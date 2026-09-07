@@ -94,4 +94,24 @@ void main() {
     );
     await capture(tester, 'board__after_delete');
   });
+
+  testWidgets('the saved card sizes against the mymind content box', (tester) async {
+    await pumpScreen(tester, const App());
+    await tester.pumpAndSettle();
+
+    // The source gives the panel h-[52%] and w-[68%] inside a body that carries
+    // pt-2.5, and a percentage resolves against what the padding leaves.
+    const body = 208 - kCardHeaderHeight;
+    const inner = body - kStep * 2.5;
+    final panel = tester.getRect(
+      find.ancestor(of: find.text('SHOP · Soap'), matching: find.byType(Container)).first,
+    );
+    expect(panel.height, moreOrLessEquals(inner * 0.52, epsilon: 0.01));
+    expect(panel.width, moreOrLessEquals(kColumnWidth * 0.68, epsilon: 0.01));
+
+    // bottom: -1 hangs it past the body, which the card then clips.
+    final card = cardRect(tester, kMymind);
+    expect(panel.bottom, moreOrLessEquals(card.bottom + kStep, epsilon: 0.01));
+    expect(panel.right, moreOrLessEquals(card.right - kStep * 2.5, epsilon: 0.01));
+  });
 }
