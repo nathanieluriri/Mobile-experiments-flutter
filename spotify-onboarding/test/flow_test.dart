@@ -113,10 +113,16 @@ void main() {
     expect(viewport.bottom, 874);
 
     // A slot's middle sits half a slot below the scroll offset it starts at,
-    // and the marquee opens with the sixth artist in the first whole slot.
-    for (final card in tester.widgetList<MarqueeCard>(find.byType(MarqueeCard))) {
+    // and the marquee opens with the sixth artist in the first whole slot. The
+    // slot before that one is drawn too, so its lean can reach back into view.
+    final cards = tester.widgetList<MarqueeCard>(find.byType(MarqueeCard));
+    expect(cards.length, lessThan(artists.length));
+    for (final card in cards) {
       final slot = artists.indexWhere((item) => item.id == card.item.id);
-      final k = (slot - 5 + artists.length) % artists.length;
+      var k = (slot - 5 + artists.length) % artists.length;
+      if (k == artists.length - 1) {
+        k = -1;
+      }
       final expected =
           viewport.top + kMarqueeItemHeight / 2 + kMarqueeItemHeight * k;
       expect(
@@ -154,13 +160,23 @@ void main() {
   ) async {
     await pumpScreen(tester, const App());
 
-    // Four points past the right edge of the Skip pill.
-    await tester.tapAt(const Offset(390, 84));
+    // Five points left of the Skip pill.
+    await tester.tapAt(const Offset(335, 84));
     await tester.pumpAndSettle();
     expect(find.text('Connect Your'), findsOne);
 
     // Eight points left of the back arrow's slot.
     await tester.tapAt(const Offset(8, 84));
+    await tester.pumpAndSettle();
+    expect(find.text('Find Concerts'), findsOne);
+
+    // Four points past the right edge of the Skip pill.
+    await tester.tapAt(const Offset(390, 84));
+    await tester.pumpAndSettle();
+    expect(find.text('Connect Your'), findsOne);
+
+    // Five points below the pill, still inside the header.
+    await tester.tapAt(const Offset(8, 100));
     await tester.pumpAndSettle();
     expect(find.text('Find Concerts'), findsOne);
   });

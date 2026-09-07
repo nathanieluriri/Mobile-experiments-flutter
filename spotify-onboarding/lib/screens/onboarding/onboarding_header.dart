@@ -7,12 +7,14 @@ import '../../widgets/icons/back_arrow_icon.dart';
 import '../../widgets/pressable_opacity.dart';
 import 'onboarding_step.dart';
 
-/// Width of the slot on each side of the counter. Matching them keeps the
-/// counter in the middle of the screen.
-const _slotWidth = 56.0;
+/// Width of the back arrow's tap target.
+const _backWidth = 56.0;
 
 /// Gap between the header's controls and the edges of the screen.
 const _edgeGap = 16.0;
+
+const _headerHeight = 44.0;
+const _arrowHeight = 22.0;
 
 /// Back arrow, step counter, and Skip pill.
 class OnboardingHeader extends StatelessWidget {
@@ -30,28 +32,12 @@ class OnboardingHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      height: 44,
-      child: Row(
+      height: _headerHeight,
+      child: Stack(
         children: [
-          const SizedBox(width: _edgeGap),
-          HitSlop(
-            slop: 12,
-            child: SizedBox(
-              width: _slotWidth,
-              height: 22,
-              child: onBack == null
-                  ? null
-                  : GestureDetector(
-                      behavior: HitTestBehavior.opaque,
-                      onTap: onBack,
-                      child: const Align(
-                        alignment: Alignment.centerLeft,
-                        child: BackArrowIcon(),
-                      ),
-                    ),
-            ),
-          ),
-          Expanded(
+          // The counter reads from the middle of the screen, not from the gap
+          // between the two controls.
+          Positioned.fill(
             child: Center(
               child: Text.rich(
                 TextSpan(
@@ -67,12 +53,31 @@ class OnboardingHeader extends StatelessWidget {
               ),
             ),
           ),
-          HitSlop(
-            slop: 8,
-            child: SizedBox(
-              width: _slotWidth,
-              child: Align(
-                alignment: Alignment.centerRight,
+          if (onBack != null)
+            Positioned(
+              left: _edgeGap,
+              top: (_headerHeight - _arrowHeight) / 2,
+              width: _backWidth,
+              height: _arrowHeight,
+              child: HitSlop(
+                slop: 12,
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: onBack,
+                  child: const Align(
+                    alignment: Alignment.centerLeft,
+                    child: BackArrowIcon(),
+                  ),
+                ),
+              ),
+            ),
+          Positioned(
+            right: _edgeGap,
+            top: 0,
+            bottom: 0,
+            child: HitSlop(
+              slop: 8,
+              child: Center(
                 child: PressableOpacity(
                   pressedOpacity: 0.7,
                   onTap: onSkip,
@@ -91,7 +96,6 @@ class OnboardingHeader extends StatelessWidget {
               ),
             ),
           ),
-          const SizedBox(width: _edgeGap),
         ],
       ),
     );

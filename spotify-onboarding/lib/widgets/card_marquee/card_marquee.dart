@@ -52,20 +52,32 @@ class _CardMarqueeState extends State<CardMarquee> {
         return ClipRect(
           child: Stack(
             children: [
-              ListView.builder(
-                controller: _controller,
-                // Without this a list picks up the screen's safe area as
-                // content padding, which would push every slot down.
-                padding: EdgeInsets.zero,
-                physics: const MarqueeSnapPhysics(
-                  parent: BouncingScrollPhysics(),
-                ),
-                itemExtent: kMarqueeItemHeight,
-                itemBuilder: (context, index) => MarqueeArcItem(
-                  item: widget.items[index % widget.items.length],
-                  slot: index,
+              // The list reaches one slot beyond the marquee at each end, so
+              // the card just out of sight still paints the corner its lean
+              // pushes back into view. The surrounding clip hides the rest.
+              Positioned(
+                left: 0,
+                right: 0,
+                top: -kMarqueeItemHeight,
+                height: viewportHeight + kMarqueeItemHeight * 2,
+                child: ListView.builder(
                   controller: _controller,
-                  viewportHeight: viewportHeight,
+                  // Without this a list picks up the screen's safe area as
+                  // content padding, which would push every slot down.
+                  padding: EdgeInsets.zero,
+                  physics: const MarqueeSnapPhysics(
+                    parent: BouncingScrollPhysics(),
+                  ),
+                  itemExtent: kMarqueeItemHeight,
+                  itemBuilder: (context, index) {
+                    final slot = index - 1;
+                    return MarqueeArcItem(
+                      item: widget.items[slot % widget.items.length],
+                      slot: slot,
+                      controller: _controller,
+                      viewportHeight: viewportHeight,
+                    );
+                  },
                 ),
               ),
               const Positioned(
