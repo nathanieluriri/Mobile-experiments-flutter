@@ -1,8 +1,7 @@
 import 'package:flutter/widgets.dart';
 
-import '../../data/note.dart';
 import '../../data/note_actions.dart';
-import '../../data/notes.dart';
+import '../../data/note_store.dart';
 import '../../theme/colors.dart';
 import '../../theme/easings.dart';
 import '../../theme/metrics.dart';
@@ -15,7 +14,9 @@ import 'notes_header.dart';
 
 /// The only screen: a scrolling column of notes over a dark ground.
 class NotesScreen extends StatefulWidget {
-  const NotesScreen({super.key});
+  const NotesScreen({super.key, required this.store});
+
+  final NoteStore store;
 
   @override
   State<NotesScreen> createState() => _NotesScreenState();
@@ -23,7 +24,6 @@ class NotesScreen extends StatefulWidget {
 
 class _NotesScreenState extends State<NotesScreen>
     with TickerProviderStateMixin {
-  final List<Note> _notes = List<Note>.of(kNotes);
   final Map<String, double> _heights = <String, double>{};
   final ScrollController _scroll = ScrollController();
 
@@ -38,6 +38,7 @@ class _NotesScreenState extends State<NotesScreen>
   @override
   void initState() {
     super.initState();
+    widget.store.addListener(_onStoreChanged);
     _dim = AnimationController(vsync: this, duration: kDimDuration);
     final duration = springDuration(AppSprings.noteListLayout);
     _reflow = AnimationController(vsync: this, duration: duration);
@@ -49,8 +50,11 @@ class _NotesScreenState extends State<NotesScreen>
     });
   }
 
+  void _onStoreChanged() => setState(() {});
+
   @override
   void dispose() {
+    widget.store.removeListener(_onStoreChanged);
     _dim.dispose();
     _reflow.dispose();
     _scroll.dispose();
@@ -68,17 +72,17 @@ class _NotesScreenState extends State<NotesScreen>
   }
 
   void _remove(String id, NoteAction action) {
-    final index = _notes.indexWhere((note) => note.id == id);
+    final index = widget.store.visible.indexWhere((note) => note.id == id);
     if (index < 0) {
       return;
     }
     final height = _heights[id] ?? kInitialNoteHeight;
     setState(() {
-      _notes.removeAt(index);
       _activeNoteId = null;
       _reflowIndex = index + 1;
       _reflowSpace = height + kNoteListGap;
     });
+    widget.store.remove(id);
     _dim.animateTo(0, duration: kDimDuration, curve: easeInOutQuad);
     _reflow.forward(from: 0);
   }
@@ -88,8 +92,8 @@ class _NotesScreenState extends State<NotesScreen>
     final padding = MediaQuery.paddingOf(context);
     final width = MediaQuery.sizeOf(context).width;
     final noteWidth = width - kScreenHorizontalPadding * 2;
-    final activeIndex =
-        _notes.indexWhere((note) => note.id == _activeNoteId);
+    final notes = widget.store.visible;
+    final activeIndex = notes.indexWhere((note) => note.id == _activeNoteId);
 
     return ColoredBox(
       color: AppColors.ink,
@@ -131,7 +135,7 @@ class _NotesScreenState extends State<NotesScreen>
                                 (1 - _reflowCurve.transform(_reflow.value)),
                         children: [
                           _largeTitle(),
-                          for (final note in _notes)
+                          for (final note in notes)
                             StickyNote(
                               key: ValueKey<String>(note.id),
                               note: note,
@@ -189,11 +193,11 @@ class _NotesScreenState extends State<NotesScreen>
           ),
         );
       },
-      child: const Padding(
-        padding: EdgeInsets.only(top: kLargeTitleTopMargin),
+      child: Padding(
+        padding: const EdgeInsets.only(top: kLargeTitleTopMargin),
         child: Text(
-          kNotesScreenTitle,
-          style: TextStyle(
+          widget.store.title,
+          style: const TextStyle(
             fontFamily: kFontFamily,
             fontWeight: FontWeights.semiBold,
             fontSize: 27,
