@@ -19,6 +19,9 @@ class Phone {
 
 const kPhone = Phone('iPhone 17 Pro Max', Size(440, 956), top: 62, bottom: 34);
 
+/// A short strip for goldens of one component rather than a whole screen.
+const kStrip = Phone('strip', Size(440, 160), top: 0, bottom: 0);
+
 /// Pumps [app] at the phone's size with its safe-area insets, then decodes
 /// every picture in the tree.
 Future<void> pumpScreen(WidgetTester tester, Widget app, {Phone phone = kPhone}) async {
@@ -46,6 +49,14 @@ Future<void> precacheImages(WidgetTester tester) async {
 /// Advances the clock by [ms] without settling, for animation keyframes.
 Future<void> pumpMs(WidgetTester tester, int ms) {
   return tester.pump(Duration(milliseconds: ms));
+}
+
+/// Runs the clock far enough forward for any spring in flight to finish.
+Future<void> settle(WidgetTester tester) => tester.pump(const Duration(seconds: 3));
+
+/// Writes or compares `test/goldens/<name>.png` for whatever [finder] matches.
+Future<void> captureAt(WidgetTester tester, Finder finder, String name) async {
+  await expectLater(finder, matchesGoldenFile('goldens/$name.png'));
 }
 
 /// Writes or compares `test/goldens/<name>.png` for the whole screen.
