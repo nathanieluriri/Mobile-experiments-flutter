@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
 
+import 'screens/home/home_screen.dart';
+import 'theme/index.dart';
+import 'widgets/dissolve/dissolve_scope.dart';
+
 class App extends StatelessWidget {
   const App({super.key});
 
@@ -9,11 +13,12 @@ class App extends StatelessWidget {
       title: 'Bookmark Dissolve',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
-        fontFamily: 'Inter',
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.black),
+        fontFamily: kFontFamily,
+        scaffoldBackgroundColor: AppColors.canvas,
+        colorScheme: ColorScheme.fromSeed(seedColor: AppColors.ink),
       ),
-      home: const Scaffold(
-        body: Center(child: Text('Bookmark Dissolve')),
+      home: const DissolveScope(
+        child: Scaffold(backgroundColor: AppColors.canvas, body: HomeScreen()),
       ),
     );
   }
