@@ -4,8 +4,15 @@ import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-/// Loads the fonts under assets/fonts before any test runs, so goldens render
-/// real glyphs instead of the test harness placeholder font.
+/// Every font the widgets ask for, keyed by the family name the engine
+/// resolves. A font shipped by a package carries a `packages/<name>/` prefix.
+const _packageFonts = <String, String>{
+  'packages/lucide_icons_flutter/Lucide':
+      'packages/lucide_icons_flutter/assets/lucide.ttf',
+};
+
+/// Loads the fonts under assets/fonts and the icon font before any test runs,
+/// so goldens render real glyphs instead of the test harness placeholder font.
 Future<void> testExecutable(FutureOr<void> Function() testMain) async {
   TestWidgetsFlutterBinding.ensureInitialized();
   final loaders = <String, FontLoader>{};
@@ -21,6 +28,11 @@ Future<void> testExecutable(FutureOr<void> Function() testMain) async {
           .putIfAbsent(family, () => FontLoader(family))
           .addFont(Future.value(ByteData.sublistView(bytes)));
     }
+  }
+  for (final entry in _packageFonts.entries) {
+    loaders
+        .putIfAbsent(entry.key, () => FontLoader(entry.key))
+        .addFont(rootBundle.load(entry.value));
   }
   for (final loader in loaders.values) {
     await loader.load();
