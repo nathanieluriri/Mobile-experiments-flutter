@@ -45,7 +45,8 @@ Future<void> pumpScreen(
 }
 
 /// Decodes every [Image] widget currently in the tree so goldens never show
-/// blank pictures. Call again after navigating to a screen with new pictures.
+/// blank pictures, then lets any fade in finish. Call again after navigating to
+/// a screen with new pictures.
 Future<void> precacheImages(WidgetTester tester) async {
   await tester.runAsync(() async {
     for (final element in find.byType(Image).evaluate()) {
@@ -53,6 +54,7 @@ Future<void> precacheImages(WidgetTester tester) async {
     }
   });
   await tester.pump();
+  await tester.pump(const Duration(milliseconds: 400));
 }
 
 /// Advances the clock by [ms] without settling, for animation keyframes.

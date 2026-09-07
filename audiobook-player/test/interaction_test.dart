@@ -229,8 +229,9 @@ void main() {
       bookApp(start: const PlayerStart(positionSeconds: 148, isPlaying: true)),
     );
     final player = playerOf(tester);
-    expect(player.positionSeconds, closeTo(148, 0.01));
+    final from = player.positionSeconds;
+    expect(from, greaterThanOrEqualTo(148));
     await pumpMs(tester, 4000);
-    expect(player.positionSeconds, closeTo(152, 0.05));
+    expect(player.positionSeconds, closeTo(from + 4, 0.05));
   });
 }

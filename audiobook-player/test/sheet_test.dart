@@ -1,4 +1,5 @@
 import 'package:audiobook_player/data/now_playing.dart';
+import 'package:audiobook_player/state/player_controller.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -43,6 +44,15 @@ void main() {
     await _openByTap(tester);
     await pumpMs(tester, 1500);
     await capture(tester, 'sheet__open');
+  });
+
+  testWidgets('sheet open at the start of the track, as the app opens it', (
+    tester,
+  ) async {
+    await pumpScreen(tester, bookApp(start: const PlayerStart()));
+    await _openByTap(tester);
+    await pumpMs(tester, 1500);
+    await capture(tester, 'sheet__open_at_start');
   });
 
   testWidgets('sheet held half way up a drag', (tester) async {
