@@ -38,6 +38,7 @@ class LibraryScreen extends StatelessWidget {
         onNotification: (notification) {
           if (notification.metrics.axis == Axis.vertical) {
             tabBar.handleScroll(
+              'library',
               notification.metrics.pixels,
               notification.metrics.maxScrollExtent,
             );

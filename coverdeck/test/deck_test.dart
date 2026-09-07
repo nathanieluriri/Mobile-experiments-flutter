@@ -66,4 +66,25 @@ void main() {
     await pumpMs(tester, 1200);
     expect(find.text('Midnight Static'), findsOneWidget);
   });
+
+  testWidgets('the controls answer touches beyond their buttons', (tester) async {
+    await pumpScreen(tester, const App());
+    final button = tester.getRect(_glyph(Glyph.playFill));
+    // The source gives every control a hit slop of 14 on each side.
+    for (final point in <Offset>[
+      button.topCenter - const Offset(0, 12),
+      button.bottomCenter + const Offset(0, 12),
+      button.centerLeft - const Offset(12, 0),
+      button.centerRight + const Offset(12, 0),
+    ]) {
+      await tester.tapAt(point);
+      await tester.pump();
+      await pumpMs(tester, 600);
+      expect(_glyph(Glyph.pauseFill), findsOneWidget, reason: '$point should play');
+      await tester.tapAt(point);
+      await tester.pump();
+      await pumpMs(tester, 600);
+      expect(_glyph(Glyph.playFill), findsOneWidget, reason: '$point should pause');
+    }
+  });
 }

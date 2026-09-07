@@ -24,6 +24,7 @@ class BrowseScreen extends StatelessWidget {
         onNotification: (notification) {
           if (notification.metrics.axis == Axis.vertical) {
             tabBar.handleScroll(
+              'browse',
               notification.metrics.pixels,
               notification.metrics.maxScrollExtent,
             );

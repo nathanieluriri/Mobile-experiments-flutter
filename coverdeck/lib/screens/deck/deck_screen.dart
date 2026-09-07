@@ -106,9 +106,15 @@ class _DeckScreenState extends State<DeckScreen> with SingleTickerProviderStateM
               ),
             ),
             Padding(
-              padding: const EdgeInsets.only(left: 32, right: 32, bottom: 148),
+              // The controls carry their touch slop inside their layout box,
+              // so the gap above them and the padding below give it back.
+              padding: const EdgeInsets.only(
+                left: 32,
+                right: 32,
+                bottom: 148 - controlHitSlop,
+              ),
               child: Column(
-                spacing: 18,
+                spacing: 18 - controlHitSlop,
                 children: [
                   ProgressBar(
                     playing: _playing,
