@@ -57,7 +57,7 @@ void main() {
     addTearDown(controller.dispose);
     await pumpScreen(
       tester,
-      hostApp(ConnectSpotifyScreen(marqueeController: controller)),
+      hostApp(ConnectSpotifyScreen(onBack: noop, marqueeController: controller)),
     );
 
     for (final offset in [
@@ -89,7 +89,7 @@ void main() {
     addTearDown(controller.dispose);
     await pumpScreen(
       tester,
-      hostApp(ConnectSpotifyScreen(marqueeController: controller)),
+      hostApp(ConnectSpotifyScreen(onBack: noop, marqueeController: controller)),
     );
 
     for (final flick in [-320.0, -60.0, 45.0, 260.0]) {
@@ -105,7 +105,7 @@ void main() {
     addTearDown(controller.dispose);
     await pumpScreen(
       tester,
-      hostApp(ConnectSpotifyScreen(marqueeController: controller)),
+      hostApp(ConnectSpotifyScreen(onBack: noop, marqueeController: controller)),
     );
 
     final viewport = tester.getRect(find.byType(CardMarquee));
@@ -125,5 +125,43 @@ void main() {
         reason: card.item.id,
       );
     }
+  });
+
+  testWidgets('the back arrow stays solid while it is held', (tester) async {
+    await pumpScreen(tester, const App());
+    await tester.tap(find.text('Skip'));
+    await tester.pumpAndSettle();
+
+    final gesture = await tester.startGesture(
+      tester.getCenter(find.byType(BackArrowIcon)),
+    );
+    addTearDown(() => gesture.up());
+    await pumpMs(tester, 150);
+
+    final dimmed = tester
+        .widgetList<Opacity>(
+          find.ancestor(
+            of: find.byType(BackArrowIcon),
+            matching: find.byType(Opacity),
+          ),
+        )
+        .where((layer) => layer.opacity < 1);
+    expect(dimmed, isEmpty);
+  });
+
+  testWidgets('the header controls answer just outside their edges', (
+    tester,
+  ) async {
+    await pumpScreen(tester, const App());
+
+    // Four points past the right edge of the Skip pill.
+    await tester.tapAt(const Offset(390, 84));
+    await tester.pumpAndSettle();
+    expect(find.text('Connect Your'), findsOne);
+
+    // Eight points left of the back arrow's slot.
+    await tester.tapAt(const Offset(8, 84));
+    await tester.pumpAndSettle();
+    expect(find.text('Find Concerts'), findsOne);
   });
 }

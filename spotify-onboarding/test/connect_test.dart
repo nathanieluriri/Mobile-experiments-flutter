@@ -3,10 +3,11 @@ import 'package:spotify_onboarding/app.dart';
 import 'package:spotify_onboarding/screens/onboarding/connect_spotify_screen.dart';
 
 import 'support/golden.dart';
+import 'support/marquee_offsets.dart';
 
 void main() {
   testWidgets('connect button dims while it is held', (tester) async {
-    await pumpScreen(tester, hostApp(const ConnectSpotifyScreen()));
+    await pumpScreen(tester, hostApp(const ConnectSpotifyScreen(onBack: noop)));
     final gesture = await tester.startGesture(
       tester.getCenter(find.text('Connect Spotify')),
     );

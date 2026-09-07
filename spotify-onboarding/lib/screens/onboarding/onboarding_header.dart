@@ -2,11 +2,17 @@ import 'package:flutter/widgets.dart';
 
 import '../../theme/colors.dart';
 import '../../theme/typography.dart';
+import '../../widgets/hit_slop.dart';
 import '../../widgets/icons/back_arrow_icon.dart';
 import '../../widgets/pressable_opacity.dart';
 import 'onboarding_step.dart';
 
+/// Width of the slot on each side of the counter. Matching them keeps the
+/// counter in the middle of the screen.
 const _slotWidth = 56.0;
+
+/// Gap between the header's controls and the edges of the screen.
+const _edgeGap = 16.0;
 
 /// Back arrow, step counter, and Skip pill.
 class OnboardingHeader extends StatelessWidget {
@@ -25,18 +31,18 @@ class OnboardingHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     return SizedBox(
       height: 44,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            SizedBox(
+      child: Row(
+        children: [
+          const SizedBox(width: _edgeGap),
+          HitSlop(
+            slop: 12,
+            child: SizedBox(
               width: _slotWidth,
-              height: _slotWidth,
+              height: 22,
               child: onBack == null
                   ? null
-                  : PressableOpacity(
-                      pressedOpacity: 0.7,
+                  : GestureDetector(
+                      behavior: HitTestBehavior.opaque,
                       onTap: onBack,
                       child: const Align(
                         alignment: Alignment.centerLeft,
@@ -44,19 +50,26 @@ class OnboardingHeader extends StatelessWidget {
                       ),
                     ),
             ),
-            Text.rich(
-              TextSpan(
-                children: [
-                  const TextSpan(text: 'Connection '),
-                  TextSpan(
-                    text: '\u2014 $step of $kTotalOnboardingSteps',
-                    style: AppText.labelMuted,
-                  ),
-                ],
+          ),
+          Expanded(
+            child: Center(
+              child: Text.rich(
+                TextSpan(
+                  children: [
+                    const TextSpan(text: 'Connection '),
+                    TextSpan(
+                      text: '\u2014 $step of $kTotalOnboardingSteps',
+                      style: AppText.labelMuted,
+                    ),
+                  ],
+                ),
+                style: AppText.label,
               ),
-              style: AppText.label,
             ),
-            SizedBox(
+          ),
+          HitSlop(
+            slop: 8,
+            child: SizedBox(
               width: _slotWidth,
               child: Align(
                 alignment: Alignment.centerRight,
@@ -77,8 +90,9 @@ class OnboardingHeader extends StatelessWidget {
                 ),
               ),
             ),
-          ],
-        ),
+          ),
+          const SizedBox(width: _edgeGap),
+        ],
       ),
     );
   }

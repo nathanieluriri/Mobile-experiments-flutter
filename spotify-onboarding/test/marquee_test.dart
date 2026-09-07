@@ -7,22 +7,24 @@ import 'package:spotify_onboarding/widgets/card_marquee/marquee_constants.dart';
 import 'support/golden.dart';
 import 'support/marquee_offsets.dart';
 
-/// Speed of the flick the keyframes are measured from, in pixels per second.
-/// It coasts about 90 px, which rounds up to one whole slot.
-const _flickVelocity = 900.0;
+/// A harder flick, for the rest it comes to two boundaries further on.
+const _hardFlickVelocity = 2600.0;
+
+Future<ScrollPositionWithSingleContext> _open(WidgetTester tester) async {
+  final controller = ScrollController(initialScrollOffset: artistFlickOffset);
+  addTearDown(controller.dispose);
+  await pumpScreen(
+    tester,
+    hostApp(ConnectSpotifyScreen(onBack: noop, marqueeController: controller)),
+  );
+  await precacheAssets(tester, artists.map((item) => item.imageAsset));
+  return controller.position as ScrollPositionWithSingleContext;
+}
 
 void main() {
   testWidgets('a flick coasts and settles on a card boundary', (tester) async {
-    final controller = ScrollController(initialScrollOffset: artistRestOffset);
-    addTearDown(controller.dispose);
-    await pumpScreen(
-      tester,
-      hostApp(ConnectSpotifyScreen(marqueeController: controller)),
-    );
-    await precacheAssets(tester, artists.map((item) => item.imageAsset));
-
-    final position = controller.position as ScrollPositionWithSingleContext;
-    position.goBallistic(_flickVelocity);
+    final position = await _open(tester);
+    position.goBallistic(artistFlickVelocity);
 
     await tester.pump();
     await capture(tester, 'marquee__t0000');
@@ -30,12 +32,49 @@ void main() {
     await capture(tester, 'marquee__t0300');
     await pumpMs(tester, 400);
     await capture(tester, 'marquee__t0700');
+
+    // Let go a third of a slot past a boundary, it coasts to the next one.
+    await tester.pumpAndSettle();
+    expect(
+      position.pixels,
+      moreOrLessEquals(artistRestOffset + 2 * kMarqueeItemHeight, epsilon: 0.5),
+    );
+
+    // A harder flick carries it two boundaries further and it settles again.
+    position.goBallistic(_hardFlickVelocity);
     await tester.pumpAndSettle();
     await capture(tester, 'marquee__snapped');
-
     expect(
-      controller.offset,
-      moreOrLessEquals(artistRestOffset + kMarqueeItemHeight, epsilon: 0.5),
+      position.pixels,
+      moreOrLessEquals(artistRestOffset + 4 * kMarqueeItemHeight, epsilon: 0.5),
     );
+  });
+
+  testWidgets('the four captured offsets are four different pictures', (
+    tester,
+  ) async {
+    final position = await _open(tester);
+    position.goBallistic(artistFlickVelocity);
+    await tester.pump();
+
+    final seen = <double>[position.pixels];
+    await pumpMs(tester, 300);
+    seen.add(position.pixels);
+    await pumpMs(tester, 400);
+    seen.add(position.pixels);
+    await tester.pumpAndSettle();
+    position.goBallistic(_hardFlickVelocity);
+    await tester.pumpAndSettle();
+    seen.add(position.pixels);
+
+    for (var i = 1; i < seen.length; i++) {
+      expect(
+        seen[i] - seen[i - 1],
+        greaterThan(1),
+        reason: 'offset $i repeats offset ${i - 1} at ${seen[i]}',
+      );
+    }
+    // The flick is let go mid slot, so the first frame is already in motion.
+    expect(seen.first % kMarqueeItemHeight, greaterThan(1));
   });
 }
