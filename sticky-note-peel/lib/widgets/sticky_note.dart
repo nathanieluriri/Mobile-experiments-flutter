@@ -220,6 +220,15 @@ class _StickyNoteState extends State<StickyNote> with TickerProviderStateMixin {
     HapticFeedback.heavyImpact();
   }
 
+  /// The gesture died without a normal release: the pointer was cancelled, or
+  /// the press never lasted long enough to peel anything. Either way the note
+  /// has to be put back, or it would stay lifted with nothing able to drop it.
+  void _onLongPressCancel() {
+    if (_triggered < 0) {
+      _settleBack();
+    }
+  }
+
   void _settleBack() {
     setState(() {
       _hovered = -1;
@@ -377,7 +386,8 @@ class _StickyNoteState extends State<StickyNote> with TickerProviderStateMixin {
           (instance) => instance
             ..onLongPressStart = _onLongPressStart
             ..onLongPressMoveUpdate = _onLongPressMoveUpdate
-            ..onLongPressEnd = _onLongPressEnd,
+            ..onLongPressEnd = _onLongPressEnd
+            ..onLongPressCancel = _onLongPressCancel,
         ),
       },
     );
