@@ -1,7 +1,17 @@
 import 'package:flutter/material.dart';
 
+import 'home_shell.dart';
+import 'state/player_controller.dart';
+
+/// The audiobook library and its player.
 class App extends StatelessWidget {
-  const App({super.key});
+  const App({super.key, this.start = const PlayerStart(), this.initialTab = 0});
+
+  /// Where playback stands when the app opens.
+  final PlayerStart start;
+
+  /// Which tab is showing when the app opens.
+  final int initialTab;
 
   @override
   Widget build(BuildContext context) {
@@ -12,9 +22,7 @@ class App extends StatelessWidget {
         fontFamily: 'Inter',
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.black),
       ),
-      home: const Scaffold(
-        body: Center(child: Text('Audiobook Player')),
-      ),
+      home: HomeShell(start: start, initialTab: initialTab),
     );
   }
 }
