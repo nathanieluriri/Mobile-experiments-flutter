@@ -124,12 +124,11 @@ class _DissolveScopeState extends State<DissolveScope> {
                 builder: (context, _) => Stack(
                   children: [
                     for (final job in _controller.jobs)
+                      // The key sits on the stack's own child, so finishing one
+                      // run never restarts the ones still going.
                       Positioned.fill(
-                        child: _DissolveRun(
-                          key: ValueKey(job.id),
-                          job: job,
-                          onDone: _controller.finish,
-                        ),
+                        key: ValueKey(job.id),
+                        child: _DissolveRun(job: job, onDone: _controller.finish),
                       ),
                   ],
                 ),
@@ -153,7 +152,7 @@ class _DissolveScope extends InheritedWidget {
 
 /// One job, running its progress from 0 to 1 or back again.
 class _DissolveRun extends StatefulWidget {
-  const _DissolveRun({super.key, required this.job, required this.onDone});
+  const _DissolveRun({required this.job, required this.onDone});
 
   final DissolveJob job;
   final void Function(DissolveJob) onDone;
