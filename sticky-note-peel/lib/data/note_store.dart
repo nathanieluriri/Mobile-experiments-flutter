@@ -83,6 +83,20 @@ class NoteStore extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Puts an edited note back where it was.
+  void update(Note note) {
+    final index = _notes.indexWhere((existing) => existing.id == note.id);
+    if (index < 0) {
+      return;
+    }
+    _notes[index] = note;
+    if (_tagFilter != null && !tagCounts.containsKey(_tagFilter)) {
+      _tagFilter = null;
+    }
+    _persist();
+    notifyListeners();
+  }
+
   void remove(String id) {
     final index = _notes.indexWhere((note) => note.id == id);
     if (index < 0) {

@@ -43,6 +43,7 @@ class StickyNote extends StatefulWidget {
     required this.onBlur,
     required this.onRemove,
     required this.onHeight,
+    required this.onOpen,
     this.query = '',
   });
 
@@ -54,6 +55,9 @@ class StickyNote extends StatefulWidget {
   final VoidCallback onBlur;
   final void Function(String id, NoteAction action) onRemove;
   final void Function(String id, double height) onHeight;
+
+  /// Called when the note is tapped, to open it for writing on.
+  final ValueChanged<String> onOpen;
 
   /// What is being searched for, marked wherever it appears on this note.
   final String query;
@@ -285,7 +289,10 @@ class _StickyNoteState extends State<StickyNote> with TickerProviderStateMixin {
             clipBehavior: Clip.none,
             fit: StackFit.passthrough,
             children: [
-              Transform(
+              GestureDetector(
+                behavior: HitTestBehavior.deferToChild,
+                onTap: () => widget.onOpen(widget.note.id),
+                child: Transform(
                 alignment: Alignment.center,
                 transform: Matrix4.identity()
                   ..translateByDouble(
@@ -323,6 +330,7 @@ class _StickyNoteState extends State<StickyNote> with TickerProviderStateMixin {
                       ),
                     ],
                   ),
+                ),
                 ),
               ),
               if (_dockMounted)

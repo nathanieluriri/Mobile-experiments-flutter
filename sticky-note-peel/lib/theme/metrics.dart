@@ -61,6 +61,8 @@ const kDrawerFlingVelocity = 400.0;
 const kSwatchSize = 34.0;
 const kSwatchFoldInset = 9.0;
 const kComposeMargin = 24.0;
+const kComposeActionSize = 32.0;
+const kComposeActionGap = 8.0;
 
 // The dock.
 const kDockGap = 18.0;

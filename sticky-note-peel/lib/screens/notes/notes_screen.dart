@@ -9,6 +9,7 @@ import '../../theme/metrics.dart';
 import '../../theme/springs.dart';
 import '../../theme/typography.dart';
 import '../../widgets/note_column.dart';
+import '../../widgets/note_content.dart';
 import '../../widgets/sticky_note.dart';
 import 'compose_note_button.dart';
 import 'compose_sheet.dart';
@@ -16,6 +17,9 @@ import 'note_list_transition.dart';
 import 'notes_drawer.dart';
 import 'notes_header.dart';
 import 'search_field.dart';
+
+/// The sheet in flight between where it was written and where it landed.
+const kLandingNote = ValueKey<String>('landing note');
 
 /// The only screen: a scrolling column of notes over a dark ground, with the
 /// list of lists sliding in over it.
@@ -41,6 +45,7 @@ class _NotesScreenState extends State<NotesScreen>
   late final AnimationController _drawer;
   late final AnimationController _search;
   late final AnimationController _compose;
+  late final AnimationController _landingFlight;
   late final SpringCurve _reflowCurve;
   late final SpringCurve _drawerCurve;
   late final SpringCurve _searchCurve;
@@ -49,6 +54,16 @@ class _NotesScreenState extends State<NotesScreen>
   String? _activeNoteId;
   int? _reflowIndex;
   double _reflowSpace = 0;
+
+  /// The note the sheet is open on, or null when it is writing a new one.
+  Note? _editing;
+
+  /// The note on its way from the sheet into its place in the list.
+  Note? _landing;
+  Rect? _landingFrom;
+  Rect? _landingTo;
+  final GlobalKey _sheetKey = GlobalKey();
+  final GlobalKey _landingKey = GlobalKey();
 
   @override
   void initState() {
@@ -78,6 +93,17 @@ class _NotesScreenState extends State<NotesScreen>
     _compose = AnimationController(vsync: this, duration: reflowDuration);
     _composeCurve =
         SpringCurve(AppSprings.noteListLayout, duration: reflowDuration);
+    _landingFlight =
+        AnimationController(vsync: this, duration: reflowDuration);
+    _landingFlight.addStatusListener((status) {
+      if (status == AnimationStatus.completed) {
+        setState(() {
+          _landing = null;
+          _landingFrom = null;
+          _landingTo = null;
+        });
+      }
+    });
 
     _list.sync(widget.store.visible);
   }
@@ -98,6 +124,7 @@ class _NotesScreenState extends State<NotesScreen>
     _drawer.dispose();
     _search.dispose();
     _compose.dispose();
+    _landingFlight.dispose();
     _scroll.dispose();
     _query.dispose();
     _queryFocus.dispose();
@@ -144,9 +171,10 @@ class _NotesScreenState extends State<NotesScreen>
     setState(() {});
   }
 
-  void _openCompose() {
+  void _openCompose({Note? note}) {
     FocusManager.instance.primaryFocus?.unfocus();
-    _compose.forward();
+    setState(() => _editing = note);
+    _compose.forward(from: 0);
   }
 
   void _closeCompose() {
@@ -154,26 +182,65 @@ class _NotesScreenState extends State<NotesScreen>
     _compose.reverse();
   }
 
-  /// Files a freshly written note at the top of the list and gets out of the
-  /// way so it can be seen arriving.
-  void _saveComposed(
-    Color color,
-    String title,
-    String? body,
-    List<String>? checklist,
-    List<String> tags,
-  ) {
-    widget.store.add(
-      Note(
-        id: widget.store.nextId(title),
-        color: color,
-        title: title,
-        body: body,
-        checklist: checklist,
-        tags: tags,
-      ),
-    );
-    _closeCompose();
+  /// The rectangle the sheet is filling, in the screen's own coordinates.
+  Rect? _sheetRect() {
+    final box = _sheetKey.currentContext?.findRenderObject() as RenderBox?;
+    if (box == null || !box.hasSize) {
+      return null;
+    }
+    return box.localToGlobal(Offset.zero) & box.size;
+  }
+
+  /// Files the written note and carries the sheet to the place the note has
+  /// taken in the list, rather than dropping one and raising the other.
+  void _saveComposed(Note written) {
+    final from = _sheetRect();
+    final editing = _editing;
+    final Note saved;
+    if (editing != null) {
+      saved = written.copyWith();
+      widget.store.update(saved);
+    } else {
+      saved = Note(
+        id: widget.store.nextId(written.title),
+        color: written.color,
+        title: written.title,
+        body: written.body,
+        checklist: written.checklist,
+        tags: written.tags,
+      );
+      widget.store.add(saved);
+    }
+
+    _compose.value = 0;
+    FocusManager.instance.primaryFocus?.unfocus();
+    setState(() {
+      _editing = null;
+      _landing = from == null ? null : saved;
+      _landingFrom = from;
+      _landingTo = null;
+    });
+    if (from == null) {
+      return;
+    }
+    // The note has to be laid out before there is anywhere to fly it to.
+    WidgetsBinding.instance.addPostFrameCallback((_) => _beginLanding());
+  }
+
+  void _beginLanding() {
+    if (!mounted || _landing == null) {
+      return;
+    }
+    final box = _landingKey.currentContext?.findRenderObject() as RenderBox?;
+    if (box == null || !box.hasSize) {
+      setState(() {
+        _landing = null;
+        _landingFrom = null;
+      });
+      return;
+    }
+    setState(() => _landingTo = box.localToGlobal(Offset.zero) & box.size);
+    _landingFlight.forward(from: 0);
   }
 
   void _openDrawer() => _drawer.forward();
@@ -277,9 +344,13 @@ class _NotesScreenState extends State<NotesScreen>
                               key: ValueKey<String>('slot-${note.id}'),
                               factor: _list.factorOf(note.id),
                               child: Opacity(
-                                opacity: _list.factorOf(note.id).clamp(0, 1),
+                                opacity: note.id == _landing?.id
+                                    ? 0
+                                    : _list.factorOf(note.id).clamp(0, 1),
                                 child: StickyNote(
-                                  key: ValueKey<String>(note.id),
+                                  key: note.id == _landing?.id
+                                      ? _landingKey
+                                      : ValueKey<String>(note.id),
                                   note: note,
                                   width: noteWidth,
                                   isActive: note.id == _activeNoteId,
@@ -290,6 +361,7 @@ class _NotesScreenState extends State<NotesScreen>
                                   onRemove: _remove,
                                   onHeight: (id, height) =>
                                       _heights[id] = height,
+                                  onOpen: _openNote,
                                   query: widget.store.query,
                                 ),
                               ),
@@ -319,6 +391,7 @@ class _NotesScreenState extends State<NotesScreen>
           ),
           _drawerLayer(panelWidth, padding),
           _composeLayer(padding),
+          _landingLayer(),
         ],
       ),
     );
@@ -367,6 +440,8 @@ class _NotesScreenState extends State<NotesScreen>
                             scale: 0.72 + 0.28 * open,
                             alignment: Alignment.bottomCenter,
                             child: ComposeSheet(
+                              key: _sheetKey,
+                              initial: _editing,
                               onCancel: _closeCompose,
                               onSave: _saveComposed,
                             ),
@@ -382,6 +457,59 @@ class _NotesScreenState extends State<NotesScreen>
         );
       },
     );
+  }
+
+  /// The written sheet on its way into the place the list made for it. Width
+  /// never changes, so the writing does not reflow as it travels.
+  Widget _landingLayer() {
+    final note = _landing;
+    final from = _landingFrom;
+    final to = _landingTo;
+    if (note == null || from == null || to == null) {
+      return const SizedBox.shrink();
+    }
+    return AnimatedBuilder(
+      animation: _landingFlight,
+      builder: (context, _) {
+        final t = _composeCurve.transform(_landingFlight.value);
+        final rect = Rect.lerp(from, to, t)!;
+        return Positioned.fromRect(
+          key: kLandingNote,
+          rect: rect,
+          child: IgnorePointer(
+            child: Opacity(
+              opacity: (1.4 - t * 1.4).clamp(0, 1),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(kNoteRadius),
+                child: OverflowBox(
+                  alignment: Alignment.topLeft,
+                  minHeight: 0,
+                  maxHeight: double.infinity,
+                  child: SizedBox(
+                    width: rect.width,
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(color: note.color),
+                      child: Padding(
+                        padding: const EdgeInsets.all(kNotePadding),
+                        child: NoteContent(note: note),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _openNote(String id) {
+    final note = widget.store.notes.firstWhere(
+      (candidate) => candidate.id == id,
+      orElse: () => widget.store.notes.first,
+    );
+    _openCompose(note: note);
   }
 
   Widget _drawerLayer(double panelWidth, EdgeInsets padding) {
