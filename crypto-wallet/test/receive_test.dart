@@ -1,5 +1,6 @@
 import 'package:crypto_wallet/app.dart';
 import 'package:crypto_wallet/data/fixtures.dart';
+import 'package:crypto_wallet/widgets/shimmer.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
@@ -9,6 +10,12 @@ import 'support/pump.dart';
 void main() {
   testWidgets('receive skeleton while loading', (tester) async {
     await pumpScreen(tester, const App(initialRoute: Routes.receive));
+    // The eyebrow placeholder keeps its 128 px width inside the stretched column.
+    final shimmers = find.byType(Shimmer);
+    expect(
+      shimmers.evaluate().map((e) => tester.getSize(find.byWidget(e.widget)).width),
+      contains(128.0),
+    );
     await capture(tester, 'receive__loading');
   });
 

@@ -92,6 +92,23 @@ class _NoddingIconState extends State<_NoddingIcon> with SingleTickerProviderSta
   }
 }
 
+/// A token icon that only cross-fades when the token changes.
+class _FadingIcon extends StatelessWidget {
+  const _FadingIcon({required this.token, required this.size});
+
+  final Token token;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 220),
+      reverseDuration: const Duration(milliseconds: 140),
+      child: TokenIcon(key: ValueKey(token.id), id: token.id, size: size),
+    );
+  }
+}
+
 /// A grey pill with the token icon and symbol.
 class TokenChip extends StatelessWidget {
   const TokenChip({super.key, required this.token, required this.onPress});
@@ -512,7 +529,7 @@ class _RouteCardState extends State<RouteCard> with SingleTickerProviderStateMix
       ),
       child: Row(
         children: [
-          _NoddingIcon(token: widget.fromToken, size: 32),
+          _FadingIcon(token: widget.fromToken, size: 32),
           const SizedBox(width: 12),
           Expanded(
             child: SizedBox(
@@ -524,7 +541,7 @@ class _RouteCardState extends State<RouteCard> with SingleTickerProviderStateMix
             ),
           ),
           const SizedBox(width: 12),
-          _NoddingIcon(token: widget.toToken, size: 32),
+          _FadingIcon(token: widget.toToken, size: 32),
           const SizedBox(width: 16),
           Column(
             crossAxisAlignment: CrossAxisAlignment.end,

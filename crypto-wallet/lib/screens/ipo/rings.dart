@@ -37,10 +37,12 @@ class _CountdownRingState extends State<CountdownRing> with TickerProviderStateM
     duration: _orbit,
   );
 
+  static const Duration _fillDuration = Duration(milliseconds: 1100);
+
   @override
   void initState() {
     super.initState();
-    _fill.animateTo(widget.progress, curve: Curves.easeOutCubic);
+    _fill.animateTo(widget.progress, duration: _fillDuration, curve: Curves.easeOutCubic);
     if (!widget.paused) {
       _orbitController.repeat();
     }
@@ -50,7 +52,7 @@ class _CountdownRingState extends State<CountdownRing> with TickerProviderStateM
   void didUpdateWidget(CountdownRing oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.progress != widget.progress) {
-      _fill.animateTo(widget.progress, curve: Curves.easeOutCubic);
+      _fill.animateTo(widget.progress, duration: _fillDuration, curve: Curves.easeOutCubic);
     }
     if (oldWidget.paused != widget.paused) {
       if (widget.paused) {

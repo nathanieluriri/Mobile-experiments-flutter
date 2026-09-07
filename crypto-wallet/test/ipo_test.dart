@@ -19,6 +19,11 @@ void main() {
     await pumpFor(tester, 4000);
     expect(find.text('NovaGrid'), findsOneWidget);
     expect(find.text('Subscribe to IPO'), findsOneWidget);
+    // The header subtitle is centred on one line under the title.
+    final subtitle = find.text('Discover and invest in upcoming public offerings');
+    final title = find.text('IPO Market');
+    expect(tester.getCenter(subtitle).dx, closeTo(tester.getCenter(title).dx, 1));
+    expect(tester.getSize(subtitle).height, lessThan(20));
     await capture(tester, 'ipo__default');
   });
 

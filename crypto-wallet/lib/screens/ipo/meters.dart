@@ -119,11 +119,14 @@ class _DemandMeterState extends State<DemandMeter> with TickerProviderStateMixin
               return AnimatedBuilder(
                 animation: Listenable.merge([_fill, _clock]),
                 builder: (context, _) {
-                  return CustomPaint(
-                    size: Size(constraints.maxWidth, _canvasHeight),
-                    painter: _DemandPainter(
-                      fillWidth: _fill.value.clamp(0.0, constraints.maxWidth),
-                      seconds: _clock.value * 1000,
+                  // The glow is clipped to the 36 px canvas like the original.
+                  return ClipRect(
+                    child: CustomPaint(
+                      size: Size(constraints.maxWidth, _canvasHeight),
+                      painter: _DemandPainter(
+                        fillWidth: _fill.value.clamp(0.0, constraints.maxWidth),
+                        seconds: _clock.value * 1000,
+                      ),
                     ),
                   );
                 },
@@ -297,9 +300,11 @@ class _PriceRangeCardState extends State<PriceRangeCard> with TickerProviderStat
                 animation: _position,
                 builder: (context, _) {
                   final knobX = _edge + _position.value * math.max(0, constraints.maxWidth - _edge * 2);
-                  return CustomPaint(
-                    size: Size(constraints.maxWidth, _priceCanvasHeight),
-                    painter: _PricePainter(knobX: knobX),
+                  return ClipRect(
+                    child: CustomPaint(
+                      size: Size(constraints.maxWidth, _priceCanvasHeight),
+                      painter: _PricePainter(knobX: knobX),
+                    ),
                   );
                 },
               );

@@ -70,9 +70,17 @@ class _ReceiveScreenState extends State<ReceiveScreen> {
               Expanded(
                 child: SingleChildScrollView(
                   padding: EdgeInsets.only(left: 20, right: 20, top: 8, bottom: padding.bottom + 24),
-                  child: _loading
+                  child: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 220),
+                    switchInCurve: const Threshold(0),
+                    layoutBuilder: (current, previous) => Stack(
+                      alignment: Alignment.topCenter,
+                      children: [...previous, ?current],
+                    ),
+                    child: _loading
                       ? const ReceiveSkeleton()
                       : Column(
+                          key: const ValueKey('content'),
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
                             Enter(
@@ -107,6 +115,7 @@ class _ReceiveScreenState extends State<ReceiveScreen> {
                             ),
                           ],
                         ),
+                  ),
                 ),
               ),
             ],
@@ -653,7 +662,10 @@ class ReceiveSkeleton extends StatelessWidget {
         const SizedBox(height: 16),
         Shimmer(width: cardWidth, height: 64, radius: 22),
         const SizedBox(height: 24),
-        const Shimmer(width: 128, height: 13, radius: 6),
+        const Align(
+          alignment: Alignment.centerLeft,
+          child: Shimmer(width: 128, height: 13, radius: 6),
+        ),
         const SizedBox(height: 12),
         Shimmer(width: cardWidth, height: 190, radius: 24),
       ],
@@ -688,8 +700,9 @@ class NetworkSheet extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         mainAxisSize: MainAxisSize.min,
         children: [
-          for (final network in networks)
+          for (final (i, network) in networks.indexed)
             PressableScale(
+              key: ValueKey(network.id),
               scaleTo: 0.98,
               haptic: HapticKind.selection,
               onPress: () {
@@ -699,6 +712,8 @@ class NetworkSheet extends StatelessWidget {
                 }
                 onClose();
               },
+              child: Padding(
+                padding: EdgeInsets.only(top: i == 0 ? 0 : 4),
               child: Container(
                 padding: const EdgeInsets.symmetric(vertical: 12),
                 decoration: BoxDecoration(
@@ -726,6 +741,7 @@ class NetworkSheet extends StatelessWidget {
                       ),
                   ],
                 ),
+              ),
               ),
             ),
         ],

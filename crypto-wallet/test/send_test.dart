@@ -10,6 +10,11 @@ void main() {
     await pumpScreen(tester, const App(initialRoute: Routes.send));
     await pumpFor(tester, 1500);
     expect(find.text('Paste or scan wallet address'), findsOneWidget);
+    // The fee card is on screen at rest: the amount block yields, not the cards.
+    expect(find.text('ARRIVAL'), findsOneWidget);
+    expect(tester.getBottomLeft(find.text('ARRIVAL')).dy, lessThan(874 - 34));
+    // All five recents fit on screen.
+    expect(tester.getTopRight(find.text('Vault')).dx, lessThan(402));
     await capture(tester, 'send__default');
   });
 
@@ -33,7 +38,7 @@ void main() {
     expect(deleteAmountKey('1'), '');
     expect(deleteAmountKey('12'), '1');
     expect(groupThousands('1234567.5'), '1,234,567.5');
-    expect(truncateAddress('0x7f4E2aC8b1e94dD7f21A6c09E14bD24c5a83f9c41'), '0x7f4E…f9c41'.replaceAll('f9c41', '9c41'));
+    expect(truncateAddress('0x7f4E2aC8b1e94dD7f21A6c09E14bD24c5a83f9c41'), '0x7f4E…9c41');
     expect(formatTokenAmount(250, 2437.52, 4), '0.1026');
   });
 }

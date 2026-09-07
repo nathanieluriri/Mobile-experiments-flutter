@@ -40,8 +40,23 @@ class FlowHeader extends StatelessWidget {
           Expanded(
             child: Column(
               children: [
-                Text(title, style: text(17, weight: FontWeight.w700)),
-                Text(subtitle, style: text(12, color: AppColors.subtle)),
+                Text(
+                  title,
+                  textAlign: TextAlign.center,
+                  maxLines: 1,
+                  style: text(17, weight: FontWeight.w700),
+                ),
+                // The subtitle stays on one centred line, shrinking a hair if
+                // the column is narrower than the string.
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(
+                    subtitle,
+                    textAlign: TextAlign.center,
+                    maxLines: 1,
+                    style: text(12, color: AppColors.subtle),
+                  ),
+                ),
               ],
             ),
           ),

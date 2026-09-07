@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../data/fixtures.dart';
@@ -142,15 +143,23 @@ class _SendScreenState extends State<SendScreen> {
                                   ),
                                 ),
                               ),
+                              // Like the source's flex 1 with a zero basis: this
+                              // block takes whatever height is left and lets its
+                              // glyphs overdraw when there is not enough.
                               Expanded(
-                                child: Padding(
-                                  padding: const EdgeInsets.symmetric(vertical: 20),
-                                  child: Center(
-                                    child: Enter(
-                                      kind: EnterKind.fadeInDown,
-                                      delay: const Duration(milliseconds: 180),
-                                      duration: const Duration(milliseconds: 420),
-                                      child: AmountDisplay(value: _amount, token: _token),
+                                child: _ZeroIntrinsicHeight(
+                                  child: OverflowBox(
+                                    alignment: Alignment.center,
+                                    minHeight: 0,
+                                    maxHeight: double.infinity,
+                                    child: Padding(
+                                      padding: const EdgeInsets.symmetric(vertical: 20),
+                                      child: Enter(
+                                        kind: EnterKind.fadeInDown,
+                                        delay: const Duration(milliseconds: 180),
+                                        duration: const Duration(milliseconds: 420),
+                                        child: AmountDisplay(value: _amount, token: _token),
+                                      ),
                                     ),
                                   ),
                                 ),
@@ -207,6 +216,23 @@ class _SendScreenState extends State<SendScreen> {
       ),
     );
   }
+}
+
+/// Lays out its child normally but reports no intrinsic height, so a flexible
+/// parent measures it as zero, the way a flex basis of 0 behaves.
+class _ZeroIntrinsicHeight extends SingleChildRenderObjectWidget {
+  const _ZeroIntrinsicHeight({required Widget super.child});
+
+  @override
+  RenderObject createRenderObject(BuildContext context) => _RenderZeroIntrinsicHeight();
+}
+
+class _RenderZeroIntrinsicHeight extends RenderProxyBox {
+  @override
+  double computeMinIntrinsicHeight(double width) => 0;
+
+  @override
+  double computeMaxIntrinsicHeight(double width) => 0;
 }
 
 const double _amountFontSize = 58;
@@ -407,8 +433,8 @@ class RecentRecipients extends StatelessWidget {
                         label: recipients[i].name,
                       ),
                       const SizedBox(height: 6),
-                      SizedBox(
-                        width: 64,
+                      ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 64),
                         child: Text(
                           recipients[i].name,
                           maxLines: 1,
@@ -526,7 +552,7 @@ class _EmptyState extends StatelessWidget {
               height: 44,
               alignment: Alignment.center,
               decoration: const BoxDecoration(color: AppColors.chip, shape: BoxShape.circle),
-              child: const Icon(LucideIcons.scanLine, size: 18, color: AppColors.ink),
+              child: const Icon(LucideIcons.scanQrCode, size: 18, color: AppColors.ink),
             ),
           ),
         ],

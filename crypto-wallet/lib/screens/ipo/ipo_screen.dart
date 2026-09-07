@@ -146,9 +146,17 @@ class _IpoScreenState extends State<IpoScreen> with SingleTickerProviderStateMix
                   },
                   child: SingleChildScrollView(
                     padding: EdgeInsets.only(top: 12, bottom: padding.bottom + 96),
-                    child: _loading
+                    child: AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 220),
+                      switchInCurve: const Threshold(0),
+                      layoutBuilder: (current, previous) => Stack(
+                        alignment: Alignment.topCenter,
+                        children: [...previous, ?current],
+                      ),
+                      child: _loading
                         ? const IpoSkeleton()
                         : IpoContent(
+                            key: const ValueKey('content'),
                             ipo: _ipo,
                             related: relatedIpos,
                             countdown: _countdown,
@@ -160,6 +168,7 @@ class _IpoScreenState extends State<IpoScreen> with SingleTickerProviderStateMix
                             estimate: _estimate,
                             refreshing: _refreshing,
                           ),
+                    ),
                   ),
                 ),
               ),
