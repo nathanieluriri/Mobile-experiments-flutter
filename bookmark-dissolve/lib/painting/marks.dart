@@ -3,13 +3,11 @@ import 'dart:math' as math;
 import 'package:flutter/widgets.dart';
 
 /// The small pictorial marks the bookmark previews carry: a sparkle in the Arc
-/// tab icon, an apple and a window on the two Arc download buttons, and a
-/// rocket at the top of the Notion page. Each is drawn rather than typeset, so
-/// it renders the same everywhere.
+/// tab icon, a window on the Arc download button, and a rocket at the top of
+/// the Notion page. Each is drawn rather than typeset, so it renders the same
+/// everywhere.
 class Mark extends StatelessWidget {
   const Mark.sparkle({super.key, required this.size, required this.color}) : _paint = _sparkle;
-
-  const Mark.apple({super.key, required this.size, required this.color}) : _paint = _apple;
 
   const Mark.window({super.key, required this.size, required this.color}) : _paint = _window;
 
@@ -60,35 +58,6 @@ void _sparkle(Canvas canvas, Size size, Color color) {
     );
   }
   canvas.drawPath(path..close(), Paint()..color = color);
-}
-
-/// A rounded apple silhouette with a bite and a leaf.
-void _apple(Canvas canvas, Size size, Color color) {
-  final w = size.width;
-  final paint = Paint()..color = color;
-  final body = Path()
-    ..addRRect(
-      RRect.fromRectAndCorners(
-        Rect.fromLTWH(w * 0.06, w * 0.28, w * 0.88, w * 0.68),
-        topLeft: Radius.circular(w * 0.44),
-        topRight: Radius.circular(w * 0.44),
-        bottomLeft: Radius.circular(w * 0.38),
-        bottomRight: Radius.circular(w * 0.38),
-      ),
-    );
-  final notch = Path()
-    ..moveTo(w * 0.34, w * 0.26)
-    ..quadraticBezierTo(w * 0.5, w * 0.44, w * 0.66, w * 0.26)
-    ..close();
-  canvas.drawPath(Path.combine(PathOperation.difference, body, notch), paint);
-  canvas.drawPath(
-    Path()
-      ..moveTo(w * 0.52, w * 0.30)
-      ..quadraticBezierTo(w * 0.58, w * 0.02, w * 0.86, w * 0.04)
-      ..quadraticBezierTo(w * 0.76, w * 0.28, w * 0.52, w * 0.30)
-      ..close(),
-    paint,
-  );
 }
 
 /// A square with a plus inside it.

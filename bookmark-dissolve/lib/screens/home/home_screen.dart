@@ -9,10 +9,10 @@ import '../../theme/index.dart';
 import 'bookmark_column.dart';
 
 /// Horizontal padding around the board.
-const kBoardPadding = 20.0;
+const kBoardPadding = kStep * 5;
 
 /// Space between the two columns, and above the first row of cards.
-const kBoardGap = 16.0;
+const kBoardGap = kStep * 4;
 
 /// The board. Two columns of bookmark cards; close one and it comes apart, and
 /// once the board is empty every card blows back in.

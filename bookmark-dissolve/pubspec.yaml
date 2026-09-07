@@ -1,5 +1,5 @@
 name: bookmark_dissolve
-description: Bookmark cards that dissolve into particles when deleted and reassemble on undo.
+description: Bookmark cards that crumble into their own pixels when deleted, and blow back in when the board empties.
 publish_to: 'none'
 version: 1.0.0+1
 

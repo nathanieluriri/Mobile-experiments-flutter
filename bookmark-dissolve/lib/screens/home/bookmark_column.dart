@@ -4,11 +4,12 @@ import 'package:flutter/physics.dart';
 import 'package:flutter/widgets.dart';
 
 import '../../constants/board.dart';
+import '../../theme/index.dart';
 import '../../data/bookmark_cards.dart';
 import 'dissolvable_bookmark_card.dart';
 
 /// Vertical spacing between two cards in a column.
-const kColumnGap = 16.0;
+const kColumnGap = kStep * 4;
 
 /// One column of the board. Cards stack from the top; when one is taken out the
 /// cards below it spring up into the space.

@@ -4,7 +4,7 @@ import '../theme/index.dart';
 import 'close_button.dart';
 
 const kCardRadius = 22.0;
-const kCardHeaderHeight = 40.0;
+const kCardHeaderHeight = kStep * 10;
 
 /// One bookmark: a title bar with the site's mark and a close button, and a
 /// preview of the page below it.
@@ -47,9 +47,9 @@ class BookmarkCard extends StatelessWidget {
                   height: kCardHeaderHeight,
                   child: Row(
                     children: [
-                      const SizedBox(width: 10),
+                      const SizedBox(width: kStep * 2.5),
                       icon,
-                      const SizedBox(width: 8),
+                      const SizedBox(width: kStep * 2),
                       Expanded(
                         child: Text(
                           title,
@@ -58,9 +58,9 @@ class BookmarkCard extends StatelessWidget {
                           style: text(size: 14, weight: FontWeight.w500, color: AppColors.ink),
                         ),
                       ),
-                      const SizedBox(width: 8),
+                      const SizedBox(width: kStep * 2),
                       CardCloseButton(onPressed: onClose),
-                      const SizedBox(width: 12),
+                      const SizedBox(width: kStep * 3),
                     ],
                   ),
                 ),

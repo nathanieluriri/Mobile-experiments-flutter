@@ -2,6 +2,7 @@ import 'package:bookmark_dissolve/app.dart';
 import 'package:bookmark_dissolve/screens/home/bookmark_column.dart';
 import 'package:bookmark_dissolve/screens/home/home_screen.dart';
 import 'package:bookmark_dissolve/widgets/bookmark_card.dart';
+import 'package:bookmark_dissolve/theme/index.dart';
 import 'package:bookmark_dissolve/widgets/close_button.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -61,20 +62,20 @@ void main() {
     );
   });
 
-  testWidgets('the title bar is 40 tall with the close button on the right', (tester) async {
+  testWidgets('the title bar sits on the source spacing scale', (tester) async {
     await pumpScreen(tester, const App());
     await tester.pumpAndSettle();
 
     final card = cardRect(tester, kMymind);
     final title = tester.getRect(find.text(kMymind));
-    // Icon 22 wide after 10 of padding, then a gap of 8.
-    expect(title.left, moreOrLessEquals(card.left + 10 + 22 + 8, epsilon: 0.01));
+    // Icon 22 wide after pl-2.5 of padding, then a gap-2.
+    expect(title.left, moreOrLessEquals(card.left + kStep * 2.5 + 22 + kStep * 2, epsilon: 0.01));
     expect(title.center.dy, moreOrLessEquals(card.top + kCardHeaderHeight / 2, epsilon: 0.01));
 
     final close = tester.getRect(
       find.descendant(of: cardNamed(kMymind), matching: find.byType(CardCloseButton)),
     );
-    expect(close.right, moreOrLessEquals(card.right - 12, epsilon: 0.01));
+    expect(close.right, moreOrLessEquals(card.right - kStep * 3, epsilon: 0.01));
     expect(close.width, 15);
   });
 

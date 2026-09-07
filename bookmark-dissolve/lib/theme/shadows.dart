@@ -1,7 +1,5 @@
 import 'package:flutter/painting.dart';
 
-import 'colors.dart';
-
 /// The three drop shadows the cards and their inner panels use.
 abstract final class AppShadows {
   static const card = <BoxShadow>[
@@ -15,7 +13,4 @@ abstract final class AppShadows {
   static const panel = <BoxShadow>[
     BoxShadow(color: Color(0x1440372E), blurRadius: 10, offset: Offset(0, 4)),
   ];
-
-  /// The colour the three shadows above are tinted with.
-  static const tint = AppColors.cardShadow;
 }
