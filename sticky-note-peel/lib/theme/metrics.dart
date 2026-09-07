@@ -45,6 +45,18 @@ const kFoldHandleSize = 72.0;
 const kNoteFlapShade = -0.2;
 const kPeelLongPress = Duration(milliseconds: 140);
 
+// The drawer of lists.
+const kDrawerWidthFraction = 0.78;
+const kDrawerMaxWidth = 300.0;
+const kDrawerPadding = 18.0;
+const kDrawerSectionGap = 22.0;
+const kDrawerRowGap = 10.0;
+const kDrawerRowHeight = 46.0;
+const kDrawerRowRadius = 10.0;
+const kDrawerFoldInset = 13.0;
+const kDrawerScrimOpacity = 0.66;
+const kDrawerFlingVelocity = 400.0;
+
 // The dock.
 const kDockGap = 18.0;
 const kDockButtonSize = 54.0;

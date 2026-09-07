@@ -1,18 +1,47 @@
 import 'package:flutter/rendering.dart';
 import 'package:flutter/widgets.dart';
 
-class _NoteColumnParentData extends ContainerBoxParentData<RenderBox> {}
+class NoteColumnParentData extends ContainerBoxParentData<RenderBox> {
+  /// How much of its own slot this child is taking up, 0 to 1. A note arriving
+  /// grows its slot from nothing; a note leaving closes it again.
+  double factor = 1;
+}
 
-/// Stacks the list vertically with a fixed gap, and adds two things a plain
+/// How much room the child inside it is taking in the column. At 1 the child
+/// gets its full height and the gap above it; at 0 it takes no room at all and
+/// is not drawn.
+class NoteSlot extends ParentDataWidget<NoteColumnParentData> {
+  const NoteSlot({super.key, required this.factor, required super.child});
+
+  final double factor;
+
+  @override
+  void applyParentData(RenderObject renderObject) {
+    final data = renderObject.parentData! as NoteColumnParentData;
+    if (data.factor == factor) {
+      return;
+    }
+    data.factor = factor;
+    renderObject.parent?.markNeedsLayout();
+  }
+
+  @override
+  Type get debugTypicalAncestorWidgetClass => NoteColumn;
+}
+
+/// Stacks the list vertically with a fixed gap, and adds three things a plain
 /// [Column] cannot do.
 ///
 /// A lifted note paints its fold and its dock outside its own box, over the
 /// notes below it, so [paintLast] pulls one child to the front of the paint and
 /// hit-test order without moving it.
 ///
-/// When a note is removed the gap it leaves has to close smoothly, so
-/// [extraSpace] holds that many pixels open before child [extraSpaceIndex] and
-/// the caller springs it down to zero.
+/// A note arriving or leaving opens and closes its own slot, through the
+/// [NoteSlot] wrapped around it.
+///
+/// When a note is removed after being dropped on the dock it has already
+/// shrunk to nothing on its own, so [extraSpace] holds the room it vacated open
+/// before child [extraSpaceIndex] and the caller springs it shut.
 class NoteColumn extends MultiChildRenderObjectWidget {
   const NoteColumn({
     super.key,
@@ -45,8 +74,8 @@ class NoteColumn extends MultiChildRenderObjectWidget {
 
 class RenderNoteColumn extends RenderBox
     with
-        ContainerRenderObjectMixin<RenderBox, _NoteColumnParentData>,
-        RenderBoxContainerDefaultsMixin<RenderBox, _NoteColumnParentData> {
+        ContainerRenderObjectMixin<RenderBox, NoteColumnParentData>,
+        RenderBoxContainerDefaultsMixin<RenderBox, NoteColumnParentData> {
   RenderNoteColumn(
     this._gap,
     this._paintLast,
@@ -88,28 +117,39 @@ class RenderNoteColumn extends RenderBox
 
   @override
   void setupParentData(RenderBox child) {
-    if (child.parentData is! _NoteColumnParentData) {
-      child.parentData = _NoteColumnParentData();
+    if (child.parentData is! NoteColumnParentData) {
+      child.parentData = NoteColumnParentData();
     }
   }
+
+  double _factorOf(RenderBox child) =>
+      (child.parentData! as NoteColumnParentData).factor.clamp(0.0, 1.0);
 
   @override
   void performLayout() {
     final width = constraints.maxWidth;
     var y = 0.0;
     var index = 0;
+    var anyPlaced = false;
     var child = firstChild;
     while (child != null) {
+      final data = child.parentData! as NoteColumnParentData;
       if (index == _extraSpaceIndex) {
         y += _extraSpace;
       }
       child.layout(BoxConstraints.tightFor(width: width), parentUsesSize: true);
-      (child.parentData! as _NoteColumnParentData).offset = Offset(0, y);
-      y += child.size.height;
-      child = childAfter(child);
-      if (child != null) {
-        y += _gap;
+      final factor = _factorOf(child);
+      // The gap belongs to the child below it, so a child that is not there
+      // takes neither its own height nor the space above it.
+      if (anyPlaced) {
+        y += _gap * factor;
       }
+      data.offset = Offset(0, y);
+      y += child.size.height * factor;
+      if (factor > 0) {
+        anyPlaced = true;
+      }
+      child = childAfter(child);
       index++;
     }
     if (_extraSpaceIndex == index) {
@@ -122,13 +162,19 @@ class RenderNoteColumn extends RenderBox
   Size computeDryLayout(BoxConstraints constraints) {
     final width = constraints.maxWidth;
     var y = _extraSpace;
+    var anyPlaced = false;
     var child = firstChild;
     while (child != null) {
-      y += child.getDryLayout(BoxConstraints.tightFor(width: width)).height;
-      child = childAfter(child);
-      if (child != null) {
-        y += _gap;
+      final factor = _factorOf(child);
+      if (anyPlaced) {
+        y += _gap * factor;
       }
+      y += child.getDryLayout(BoxConstraints.tightFor(width: width)).height *
+          factor;
+      if (factor > 0) {
+        anyPlaced = true;
+      }
+      child = childAfter(child);
     }
     return constraints.constrain(Size(width, y));
   }
@@ -148,8 +194,23 @@ class RenderNoteColumn extends RenderBox
   }
 
   void _paintChild(PaintingContext context, RenderBox child, Offset offset) {
-    final data = child.parentData! as _NoteColumnParentData;
-    context.paintChild(child, data.offset + offset);
+    final data = child.parentData! as NoteColumnParentData;
+    final factor = _factorOf(child);
+    if (factor <= 0) {
+      return;
+    }
+    if (factor >= 1) {
+      context.paintChild(child, data.offset + offset);
+      return;
+    }
+    // Half a slot shows the top half of the note, so it reads as being drawn
+    // out of the list rather than squashed into it.
+    context.pushClipRect(
+      needsCompositing,
+      offset + data.offset,
+      Offset.zero & Size(child.size.width, child.size.height * factor),
+      (innerContext, innerOffset) => innerContext.paintChild(child, innerOffset),
+    );
   }
 
   @override
@@ -175,7 +236,10 @@ class RenderNoteColumn extends RenderBox
     RenderBox child,
     Offset position,
   ) {
-    final data = child.parentData! as _NoteColumnParentData;
+    if (_factorOf(child) <= 0) {
+      return false;
+    }
+    final data = child.parentData! as NoteColumnParentData;
     return result.addWithPaintOffset(
       offset: data.offset,
       position: position,
