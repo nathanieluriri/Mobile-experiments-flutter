@@ -35,7 +35,7 @@ class _FeatherPainter extends CustomPainter {
     final unit = size.width / 24;
     final stroke = Paint()
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 2 * unit
+      ..strokeWidth = 2
       ..strokeCap = StrokeCap.round
       ..strokeJoin = StrokeJoin.round
       ..color = color;
@@ -43,11 +43,11 @@ class _FeatherPainter extends CustomPainter {
     canvas.scale(unit);
     switch (glyph) {
       case FeatherGlyph.video:
-        _video(canvas, stroke..strokeWidth = 2);
+        _video(canvas, stroke);
       case FeatherGlyph.phone:
-        _phone(canvas, stroke..strokeWidth = 2);
+        _phone(canvas, stroke);
       case FeatherGlyph.plus:
-        _plus(canvas, stroke..strokeWidth = 2);
+        _plus(canvas, stroke);
     }
     canvas.restore();
   }

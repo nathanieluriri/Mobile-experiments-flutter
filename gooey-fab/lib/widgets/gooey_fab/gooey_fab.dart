@@ -65,7 +65,9 @@ class _GooeyFabState extends State<GooeyFab> with TickerProviderStateMixin {
               builder: (context, child) {
                 final progress = _controller.progress.value.clamp(0.0, 1.0);
                 if (progress < 0.001) {
-                  return const SizedBox.shrink();
+                  // Nothing to filter, but the layer still takes the tap that
+                  // dismisses the button.
+                  return child!;
                 }
                 return ClipRect(
                   child: BackdropFilter(

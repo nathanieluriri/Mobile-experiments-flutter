@@ -33,7 +33,10 @@ class ChatsScreen extends StatelessWidget {
                     child: ListView.builder(
                       padding: EdgeInsets.zero,
                       itemCount: chats.length,
-                      itemBuilder: (context, index) => ChatRow(chat: chats[index]),
+                      itemBuilder: (context, index) {
+                      final chat = chats[index];
+                      return ChatRow(key: ValueKey(chat.id), chat: chat);
+                    },
                     ),
                   ),
                 ],

@@ -54,7 +54,7 @@ class GooeyFabController extends ChangeNotifier {
   bool _isOpen = false;
 
   /// Everything that changes when any of the three values move.
-  Listenable get animations => Listenable.merge([progress, voiceDrive, videoDrive]);
+  late final Listenable animations = Listenable.merge([progress, voiceDrive, videoDrive]);
 
   void toggle() {
     if (_isOpen) {
