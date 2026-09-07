@@ -1,9 +1,8 @@
 # Bookmark Dissolve
 
-A board of bookmark cards. Close one and it frosts over for a moment, then
-crumbles into three pixel tiles of itself that scatter, spin, fall and blow off
-to the right. The left edge starts coming apart before the right, so the whole
-card has a direction to it.
+A board of bookmark cards. Close one and it crumbles into three pixel tiles of
+itself that scatter, spin, fall and blow off to the right. The left edge starts
+coming apart before the right, so the whole card has a direction to it.
 
 Empty the board and it runs backwards: every card blows back in and reassembles
 out of its own dust, one after another.

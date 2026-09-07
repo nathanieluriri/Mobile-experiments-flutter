@@ -42,11 +42,3 @@ abstract final class ParticleFade {
   static const startJitter = 0.38;
   static const end = 0.97;
 }
-
-/// The blur that sits over the card while it comes apart.
-abstract final class FrostEffect {
-  static const maxBlur = 16.0;
-  static const blurEnd = 0.22;
-  static const hold = 0.08;
-  static const clear = 0.3;
-}
