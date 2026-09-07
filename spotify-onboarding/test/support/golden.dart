@@ -55,3 +55,24 @@ Future<void> capture(WidgetTester tester, String name) async {
     matchesGoldenFile('goldens/$name.png'),
   );
 }
+
+/// Wraps [home] in the app shell the goldens are rendered through.
+Widget hostApp(Widget home) {
+  return MaterialApp(
+    debugShowCheckedModeBanner: false,
+    theme: ThemeData(fontFamily: kFontFamily),
+    home: home,
+  );
+}
+
+/// Decodes every picture in [assets], not just the ones on screen, so cards
+/// that scroll into view later are never blank.
+Future<void> precacheAssets(WidgetTester tester, Iterable<String> assets) async {
+  final context = tester.element(find.byType(MaterialApp).first);
+  await tester.runAsync(() async {
+    for (final asset in assets) {
+      await precacheImage(AssetImage(asset), context);
+    }
+  });
+  await tester.pump();
+}

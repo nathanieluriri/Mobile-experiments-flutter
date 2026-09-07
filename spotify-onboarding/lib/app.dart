@@ -1,5 +1,10 @@
 import 'package:flutter/material.dart';
 
+import 'screens/onboarding/onboarding_flow.dart';
+import 'theme/colors.dart';
+import 'theme/typography.dart';
+
+/// The connection flow.
 class App extends StatelessWidget {
   const App({super.key});
 
@@ -9,12 +14,14 @@ class App extends StatelessWidget {
       title: 'Spotify Onboarding',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
-        fontFamily: 'Inter',
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.black),
+        fontFamily: kFontFamily,
+        scaffoldBackgroundColor: AppColors.white,
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: AppColors.spotify,
+          surface: AppColors.white,
+        ),
       ),
-      home: const Scaffold(
-        body: Center(child: Text('Spotify Onboarding')),
-      ),
+      home: const OnboardingFlow(),
     );
   }
 }
