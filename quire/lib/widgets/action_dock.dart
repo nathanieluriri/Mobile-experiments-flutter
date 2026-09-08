@@ -122,7 +122,17 @@ class _DockButtonState extends State<DockButton> with TickerProviderStateMixin {
   @override
   void initState() {
     super.initState();
-    _hover = AnimationController(vsync: this, duration: kDockHover);
+    // A button can be the hovered one on its very first build, when a drag
+    // crosses onto a dock that is only now mounting. Seeding both the label
+    // and the scale is what stops that button from sitting flat until some
+    // later rebuild happens to notice it.
+    _hover = AnimationController(
+      vsync: this,
+      duration: kDockHover,
+      value: _highlighted ? 1 : 0,
+    );
+    _scaleTo = _highlighted ? kDockHoverScale : 1.0;
+    _scaleFrom = _scaleTo;
     final duration = springDuration(AppSprings.dockScale, clampOvershoot: true);
     _scale = AnimationController(vsync: this, duration: duration, value: 1);
     _scaleCurve = SpringCurve(

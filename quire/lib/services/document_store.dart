@@ -1,11 +1,14 @@
 import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart' show rootBundle;
 
 import '../data/library.dart';
 import '../format/document_loader.dart';
 import '../model/document.dart';
 import '../model/search.dart';
+import '../pdf/display_list.dart';
+import '../pdf/document.dart';
 import 'reading_time.dart';
 import 'render_plan.dart';
 
@@ -59,6 +62,8 @@ class DocumentStore extends ChangeNotifier {
   int _position = 0;
   int _pdfPageCount = 0;
   bool _opened = false;
+  int _opens = 0;
+  final Map<int, int> _pageWords = <int, int>{};
   final Set<int> _dogEared = <int>{};
   final List<PlacedSignature> _signatures = <PlacedSignature>[];
 
@@ -69,7 +74,25 @@ class DocumentStore extends ChangeNotifier {
     _loaded = DocumentLoader.load(bytes, entry.fileName);
     _search = null;
     _state = _loaded!.failed ? ParseState.failed : ParseState.ready;
+    if (_loaded!.isPdf && !_loaded!.failed) _readPageCount(bytes);
     notifyListeners();
+  }
+
+  /// Reads a page file's page count from its own page tree.
+  ///
+  /// It happens here rather than in the reader so a PDF nobody has opened
+  /// still prints `6 PAGES` on its card. Only the count is taken: the pages
+  /// themselves are not run, because six documents' worth of content streams
+  /// is not a price the first frame of the desk should pay.
+  void _readPageCount(Uint8List bytes) {
+    try {
+      _pdfPageCount = PdfFile.open(bytes).pageCount;
+    } on Object {
+      // A file that opens as bytes but not as a page tree keeps no count, and
+      // the card prints its format and its size alone. The reader decides
+      // what a page nobody can lay out looks like.
+      _pdfPageCount = 0;
+    }
   }
 
   /// Records a failure that happened outside the loader, for instance a bundle
@@ -163,9 +186,14 @@ class DocumentStore extends ChangeNotifier {
   /// READING shelf and draws its progress track.
   bool get opened => _opened;
 
+  /// How many times the document has been opened, which is what the back of
+  /// its card prints. Moving the reader inside a document already open is not
+  /// another opening, so only an arrival counts.
+  int get opens => _opens;
+
   /// Marks the document as opened without moving the reader.
   void markOpened() {
-    if (_opened) return;
+    _opens++;
     _opened = true;
     notifyListeners();
   }
@@ -225,8 +253,36 @@ class DocumentStore extends ChangeNotifier {
     return _search ??= searchFor(doc);
   }
 
-  /// Every word in the document, or 0 for a PDF and for a failure.
-  int get wordCount => document?.wordCount ?? 0;
+  /// Records how many words the engine found on [page].
+  ///
+  /// A page file holds no block model, so its words only exist once the pages
+  /// have been run and their runs merged back into lines. The count is kept
+  /// per page rather than summed on arrival so a page the reader visits twice
+  /// is not counted twice.
+  void recordPageWords(int page, PageDisplayList list) {
+    final words = countWords(
+      mergeRuns(list.texts).map((run) => run.text).join(' '),
+    );
+    if (_pageWords[page] == words) return;
+    _pageWords[page] = words;
+    notifyListeners();
+  }
+
+  /// Every word in the document, or 0 for a failure.
+  ///
+  /// For a page file it is the words on every page the engine has run so far,
+  /// which is why a PDF's contribution to the colophon grows as it is read
+  /// rather than arriving whole.
+  int get wordCount {
+    if (isPdf) {
+      var total = 0;
+      for (final words in _pageWords.values) {
+        total += words;
+      }
+      return total;
+    }
+    return document?.wordCount ?? 0;
+  }
 
   /// How long the document takes to read.
   int get minutes => readingMinutes(wordCount);
@@ -313,6 +369,28 @@ class LibraryStore extends ChangeNotifier {
 
   /// The store for [entry] if one has been made, without making one.
   DocumentStore? peek(LibraryEntry entry) => _stores[entry.assetPath];
+
+  /// Reads every bundled document and parses it.
+  ///
+  /// The desk draws its first frame from the manifest alone, so this runs
+  /// after that frame rather than before it: the cards are already on the
+  /// ground, and the page counts, row counts and word counts land on them as
+  /// each file comes back. A file the bundle cannot hand over fails on its own
+  /// store and leaves the other five alone.
+  Future<void> hydrate() async {
+    for (final entry in _entries) {
+      final store = storeFor(entry);
+      if (store.state != ParseState.loading) continue;
+      try {
+        final data = await rootBundle.load(entry.assetPath);
+        store.loadFrom(
+          data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes),
+        );
+      } on Object catch (error) {
+        store.fail(error);
+      }
+    }
+  }
 
   /// Takes [entry] off the desk, retaining the snapshot the dissolve came
   /// apart from so undo can gather it back together.
