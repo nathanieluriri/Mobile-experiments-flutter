@@ -1,0 +1,14 @@
+# Documents and fonts are binary. The lease PDF in particular has uncompressed
+# content streams, so it contains no NUL bytes and git guesses "text" for it.
+# Normalising its line endings shifts every byte offset in the cross reference
+# table and the file stops parsing.
+*.pdf  binary
+*.docx binary
+*.xlsx binary
+*.ttf  binary
+*.png  binary
+*.jpg  binary
+
+# The sample CSV ships deliberate mixed line endings, which a parser test
+# asserts on. Never normalise them.
+assets/documents/*.csv -text
