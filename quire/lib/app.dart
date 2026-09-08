@@ -1,8 +1,12 @@
 import 'package:flutter/material.dart';
 
 import 'data/library.dart';
+import 'painting/signature_painter.dart';
 import 'screens/desk/desk_screen.dart';
+import 'screens/reader/reader_host.dart';
 import 'screens/reader/reader_route.dart';
+import 'screens/reader/sheet_surface.dart';
+import 'screens/sign/sign_screen.dart';
 import 'services/document_store.dart';
 import 'theme/colors.dart';
 import 'theme/typography.dart';
@@ -50,6 +54,13 @@ class _AppState extends State<App> {
   /// It is null when something else has been given [kDeskRoute], which is what
   /// a test that brings its own library does.
   LibraryStore? _library;
+
+  /// The signature the pad has just finished, and the document it was drawn
+  /// for. It is held here for the one push between the pad and the reader,
+  /// because a mark that has been made and not yet placed belongs to neither
+  /// screen.
+  SignatureMark? _mark;
+  DocumentStore? _signing;
 
   @override
   void initState() {
@@ -107,13 +118,62 @@ class _AppState extends State<App> {
       return ReaderRoute<void>(
         settings: settings,
         from: handoff is ReaderHandoff ? handoff.from : null,
-        builder: builder ?? (context) => const _Ground(),
+        builder:
+            builder ??
+            (context) => handoff is ReaderHandoff
+                ? _reader(handoff.store)
+                : const _Ground(),
+      );
+    }
+    if (settings.name == kSignRoute) {
+      final store = settings.arguments;
+      return MaterialPageRoute<void>(
+        settings: settings,
+        builder:
+            builder ??
+            (context) =>
+                store is DocumentStore ? _pad(store) : const _Ground(),
       );
     }
     return MaterialPageRoute<void>(
       settings: settings,
-      builder: builder ??
+      builder:
+          builder ??
           (settings.name == kDeskRoute ? _desk : (context) => const _Ground()),
+    );
+  }
+
+  /// The reader, holding [store] and whatever is waiting to be set into it.
+  Widget _reader(DocumentStore store) => ReaderHost(
+    store: store,
+    placing: identical(store, _signing) ? _mark : null,
+    onPlaced: () {
+      _mark = null;
+      _signing = null;
+    },
+  );
+
+  /// The pad, and the one thing that happens when a signature leaves it: the
+  /// document it was drawn for opens, with the mark in hand.
+  Widget _pad(DocumentStore store) => SignScreen(
+    onBack: () => _navigator.currentState?.maybePop<void>(),
+    onCommit: (mark) => _placeOn(store, mark),
+  );
+
+  /// Carries [mark] from the pad to the page.
+  ///
+  /// The pad is left rather than stacked under the reader: the mark exists
+  /// now, and the only thing left to decide is where on the page it goes.
+  void _placeOn(DocumentStore store, SignatureMark mark) {
+    final navigator = _navigator.currentState;
+    if (navigator == null) return;
+    _mark = mark;
+    _signing = store;
+    store.markOpened();
+    navigator.pop();
+    navigator.pushNamed(
+      kReaderRoute,
+      arguments: (store: store, from: kSheetRect),
     );
   }
 
@@ -124,13 +184,9 @@ class _AppState extends State<App> {
   }
 
   /// Takes [entry] to the reader, growing the sheet out of its card.
-  ///
-  /// Nothing happens while no reader has been registered, because a route with
-  /// no screen behind it would put the app's bare ground over a working desk
-  /// and mark a document read that nobody has read.
   void _open(LibraryEntry entry, Rect cardRect) {
     final library = _library;
-    if (library == null || !widget.routes.containsKey(kReaderRoute)) return;
+    if (library == null) return;
     final document = library.storeFor(entry)..markOpened();
     _navigator.currentState?.pushNamed(
       kReaderRoute,
@@ -141,7 +197,7 @@ class _AppState extends State<App> {
   /// Takes [entry] to the signature pad.
   void _sign(LibraryEntry entry) {
     final library = _library;
-    if (library == null || !widget.routes.containsKey(kSignRoute)) return;
+    if (library == null) return;
     _navigator.currentState?.pushNamed(
       kSignRoute,
       arguments: library.storeFor(entry),

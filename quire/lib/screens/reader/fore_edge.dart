@@ -41,6 +41,7 @@ class ForeEdge extends StatelessWidget {
     required this.position,
     this.dogEars = const <double>[],
     this.damaged = const <double>[],
+    this.signatures = const <double>[],
     this.matches = const <double>[],
     this.liveMatch,
     this.scrubbedMatch,
@@ -51,6 +52,7 @@ class ForeEdge extends StatelessWidget {
   final double position;
   final List<double> dogEars;
   final List<double> damaged;
+  final List<double> signatures;
   final List<double> matches;
   final double? liveMatch;
   final double? scrubbedMatch;
@@ -67,6 +69,7 @@ class ForeEdge extends StatelessWidget {
           position: position,
           dogEars: dogEars,
           damaged: damaged,
+          signatures: signatures,
           matches: matches,
           liveMatch: liveMatch,
           scrubbedMatch: scrubbedMatch,

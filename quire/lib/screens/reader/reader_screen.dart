@@ -54,6 +54,23 @@ const kForeEdgeRegion = Rect.fromLTRB(
 /// The band a back drag has to start inside.
 const kBackEdgeRegion = Rect.fromLTRB(0, 0, kBackEdgeZone, kScreenHeight);
 
+/// The strip a scrub or a riffle tap owns in front of [body].
+///
+/// The hit region reaches 21 points inside the sheet, which is what makes the
+/// strip catchable with a thumb rather than only with a stylus. Over a grid
+/// that overlap would swallow the last two columns of spines, and a body that
+/// answers a finger to its own right edge gets the strip pushed off the sheet
+/// instead. Nothing about the strip's drawing changes: it is only the arena
+/// that moves.
+Rect foreEdgeRegionFor(ReaderBody body) => body.ownsRightEdge
+    ? const Rect.fromLTRB(
+        kSheetLeft + kSheetWidth,
+        kForeEdgeTop,
+        kScreenWidth,
+        kForeEdgeHitBottom,
+      )
+    : kForeEdgeRegion;
+
 /// The 72 point handle over the sheet's folding corner.
 ///
 /// It follows the fold: once a sheet has been turned over, the corner that
@@ -526,6 +543,10 @@ class _ReaderScreenState extends State<ReaderScreen>
     final dogEars = <double>[
       for (final page in _store.dogEared) _fractionOf(page, unitCount),
     ];
+    final signatures = <double>[
+      for (final mark in _store.signatures)
+        _fractionOf(mark.pageIndex, unitCount),
+    ];
     final position = _fractionOf(_store.position, unitCount);
     // A locked or damaged document has no position to be in, so it carries
     // neither the strip nor the chip: an empty pill floating over a torn sheet
@@ -542,7 +563,7 @@ class _ReaderScreenState extends State<ReaderScreen>
       },
       child: RawGestureDetector(
         behavior: HitTestBehavior.opaque,
-        gestures: _gestures(unitCount, hidden),
+        gestures: _gestures(unitCount, hidden, body),
         child: NotificationListener<ScrollNotification>(
           onNotification: _onScroll,
           child: Stack(
@@ -577,6 +598,8 @@ class _ReaderScreenState extends State<ReaderScreen>
                             marks: body.foreEdgeMarks,
                             position: position,
                             dogEars: dogEars,
+                            damaged: body.damagedMarks,
+                            signatures: signatures,
                             matches: widget.matches,
                             liveMatch: widget.liveMatch,
                             scrubbedMatch: _scrubbedMatch,
@@ -724,18 +747,28 @@ class _ReaderScreenState extends State<ReaderScreen>
 
   /// Which recognizers are in the arena this frame.
   ///
-  /// The three region recognizers stand down while the riffle is up: the
-  /// riffle is a layer over the whole reader, and a strip that still answered
-  /// a finger through it would be a control reaching through a wall.
-  Map<Type, GestureRecognizerFactory> _gestures(int unitCount, double hidden) {
-    final reading = _riffle.value == 0;
+  /// The three region recognizers stand down whenever something is over the
+  /// reader: the riffle, the find field, or a mark being set into the page.
+  /// Each of those is a layer over the whole screen, and a strip that still
+  /// answered a finger through one would be a control reaching through a wall.
+  /// It is not a nicety either: the strip accepts a pointer outright anywhere
+  /// past x 360, which is where find's own next chevron stands.
+  Map<Type, GestureRecognizerFactory> _gestures(
+    int unitCount,
+    double hidden,
+    ReaderBody body,
+  ) {
+    final reading =
+        _riffle.value == 0 &&
+        widget.placement == null &&
+        widget.overlay == null;
     return <Type, GestureRecognizerFactory>{
       if (reading)
         _ForeEdgeRecognizer:
             GestureRecognizerFactoryWithHandlers<_ForeEdgeRecognizer>(
               _ForeEdgeRecognizer.new,
               (recognizer) {
-                recognizer.region = kForeEdgeRegion;
+                recognizer.region = foreEdgeRegionFor(body);
                 recognizer.onScrubStart = _scrubStart;
                 recognizer.onScrubUpdate = (at) => _scrubUpdate(at, unitCount);
                 recognizer.onScrubEnd = _scrubEnd;

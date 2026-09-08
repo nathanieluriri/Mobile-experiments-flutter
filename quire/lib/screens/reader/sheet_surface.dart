@@ -59,6 +59,23 @@ abstract class ReaderBody extends StatelessWidget {
   /// and 1 at its end. One per page, per section, or per 25 rows.
   List<double> get foreEdgeMarks;
 
+  /// Where the document would not open, on the same 0 to 1 scale.
+  ///
+  /// Only a format that decides a rung per unit has any: a page file knows
+  /// which of its pages threw, while a parse either produced a document or did
+  /// not, and a whole document that failed is the torn sheet rather than a
+  /// tick on the strip.
+  List<double> get damagedMarks => const <double>[];
+
+  /// True when the body answers a finger all the way to the sheet's right
+  /// edge.
+  ///
+  /// A grid does: its last spines stand under the fore edge's hit strip, and a
+  /// strip that accepts a pointer outright would leave those columns with no
+  /// way to be opened. The shell narrows the strip to the desk beside the
+  /// sheet for a body that says so.
+  bool get ownsRightEdge => false;
+
   @override
   Widget build(BuildContext context) => buildFront(context);
 }

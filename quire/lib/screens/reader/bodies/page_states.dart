@@ -1,0 +1,176 @@
+import 'package:flutter/widgets.dart';
+
+import '../../../helpers/tear_path.dart';
+import '../../../painting/tear_painter.dart';
+import '../../../theme/colors.dart';
+import '../../../theme/metrics.dart';
+import '../../../theme/typography.dart';
+import '../../../widgets/shimmer.dart';
+
+/// What is left where an image this reader cannot turn into pixels was.
+///
+/// It is written out in full rather than produced by a transform, so a golden
+/// reads what this file says.
+const String kImageLabel = 'IMAGE';
+
+/// What a page that would not interpret prints across itself.
+const String kPageDamagedLabel = 'THIS PAGE WILL NOT OPEN';
+
+/// How wide the scan card is, from section 11.7.
+const double kScanCardWidth = 320.0;
+
+/// How much of a torn page is missing, and how far its label sits above the
+/// tear. Both are the damaged sheet's own numbers, so a torn page inside a
+/// document and a torn document read as the same accident.
+const double kPageTearFraction = kTearFraction;
+
+/// The outline an image leaves behind when this reader cannot decode it.
+///
+/// A hole a reader cannot account for is worse than a missing picture: the
+/// rect says the page really does carry something here, and that the file, not
+/// the layout, is what stopped it being shown.
+class UnsupportedImageBox extends StatelessWidget {
+  const UnsupportedImageBox({super.key, this.label = kImageLabel});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        border: Border.all(color: AppColors.rule, width: 1),
+        borderRadius: BorderRadius.circular(kLeafRadius),
+      ),
+      child: Center(
+        child: Text(
+          label,
+          textAlign: TextAlign.center,
+          style: AppText.micro.copyWith(color: AppColors.inkFaint),
+        ),
+      ),
+    );
+  }
+}
+
+/// The card a page that is a picture this reader cannot read puts up. The
+/// caller places it: on a page it sits in the middle of the page.
+///
+/// It is a statement, not an error: the page is a photograph of paper, so
+/// there is nothing on it to render and nothing in it to find, and saying so
+/// is more use than a blank sheet or an apology.
+class ScanCard extends StatelessWidget {
+  const ScanCard({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: kScanCardWidth,
+      padding: const EdgeInsets.all(kSpace20),
+      decoration: BoxDecoration(
+        color: AppColors.leaf,
+        borderRadius: BorderRadius.circular(kLeafRadius),
+        border: Border.all(color: AppColors.rule, width: 1),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            'SCANNED PAGE',
+            style: AppText.micro.copyWith(color: AppColors.inkFaint),
+          ),
+          const SizedBox(height: kSpace8),
+          Text(
+            'This page is a picture.',
+            style: AppText.title.copyWith(color: AppColors.ink),
+          ),
+          const SizedBox(height: kSpace8),
+          Text(
+            'Nothing on it can be read or found.',
+            style: AppText.bodyTight.copyWith(color: AppColors.inkSoft),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// A page that has not been interpreted yet: its real rectangle, at its real
+/// size, with a band of light crossing it.
+///
+/// The rectangle is the point. The page block is laid out from the page tree
+/// before any content stream is run, so nothing moves when the words arrive,
+/// and a reader who scrolls into a page that is still being read never has the
+/// text jump out from under them. There is no spinner anywhere in this app.
+class PageShimmer extends StatelessWidget {
+  const PageShimmer({super.key, required this.size, required this.progress});
+
+  final Size size;
+
+  /// 0 to 1 across one sweep, from a controller a test can pump.
+  final double progress;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox.fromSize(
+      size: size,
+      child: ClipRect(
+        child: Stack(
+          children: [
+            const Positioned.fill(child: ColoredBox(color: AppColors.panel)),
+            Shimmer(
+              progress: progress,
+              width: size.width,
+              height: size.height,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// One page of a document that would not open, torn out of an otherwise
+/// readable block.
+///
+/// Partial damage never takes over. A file whose fourth page throws still
+/// reads everywhere else, so the damage is drawn at page size and in page
+/// place, and the reader keeps scrolling past it.
+class TornPage extends StatelessWidget {
+  TornPage({super.key, required this.size, this.label = kPageDamagedLabel})
+    : _tear = tearPolyline(size.width, size.height * kPageTearFraction);
+
+  final Size size;
+  final String label;
+
+  /// Built once with the page, never per frame: a tear that reshuffled while
+  /// you looked at it would read as static rather than as paper.
+  final List<Offset> _tear;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox.fromSize(
+      size: size,
+      child: Stack(
+        children: [
+          Positioned.fill(
+            child: CustomPaint(
+              painter: TearPainter(tear: _tear, backColor: AppColors.leafBack),
+            ),
+          ),
+          Positioned(
+            left: 0,
+            right: 0,
+            top: size.height * kPageTearFraction - kSpace40,
+            child: Center(
+              child: Text(
+                label,
+                style: AppText.micro.copyWith(color: AppColors.damage),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}

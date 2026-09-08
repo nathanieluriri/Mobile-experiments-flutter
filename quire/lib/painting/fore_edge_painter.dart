@@ -20,6 +20,9 @@ const kMatchTickScrubbed = 12.0;
 /// density rather than as a row of separate marks.
 const kMatchTickAlpha = 0.55;
 
+/// How wide the dot marking a signed page is.
+const kForeEdgeSignatureDot = 5.0;
+
 /// The edge of the page block, drawn as the block itself: one hairline per
 /// page, the reader's own position, the corners they have turned, and every
 /// match the search found.
@@ -33,6 +36,7 @@ class ForeEdgePainter extends CustomPainter {
     required this.position,
     this.dogEars = const <double>[],
     this.damaged = const <double>[],
+    this.signatures = const <double>[],
     this.matches = const <double>[],
     this.liveMatch,
     this.scrubbedMatch,
@@ -51,6 +55,9 @@ class ForeEdgePainter extends CustomPainter {
 
   /// Every page that would not open.
   final List<double> damaged;
+
+  /// Every page carrying a signature.
+  final List<double> signatures;
 
   /// Every match the current query found.
   final List<double> matches;
@@ -96,6 +103,15 @@ class ForeEdgePainter extends CustomPainter {
           kForeEdgeNub,
         ),
         Paint()..color = AppColors.thread,
+      );
+    }
+    // A signed page carries a dot in the one colour that only ever means a
+    // signature, so the strip says where the mark is without a legend.
+    for (final at in signatures) {
+      canvas.drawCircle(
+        Offset(size.width / 2, _y(at, size)),
+        kForeEdgeSignatureDot / 2,
+        Paint()..color = AppColors.signatureInk,
       );
     }
   }
@@ -176,6 +192,7 @@ class ForeEdgePainter extends CustomPainter {
       old.position != position ||
       old.dogEars != dogEars ||
       old.damaged != damaged ||
+      old.signatures != signatures ||
       old.matches != matches ||
       old.liveMatch != liveMatch ||
       old.scrubbedMatch != scrubbedMatch ||
