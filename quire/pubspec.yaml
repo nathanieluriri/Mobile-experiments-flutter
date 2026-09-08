@@ -7,8 +7,12 @@ environment:
   sdk: ^3.12.2
 
 dependencies:
+  archive: ^4.2.0
   flutter:
     sdk: flutter
+  lucide_icons_flutter: ^3.1.19
+  markdown: ^7.3.1
+  xml: ^7.0.1
 
 dev_dependencies:
   flutter_test:
