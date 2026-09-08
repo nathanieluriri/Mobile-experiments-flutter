@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:quire/theme/metrics.dart';
 
 /// Font families bundled with this app. Inter sets the interface, Quicksand
 /// sets the few places the app speaks in its own voice.
@@ -119,3 +120,25 @@ Future<void> settle(WidgetTester tester) async {
     const Duration(seconds: 10),
   );
 }
+
+/// The reading sheet's rectangle on screen, the same in every format and every
+/// golden, so a test can aim at a corner without recomputing it.
+Rect sheetRect() => const Rect.fromLTWH(
+      kSheetLeft,
+      kSheetTop,
+      kSheetWidth,
+      kSheetHeight,
+    );
+
+/// The centre of the fore edge strip at [fraction] of the way down a document,
+/// 0 at the first page and 1 at the last.
+Offset foreEdgeAt(double fraction) => Offset(
+      kForeEdgeLeft + kForeEdgeWidth / 2,
+      kForeEdgeTop + kForeEdgeHeight * fraction.clamp(0, 1),
+    );
+
+/// The centre of the sheet's bottom right peel handle, where a flip starts.
+Offset sheetCornerHandle() => Offset(
+      kSheetLeft + kSheetWidth - kCornerHandle / 2,
+      kSheetTop + kSheetHeight - kCornerHandle / 2,
+    );
