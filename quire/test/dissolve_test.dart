@@ -1,12 +1,13 @@
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:lucide_icons_flutter/lucide_icons.dart';
-import 'package:quire/screens/desk/card_peel.dart';
+import 'package:quire/data/library.dart';
+import 'package:quire/screens/desk/desk_empty.dart';
 import 'package:quire/screens/desk/desk_screen.dart';
+import 'package:quire/screens/desk/document_row.dart';
+import 'package:quire/screens/desk/search_pill.dart';
 import 'package:quire/theme/metrics.dart';
 import 'package:quire/widgets/dissolve/dissolve_scope.dart';
 
-import 'card_peel_test.dart' show beginPeel, cardRect, dockTargetOf;
 import 'desk_test.dart' show deskApp, deskStore;
 import 'support/fixtures.dart';
 import 'support/golden.dart';
@@ -15,34 +16,45 @@ import 'support/golden.dart';
 List<Object> jobsIn(WidgetTester tester) =>
     DissolveScope.of(tester.element(find.byType(DeskScreen))).jobs;
 
-/// Peels card [index] onto REMOVE and lets go.
-///
-/// Two moves rather than one, because the dock has to be on screen before a
-/// target under the drag point can know it is the one being aimed at.
-Future<void> dropOnRemove(WidgetTester tester, int index) async {
-  final gesture = await beginPeel(tester, index);
-  final target = dockTargetOf(index, DeskAction.remove);
-  await gesture.moveTo(target);
+/// Where row [index] sits in the body, under the shell's own chrome.
+Rect rowRect(int index) => Rect.fromLTWH(
+      0,
+      kSafeTop + kTopBarHeight + kTabStripHeight + kSortRowHeight +
+          kListRowHeight * index,
+      kScreenWidth,
+      kListRowHeight,
+    );
+
+/// The middle of row [index]'s overflow target.
+Offset overflowOf(int index) {
+  final rect = rowRect(index);
+  return Offset(
+    rect.right - kListRowPaddingX - kOverflowTarget / 2,
+    rect.center.dy,
+  );
+}
+
+/// Takes row [index] off the desk through its own overflow menu.
+Future<void> removeRow(WidgetTester tester, int index) async {
+  await tester.tapAt(overflowOf(index));
   await tester.pump();
-  await gesture.moveTo(target);
-  await tester.pump();
-  await settle(tester);
-  await gesture.up();
-  // The card is put back whole for one frame, so the snapshot the dust is made
-  // of is a snapshot of a card and not of a peeled one.
+  await pumpMs(tester, kSortMenuIn.inMilliseconds);
+  await tester.tap(find.text('Remove'));
+  // The row is put back whole for one frame, so the snapshot the dust is made
+  // of is a snapshot of a row and not of a half pressed one.
   await tester.pump();
   await tester.pump();
 }
 
 void main() {
-  testWidgets('a removed card comes apart, and undo gathers it back',
+  testWidgets('a removed row comes apart, and undo gathers it back',
       (tester) async {
     final store = await deskStore();
     await pumpScreen(tester, deskApp(store));
     await settle(tester);
 
     final removed = entryFor(kPressLease);
-    await dropOnRemove(tester, 1);
+    await removeRow(tester, 1);
     final left = store.entries.map((entry) => entry.fileName);
     expect(left, isNot(contains(kPressLease)));
     expect(store.lastRemoved, removed);
@@ -64,9 +76,17 @@ void main() {
     await tester.pump();
     expect(store.entries.map((entry) => entry.fileName), contains(kPressLease));
 
+    // The document is back on the desk but not yet on the page: its slot is
+    // opening and a run is gathering its dust into it. A gap that opened with
+    // no run behind it would be the undo of a removal that never came apart.
     await pumpMs(tester, 600);
+    expect(jobsIn(tester), hasLength(1));
+    expect(documentTitled('Press Lease').hitTestable(), findsNothing);
     await capture(tester, 'materialize__t0600');
+
     await settle(tester);
+    expect(jobsIn(tester), isEmpty);
+    expect(documentTitled('Press Lease'), findsOneWidget);
   });
 
   testWidgets('nothing else on the desk comes apart', (tester) async {
@@ -83,14 +103,13 @@ void main() {
     // Opening a document is not a structure coming apart, and neither is a
     // search, a filter, or a card leaving the result set. The dissolve earns
     // its keep only where something is genuinely lost or gained.
-    await tester.tapAt(cardRect(0).center);
+    await tester.tapAt(rowRect(0).center);
     await settle(tester);
     expect(opened, 1);
     expect(jobsIn(tester), isEmpty);
 
-    await tester.tap(find.byIcon(LucideIcons.search));
+    await tester.tap(find.byType(SearchPill));
     await tester.pump();
-    await pumpMs(tester, kSearchOpen.inMilliseconds);
     await tester.enterText(find.byType(EditableText), 'es');
     await settle(tester);
     expect(store.visible.length, 3);
@@ -103,13 +122,39 @@ void main() {
     await pumpScreen(tester, deskApp(store));
     await settle(tester);
 
-    await dropOnRemove(tester, 1);
-    expect(store.retainedSnapshot, isNotNull);
+    await removeRow(tester, 1);
+    expect(jobsIn(tester), hasLength(1));
 
     await pumpMs(tester, 4000);
     await settle(tester);
     expect(find.text('UNDO'), findsNothing);
     expect(store.lastRemoved, isNull);
     expect(store.entries.length, 5);
+  });
+
+  testWidgets('every document leaving at once comes apart, the last one too',
+      (tester) async {
+    final store = await deskStore();
+    await pumpScreen(tester, deskApp(store));
+    await settle(tester);
+
+    // Six runs, all in the air together. Each one paints the pixels the list
+    // photographed, and the list must go on holding every one of those until
+    // its own run has landed.
+    for (final entry in libraryEntries) {
+      store.remove(entry);
+    }
+    await tester.pump();
+    expect(jobsIn(tester), hasLength(libraryEntries.length));
+
+    // The sixth removal empties the desk, which puts the empty state where the
+    // list was. The dust of that last row is painted by the scope above and
+    // outlives the list it came off, so the run finishes rather than losing
+    // its picture half way through.
+    await settle(tester);
+    expect(jobsIn(tester), isEmpty);
+    expect(store.entries, isEmpty);
+    expect(find.byType(DocumentRow), findsNothing);
+    expect(find.byType(DeskEmpty), findsOneWidget);
   });
 }
