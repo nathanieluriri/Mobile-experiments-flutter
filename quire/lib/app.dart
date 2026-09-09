@@ -11,6 +11,7 @@ import 'services/document_store.dart';
 import 'theme/colors.dart';
 import 'theme/typography.dart';
 import 'widgets/dissolve/dissolve_scope.dart';
+import 'widgets/quire_spinner.dart';
 
 /// The desk, where every document lives.
 const kDeskRoute = '/';
@@ -152,8 +153,11 @@ class _AppState extends State<App> {
       onUnknownRoute: _route,
       // The scope sits above the Navigator, so a card can come apart over the
       // whole screen and keep going while the screen under it changes.
+      // The loop, not the ground, for the one frame the navigator has yet to
+      // hand anything over: an app with nothing on screen is loading, and a
+      // bare ground would say it had nothing to show.
       builder: (context, child) =>
-          DissolveScope(child: child ?? const _Ground()),
+          DissolveScope(child: child ?? const QuireLoading()),
     );
   }
 
@@ -225,7 +229,7 @@ class _AppState extends State<App> {
 
   Widget _desk(BuildContext context) {
     final library = _library;
-    if (library == null) return const _Ground();
+    if (library == null) return const QuireLoading();
     return DeskScreen(store: library, onOpen: _open, onSign: _sign);
   }
 
