@@ -50,11 +50,14 @@ class CellBar extends StatelessWidget {
           left: 12,
           right: kCellBarChipClearance,
         ),
-        // One rule along the top edge, and an opaque leaf fill under it. The
-        // bar covers the last row of the grid, so the rule is the whole of
-        // what says the row has been covered rather than recoloured.
+        // One rule along the top edge, and an opaque control fill under it.
+        // The bar covers the last row of the grid, and the grid stripes
+        // between the sheet and the leaf, so the fill has to stand above both
+        // or the covered row reads as a row that has merely gone blank. Its
+        // three free edges are the sheet's, so the top rule is the whole ring
+        // this shape needs.
         decoration: BoxDecoration(
-          color: AppColors.surface,
+          color: AppColors.surfaceHigh,
           border: Border(top: AppEdges.side(context)),
         ),
         child: Row(

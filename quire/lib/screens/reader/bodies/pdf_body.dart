@@ -514,6 +514,9 @@ class PdfPageView extends StatelessWidget {
 
   Widget _face(Size size) {
     if (waiting) {
+      // The band is a dark ground, so the number on it is the dark ground's
+      // own faint ink. Once the page has rendered it is white, and the number
+      // changes paper with it.
       return Stack(
         children: [
           PageShimmer(size: size, progress: shimmer),
@@ -552,7 +555,7 @@ class PdfPageView extends StatelessWidget {
             if (page.images[image.name] == null)
               Positioned.fromRect(
                 rect: imageRectOf(image, scale),
-                child: const UnsupportedImageBox(),
+                child: const UnsupportedImageBox(onPage: true),
               ),
         if (page.plan == RenderPlan.scanUnreadable)
           const Positioned.fill(
@@ -563,7 +566,8 @@ class PdfPageView extends StatelessWidget {
           ),
         // A scan carries no folio: the page is a photograph edge to edge, and
         // a number over it would be this app writing on the document.
-        if (page.plan != RenderPlan.scan) _folio(AppColors.inkFaint),
+        if (page.plan != RenderPlan.scan)
+          _folio(AppColors.pageInk.withValues(alpha: kPaperMarkAlpha)),
       ],
     );
   }

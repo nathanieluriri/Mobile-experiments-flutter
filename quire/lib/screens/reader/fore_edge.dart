@@ -101,7 +101,10 @@ class ForeEdgeBubble extends StatelessWidget {
       height: kForeEdgeBubble,
       padding: const EdgeInsets.symmetric(horizontal: kSpace14),
       decoration: BoxDecoration(
-        color: AppColors.surface,
+        // Chrome, so a control fill and a hairline, never the sheet's own
+        // value: the bubble travels the length of the page and would vanish
+        // into the paper for most of that trip.
+        color: AppColors.surfaceHigh,
         borderRadius: BorderRadius.circular(kPillRadius),
         border: AppEdges.all(context),
       ),

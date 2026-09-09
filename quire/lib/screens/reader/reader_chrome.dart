@@ -7,12 +7,18 @@ import '../../theme/metrics.dart';
 import '../../theme/typography.dart';
 import '../../widgets/press_fade.dart';
 
-/// Floating chrome is opaque paper with a hairline round it.
+/// Floating chrome is an opaque control fill with a hairline round it.
 ///
 /// The app draws no blur and casts no shadow, so a button that let the page
 /// under it show through would have nothing left saying which surface is in
 /// front. An opaque fill and one rule is how a printed page marks off a panel
 /// from the text it lies on.
+///
+/// The fill is [AppColors.surfaceHigh] and not [AppColors.surface], because
+/// chrome has to stand above every surface it can land on: a reading sheet is
+/// [AppColors.surface] and the back of one is [AppColors.leafBack], so a
+/// button in either of those values reads as a hole punched through the page
+/// rather than as a control resting on it.
 
 /// Where the head band goes when it leaves: its top edge at y -52, which is
 /// exactly its own height above the screen.
@@ -124,7 +130,7 @@ class _HeaderButton extends StatelessWidget {
         width: kHeaderButtonSize,
         height: kHeaderButtonSize,
         decoration: BoxDecoration(
-          color: AppColors.surface,
+          color: AppColors.surfaceHigh,
           borderRadius: BorderRadius.circular(kHeaderButtonRadius),
           border: AppEdges.all(context),
         ),

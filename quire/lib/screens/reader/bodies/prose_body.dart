@@ -118,7 +118,10 @@ TextStyle proseSpanStyle(DocSpan span, {TextStyle? base, Color? color}) {
   if (decorations.isEmpty) return style;
   return style.copyWith(
     decoration: TextDecoration.combine(decorations),
-    decorationColor: span.href != null ? AppColors.hairline : style.color,
+    // A link's rule is held one step under its text rather than down at the
+    // rule colour, which on a dark sheet would be no rule at all and would
+    // leave a link telling itself apart from body text by weight alone.
+    decorationColor: span.href != null ? AppColors.inkFaint : style.color,
     decorationThickness: 1,
   );
 }
@@ -161,10 +164,15 @@ class CheckMark extends StatelessWidget {
       width: kProseCheckBox,
       height: kProseCheckBox,
       child: DecoratedBox(
+        // An empty box is drawn in [AppColors.inkFaint], not in the rule
+        // colour. A hairline is meant to be a whisper between two surfaces; a
+        // box saying a job is not done yet has to be read, and at rule value
+        // on a dark sheet it would be a smudge a reader could take for nothing
+        // at all.
         decoration: BoxDecoration(
           color: checked ? AppColors.accent : null,
           border: Border.all(
-            color: checked ? AppColors.accent : AppColors.hairline,
+            color: checked ? AppColors.accent : AppColors.inkFaint,
             width: 1.5,
           ),
           borderRadius: BorderRadius.circular(kInlineCodeRadius),
@@ -209,6 +217,11 @@ class _TickPainter extends CustomPainter {
 
 /// The bar a quotation hangs on. Quotation marks would be the document's own
 /// punctuation; the bar is the reader's.
+///
+/// It is drawn in [AppColors.inkFaint] and not in the rule colour, because it
+/// is the only thing saying a quotation is a quotation. A divider that goes
+/// unnoticed has still divided; a quote bar that goes unnoticed has turned a
+/// quotation into body text.
 class QuoteBar extends StatelessWidget {
   const QuoteBar({super.key, required this.child});
 
@@ -220,7 +233,7 @@ class QuoteBar extends StatelessWidget {
       padding: const EdgeInsets.only(left: kProseQuoteInset),
       decoration: const BoxDecoration(
         border: Border(
-          left: BorderSide(color: AppColors.hairline, width: kProseQuoteBar),
+          left: BorderSide(color: AppColors.inkFaint, width: kProseQuoteBar),
         ),
       ),
       child: child,

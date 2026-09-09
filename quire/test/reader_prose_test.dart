@@ -68,14 +68,17 @@ void main() {
       expect(style.fontStyle, isNot(FontStyle.italic));
     });
 
-    test('a link is ink underlined in rule, and is never coloured', () {
+    test('a link is ink underlined in faint, and is never coloured', () {
       final style = proseSpanStyle(
         const DocSpan('the prepress checklist', href: 'https://example/x'),
       );
       expect(style.color, AppColors.ink);
       expect(style.fontWeight, FontWeight.w500);
       expect(style.decoration, TextDecoration.underline);
-      expect(style.decorationColor, AppColors.hairline);
+      // A step under the text, not down at the rule colour: a rule that is
+      // invisible on a dark sheet leaves a link telling itself apart from
+      // body text by weight alone.
+      expect(style.decorationColor, AppColors.inkFaint);
     });
 
     test('a document colour is never carried onto the page', () {

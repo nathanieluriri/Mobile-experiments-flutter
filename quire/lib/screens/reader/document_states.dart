@@ -109,9 +109,13 @@ class LockedSheet extends StatelessWidget {
               child: Container(
                 width: kLockedButtonWidth,
                 height: kLockedButtonHeight,
+                // The outline is drawn at glyph value, not at rule value.
+                // This is the one move the sheet offers, and a button whose
+                // edge sits a whisper off the sheet it stands on is a button
+                // a reader has to hunt for.
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(kPillRadius),
-                  border: Border.all(color: AppColors.hairline),
+                  border: Border.all(color: AppColors.inkFaint),
                 ),
                 child: Center(
                   child: Text(
@@ -137,8 +141,10 @@ class _FoldedMarkPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
+    // The mark is a drawing, not a rule between two surfaces, so it is drawn
+    // in a glyph colour. At rule value on this sheet it would be a smudge.
     final stroke = Paint()
-      ..color = AppColors.hairline
+      ..color = AppColors.inkFaint
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1;
     final body = Path()

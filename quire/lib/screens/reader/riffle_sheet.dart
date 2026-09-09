@@ -211,7 +211,10 @@ class _RiffleSheetState extends State<RiffleSheet> {
                 width: kHeaderButtonSize,
                 height: kHeaderButtonSize,
                 decoration: BoxDecoration(
-                  color: AppColors.surface,
+                  // The same control fill and hairline the reader's own head
+                  // band wears, because it is the same button in the same
+                  // place doing the opposite job.
+                  color: AppColors.surfaceHigh,
                   borderRadius: BorderRadius.circular(kHeaderButtonRadius),
                   border: AppEdges.all(context),
                 ),

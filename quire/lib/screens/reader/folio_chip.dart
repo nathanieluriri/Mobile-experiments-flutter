@@ -46,8 +46,12 @@ class FolioChip extends StatelessWidget {
     // Opaque at both ends of the tint. The chip lands squarely on body text,
     // and a number you can read the page through is the one thing here that
     // would look like a bug rather than like a chip.
+    //
+    // It rests at [AppColors.surfaceHigh] rather than the sheet's own value,
+    // because it sits on the sheet, on the back of the sheet, and on a white
+    // rendered page, and only a control value stands above all three.
     final fill = Color.lerp(
-      AppColors.surface,
+      AppColors.surfaceHigh,
       AppColors.accent,
       tint.clamp(0, 1),
     )!;

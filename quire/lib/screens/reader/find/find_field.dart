@@ -78,7 +78,7 @@ class FindField extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final ground = Color.lerp(
-      AppColors.surface,
+      AppColors.surfaceHigh,
       AppColors.damageTint,
       tint.clamp(0.0, 1.0),
     )!;

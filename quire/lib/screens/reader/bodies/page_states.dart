@@ -27,6 +27,23 @@ const String kDocumentEmptyLabel = 'THIS FILE IS EMPTY';
 /// How wide the scan card is, from section 11.7.
 const double kScanCardWidth = 320.0;
 
+/// How dark a mark this app makes on a rendered page is drawn.
+///
+/// A rendered PDF page is white, because it is a white page. Every grey in
+/// this palette is mixed for a dark ground and none of them belong on paper,
+/// so anything the app itself prints onto a page is [AppColors.pageInk] held
+/// back rather than a grey of its own. Held back this far it lands about
+/// where the dark ground's own faint ink lands against the dark ground: quiet
+/// enough that the document stays the loudest thing on the sheet, legible
+/// enough to be read on purpose.
+const double kPaperMarkAlpha = 0.55;
+
+/// How dark a rule this app draws on a rendered page is.
+///
+/// A rule says where something was. It is not meant to be read, so it sits
+/// well under a mark.
+const double kPaperRuleAlpha = 0.22;
+
 /// How much of a torn page is missing, and how far its label sits above the
 /// tear. Both are the damaged sheet's own numbers, so a torn page inside a
 /// document and a torn document read as the same accident.
@@ -38,22 +55,43 @@ const double kPageTearFraction = kTearFraction;
 /// rect says the page really does carry something here, and that the file, not
 /// the layout, is what stopped it being shown.
 class UnsupportedImageBox extends StatelessWidget {
-  const UnsupportedImageBox({super.key, this.label = kImageLabel});
+  const UnsupportedImageBox({
+    super.key,
+    this.label = kImageLabel,
+    this.onPage = false,
+  });
 
   final String label;
+
+  /// True when the box is drawn onto a rendered PDF page, which is white.
+  ///
+  /// The same hole appears in a reflowed document and on a rendered page, and
+  /// the two grounds are opposite, so the box has to know which paper it is
+  /// printed on. A dark ground's rule on white reads as a hard black box; a
+  /// dark ground's faint ink on white barely reads at all.
+  final bool onPage;
 
   @override
   Widget build(BuildContext context) {
     return DecoratedBox(
       decoration: BoxDecoration(
-        border: Border.all(color: AppColors.hairline, width: 1),
+        border: Border.all(
+          color: onPage
+              ? AppColors.pageInk.withValues(alpha: kPaperRuleAlpha)
+              : AppColors.hairline,
+          width: 1,
+        ),
         borderRadius: BorderRadius.circular(kLeafRadius),
       ),
       child: Center(
         child: Text(
           label,
           textAlign: TextAlign.center,
-          style: AppText.micro.copyWith(color: AppColors.inkFaint),
+          style: AppText.micro.copyWith(
+            color: onPage
+                ? AppColors.pageInk.withValues(alpha: kPaperMarkAlpha)
+                : AppColors.inkFaint,
+          ),
         ),
       ),
     );
@@ -75,7 +113,10 @@ class ScanCard extends StatelessWidget {
       width: kScanCardWidth,
       padding: const EdgeInsets.all(kSpace20),
       decoration: BoxDecoration(
-        color: AppColors.surface,
+        // The card stands on the sheet the unreadable page left behind, so it
+        // takes the value above it. A card in the sheet's own colour would be
+        // a hairline drawn on nothing.
+        color: AppColors.surfaceHigh,
         borderRadius: BorderRadius.circular(kLeafRadius),
         border: Border.all(color: AppColors.hairline, width: 1),
       ),
