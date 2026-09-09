@@ -46,7 +46,7 @@ class UnsupportedImageBox extends StatelessWidget {
   Widget build(BuildContext context) {
     return DecoratedBox(
       decoration: BoxDecoration(
-        border: Border.all(color: AppColors.rule, width: 1),
+        border: Border.all(color: AppColors.hairline, width: 1),
         borderRadius: BorderRadius.circular(kLeafRadius),
       ),
       child: Center(
@@ -75,9 +75,9 @@ class ScanCard extends StatelessWidget {
       width: kScanCardWidth,
       padding: const EdgeInsets.all(kSpace20),
       decoration: BoxDecoration(
-        color: AppColors.leaf,
+        color: AppColors.surface,
         borderRadius: BorderRadius.circular(kLeafRadius),
-        border: Border.all(color: AppColors.rule, width: 1),
+        border: Border.all(color: AppColors.hairline, width: 1),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -125,7 +125,7 @@ class PageShimmer extends StatelessWidget {
       child: ClipRect(
         child: Stack(
           children: [
-            const Positioned.fill(child: ColoredBox(color: AppColors.panel)),
+            const Positioned.fill(child: ColoredBox(color: AppColors.surfaceHigh)),
             Shimmer(
               progress: progress,
               width: size.width,

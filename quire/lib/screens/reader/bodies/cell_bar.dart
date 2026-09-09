@@ -54,7 +54,7 @@ class CellBar extends StatelessWidget {
         // bar covers the last row of the grid, so the rule is the whole of
         // what says the row has been covered rather than recoloured.
         decoration: BoxDecoration(
-          color: AppColors.leaf,
+          color: AppColors.surface,
           border: Border(top: AppEdges.side(context)),
         ),
         child: Row(
@@ -62,7 +62,7 @@ class CellBar extends StatelessWidget {
           children: [
             Text(
               reference,
-              style: AppText.folio.copyWith(color: AppColors.thread),
+              style: AppText.folio.copyWith(color: AppColors.accentBright),
               maxLines: 1,
             ),
             const SizedBox(width: 12),

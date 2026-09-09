@@ -36,8 +36,9 @@ class FolioChip extends StatelessWidget {
   /// True when the page showing has its corner turned, which lights the tick.
   final bool dogEared;
 
-  /// How far the fill has travelled from leaf toward thread, 0 to 1. It runs
-  /// with a scrub past a dog ear nub and sits at 0 the rest of the time.
+  /// How far the fill has travelled from the sheet toward the accent, 0 to 1.
+  /// It runs with a scrub past a dog ear nub and sits at 0 the rest of the
+  /// time.
   final double tint;
 
   @override
@@ -46,11 +47,15 @@ class FolioChip extends StatelessWidget {
     // and a number you can read the page through is the one thing here that
     // would look like a bug rather than like a chip.
     final fill = Color.lerp(
-      AppColors.leaf,
-      AppColors.thread,
+      AppColors.surface,
+      AppColors.accent,
       tint.clamp(0, 1),
     )!;
-    final ink = Color.lerp(AppColors.ink, AppColors.leaf, tint.clamp(0, 1))!;
+    final ink = Color.lerp(
+      AppColors.ink,
+      AppColors.onAccent,
+      tint.clamp(0, 1),
+    )!;
     return Opacity(
       opacity: 1 - hidden,
       child: Container(
@@ -72,7 +77,7 @@ class FolioChip extends StatelessWidget {
                   width: kFolioTick,
                   height: kFolioTick,
                   decoration: const BoxDecoration(
-                    color: AppColors.thread,
+                    color: AppColors.accentBright,
                     shape: BoxShape.circle,
                   ),
                 ),

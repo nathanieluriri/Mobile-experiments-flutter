@@ -47,7 +47,7 @@ class DeskEmpty extends StatelessWidget {
               height: kEmptyMarkHeight,
               foldInset: kEmptyMarkFoldInset,
               foldCorner: Corner.bottomRight,
-              foldBackground: AppColors.deskGround,
+              foldBackground: AppColors.ground,
               foldColor: AppColors.leafFlap,
             ),
           ),
@@ -83,12 +83,12 @@ class DeskEmpty extends StatelessWidget {
             child: Container(
               alignment: Alignment.center,
               decoration: BoxDecoration(
-                color: AppColors.ink,
+                color: AppColors.accent,
                 borderRadius: BorderRadius.circular(kPillRadius),
               ),
               child: Text(
                 'Open a document',
-                style: AppText.label.copyWith(color: AppColors.leaf),
+                style: AppText.label.copyWith(color: AppColors.onAccent),
               ),
             ),
           ),

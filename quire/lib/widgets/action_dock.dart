@@ -241,7 +241,7 @@ class _DockButtonState extends State<DockButton> with TickerProviderStateMixin {
       height: kDockButtonSize,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
-        color: AppColors.leaf,
+        color: AppColors.surface,
         border: AppEdges.all(context),
       ),
       child: Center(

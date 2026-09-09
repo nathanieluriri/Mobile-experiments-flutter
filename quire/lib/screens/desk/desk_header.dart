@@ -74,9 +74,9 @@ class DeskHeader extends StatelessWidget {
                 opacity: small,
                 child: DecoratedBox(
                   decoration: BoxDecoration(
-                    color: AppColors.leaf.withValues(alpha: kDeskBarFill),
+                    color: AppColors.surface.withValues(alpha: kDeskBarFill),
                     border: const Border(
-                      bottom: BorderSide(color: AppColors.rule, width: 1),
+                      bottom: BorderSide(color: AppColors.hairline, width: 1),
                     ),
                   ),
                 ),

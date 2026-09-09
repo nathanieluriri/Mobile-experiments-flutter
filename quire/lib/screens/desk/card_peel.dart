@@ -393,7 +393,7 @@ class _CardPeelState extends State<CardPeel> with TickerProviderStateMixin {
                         dragX: _foldX,
                         dragY: _foldY,
                         corner: Corner.bottomRight,
-                        background: AppColors.deskGround,
+                        background: AppColors.ground,
                         flapColor: AppColors.leafFlap,
                         backLayer: _peeling
                             ? CardBackPainter(

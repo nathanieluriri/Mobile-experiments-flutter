@@ -10,7 +10,7 @@ import '../../theme/metrics.dart';
 /// draws no [BackdropFilter] anywhere, because a blur under a reading surface
 /// is the one effect that makes text look like a mistake.
 class MarqueeBottomFade extends StatelessWidget {
-  const MarqueeBottomFade({super.key, this.ground = AppColors.deskDeep});
+  const MarqueeBottomFade({super.key, this.ground = AppColors.ground});
 
   final Color ground;
 

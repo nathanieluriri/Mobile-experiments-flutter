@@ -302,7 +302,7 @@ class SignaturePainter extends CustomPainter {
   const SignaturePainter({
     required this.strokes,
     required this.dry,
-    this.color = AppColors.signatureInk,
+    this.color = AppColors.pageInk,
   });
 
   final List<InkStroke> strokes;
@@ -376,7 +376,7 @@ class PlacedInkPainter extends CustomPainter {
     if (pageSize.width <= 0) return;
     final scale = size.width / pageSize.width;
     final paint = Paint()
-      ..color = AppColors.signatureInk.withValues(alpha: kPlacedInkAlpha)
+      ..color = AppColors.pageInk.withValues(alpha: kPlacedInkAlpha)
       ..blendMode = BlendMode.multiply;
     for (final mark in signatures) {
       if (mark.pageIndex != pageIndex) continue;

@@ -101,7 +101,7 @@ class ForeEdgeBubble extends StatelessWidget {
       height: kForeEdgeBubble,
       padding: const EdgeInsets.symmetric(horizontal: kSpace14),
       decoration: BoxDecoration(
-        color: AppColors.leaf,
+        color: AppColors.surface,
         borderRadius: BorderRadius.circular(kPillRadius),
         border: AppEdges.all(context),
       ),

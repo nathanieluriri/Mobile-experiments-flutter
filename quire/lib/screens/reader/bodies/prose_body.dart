@@ -118,7 +118,7 @@ TextStyle proseSpanStyle(DocSpan span, {TextStyle? base, Color? color}) {
   if (decorations.isEmpty) return style;
   return style.copyWith(
     decoration: TextDecoration.combine(decorations),
-    decorationColor: span.href != null ? AppColors.rule : style.color,
+    decorationColor: span.href != null ? AppColors.hairline : style.color,
     decorationThickness: 1,
   );
 }
@@ -138,7 +138,7 @@ class MonoSpan extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1.5),
       decoration: BoxDecoration(
-        color: AppColors.panel,
+        color: AppColors.surfaceHigh,
         borderRadius: BorderRadius.circular(kInlineCodeRadius),
       ),
       child: Text(
@@ -162,9 +162,9 @@ class CheckMark extends StatelessWidget {
       height: kProseCheckBox,
       child: DecoratedBox(
         decoration: BoxDecoration(
-          color: checked ? AppColors.thread : null,
+          color: checked ? AppColors.accent : null,
           border: Border.all(
-            color: checked ? AppColors.thread : AppColors.rule,
+            color: checked ? AppColors.accent : AppColors.hairline,
             width: 1.5,
           ),
           borderRadius: BorderRadius.circular(kInlineCodeRadius),
@@ -195,7 +195,7 @@ class _TickPainter extends CustomPainter {
     canvas.drawPath(
       path,
       Paint()
-        ..color = AppColors.leaf
+        ..color = AppColors.onAccent
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1.6
         ..strokeCap = StrokeCap.round
@@ -220,7 +220,7 @@ class QuoteBar extends StatelessWidget {
       padding: const EdgeInsets.only(left: kProseQuoteInset),
       decoration: const BoxDecoration(
         border: Border(
-          left: BorderSide(color: AppColors.rule, width: kProseQuoteBar),
+          left: BorderSide(color: AppColors.hairline, width: kProseQuoteBar),
         ),
       ),
       child: child,
@@ -242,7 +242,7 @@ class CodeSlab extends StatelessWidget {
     return Container(
       width: double.infinity,
       decoration: BoxDecoration(
-        color: AppColors.panel,
+        color: AppColors.surfaceHigh,
         borderRadius: BorderRadius.circular(kCodeRadius),
       ),
       child: Stack(
@@ -292,7 +292,7 @@ class ProseRule extends StatelessWidget {
       child: SizedBox(
         width: measure * kProseRuleFraction,
         height: 1,
-        child: const ColoredBox(color: AppColors.rule),
+        child: const ColoredBox(color: AppColors.hairline),
       ),
     );
   }
@@ -317,7 +317,7 @@ class ProseTable extends StatelessWidget {
     final widths = _widths(columns, measure - 2);
     return DecoratedBox(
       decoration: BoxDecoration(
-        border: Border.all(color: AppColors.rule, width: 1),
+        border: Border.all(color: AppColors.hairline, width: 1),
         borderRadius: BorderRadius.circular(kCodeRadius),
       ),
       child: ClipRRect(
@@ -361,15 +361,15 @@ class ProseTable extends StatelessWidget {
       ),
       decoration: BoxDecoration(
         color: row.header
-            ? AppColors.panel
-            : (index.isOdd ? AppColors.zebra : null),
+            ? AppColors.surfaceHigh
+            : (index.isOdd ? AppColors.leafBack : null),
         border: index == table.rows.length - 1
             ? null
             : Border(
                 bottom: BorderSide(
                   color: row.header || leader
-                      ? AppColors.rule
-                      : AppColors.ruleFaint,
+                      ? AppColors.hairline
+                      : AppColors.hairlineFaint,
                   width: 1,
                 ),
               ),

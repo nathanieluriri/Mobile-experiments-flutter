@@ -267,7 +267,7 @@ class SpineTable extends StatelessWidget {
   Widget build(BuildContext context) {
     final pinned = <int>[for (var r = 0; r < headerRows - 1; r++) r];
     return ColoredBox(
-      color: face == SheetFace.front ? AppColors.leaf : AppColors.leafBack,
+      color: face == SheetFace.front ? AppColors.surface : AppColors.leafBack,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -292,9 +292,9 @@ class SpineTable extends StatelessWidget {
     return SizedBox(
       height: kTableHeaderHeight,
       child: Container(
-        decoration: const BoxDecoration(color: AppColors.panel),
+        decoration: const BoxDecoration(color: AppColors.surfaceHigh),
         foregroundDecoration: const BoxDecoration(
-          border: Border(bottom: BorderSide(color: AppColors.rule)),
+          border: Border(bottom: BorderSide(color: AppColors.hairline)),
         ),
         child: Row(
           children: [
@@ -364,12 +364,12 @@ class SpineTable extends StatelessWidget {
         decoration: BoxDecoration(
           color: face == SheetFace.back
               ? AppColors.leafBack
-              : (striped ? AppColors.zebra : AppColors.leaf),
+              : (striped ? AppColors.leafBack : AppColors.surface),
         ),
         foregroundDecoration: BoxDecoration(
           border: Border(
             bottom: BorderSide(
-              color: leader ? AppColors.rule : AppColors.ruleFaint,
+              color: leader ? AppColors.hairline : AppColors.hairlineFaint,
             ),
           ),
         ),
@@ -407,9 +407,9 @@ class SpineTable extends StatelessWidget {
           : () => onCellTap!(SheetCell(row, column)),
       child: DecoratedBox(
         decoration: BoxDecoration(
-          color: ringed ? AppColors.threadWash : null,
+          color: ringed ? AppColors.accentWash : null,
           border: ringed
-              ? Border.all(color: AppColors.thread, width: 2)
+              ? Border.all(color: AppColors.accentBright, width: 2)
               : null,
         ),
         child: Padding(
@@ -484,8 +484,8 @@ class _RowHeaderCell extends StatelessWidget {
       alignment: Alignment.centerRight,
       padding: const EdgeInsets.only(right: kCellPaddingX),
       decoration: const BoxDecoration(
-        color: AppColors.panel,
-        border: Border(right: BorderSide(color: AppColors.rule)),
+        color: AppColors.surfaceHigh,
+        border: Border(right: BorderSide(color: AppColors.hairline)),
       ),
       child: number == null
           ? null

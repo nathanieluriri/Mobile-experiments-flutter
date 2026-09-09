@@ -7,7 +7,8 @@ const kFontFamily = 'Inter';
 /// Builds every style in the app, so no style can drift.
 ///
 /// Colour is deliberately absent: it is applied at the call site, which is
-/// what keeps one style usable in `ink` on paper and in `leaf` on a pill.
+/// what keeps one style usable in `ink` on a sheet and in `onAccent` on a
+/// pill.
 TextStyle _text({
   required double size,
   required double lineHeight,
@@ -131,7 +132,8 @@ abstract final class AppText {
   );
 
   /// Code blocks, code spans, the Markdown back layer, a formula. Inter with
-  /// tabular figures on a `panel` slab, which is honest and costs nothing.
+  /// tabular figures on a `surfaceHigh` slab, which is honest and costs
+  /// nothing.
   static final code = _text(
     size: 13.5,
     lineHeight: 20,
@@ -177,7 +179,17 @@ abstract final class AppText {
     letterSpacing: 0.6,
   );
 
-  /// Standing heads, column letters, colophons, a type mark's extension.
+  /// A type mark's letters, on a 30 mark. The mark scales this style with
+  /// itself, so the letters on a 20 mark are this face at two thirds of this
+  /// size rather than a second, smaller style.
+  static final typeMark = _text(
+    size: 10,
+    lineHeight: 12,
+    weight: FontWeight.w600,
+    letterSpacing: 0.2,
+  );
+
+  /// Standing heads, column letters, colophons.
   static final micro = _text(
     size: 9,
     lineHeight: 11,

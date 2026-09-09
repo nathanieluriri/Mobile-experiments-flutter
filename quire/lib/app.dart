@@ -30,7 +30,7 @@ const kSignRoute = '/sign';
 /// store, and the route grows the sheet from the rect.
 typedef ReaderHandoff = ({DocumentStore store, Rect from});
 
-/// The whole app: one ground, one type family, no dark mode and no toggle.
+/// The whole app: one ground, one type family, one theme and no toggle.
 class App extends StatefulWidget {
   const App({super.key, this.routes = const <String, WidgetBuilder>{}});
 
@@ -89,16 +89,62 @@ class _AppState extends State<App> {
       debugShowCheckedModeBanner: false,
       navigatorKey: _navigator,
       theme: ThemeData(
+        brightness: Brightness.dark,
         fontFamily: kFontFamily,
-        scaffoldBackgroundColor: AppColors.deskGround,
-        canvasColor: AppColors.deskGround,
+        scaffoldBackgroundColor: AppColors.ground,
+        canvasColor: AppColors.ground,
+        dividerColor: AppColors.hairline,
         // Every tappable object in this app presses through PaperPress, so the
         // Material ink would be a second, contradictory answer to a finger.
         splashFactory: NoSplash.splashFactory,
-        highlightColor: const Color(0x00000000),
-        colorScheme: const ColorScheme.light(
-          surface: AppColors.leaf,
-          primary: AppColors.ink,
+        splashColor: Colors.transparent,
+        highlightColor: Colors.transparent,
+        hoverColor: Colors.transparent,
+        iconTheme: const IconThemeData(color: AppColors.ink),
+        textSelectionTheme: const TextSelectionThemeData(
+          cursorColor: AppColors.accentBright,
+          selectionColor: AppColors.foundWash,
+          selectionHandleColor: AppColors.accentBright,
+        ),
+        // Every role is stated, including the ones nothing in the app asks
+        // for, so a widget that reaches past the palette for a colour cannot
+        // land on a Material default and put a stray blue or a stray white
+        // into a dark screen.
+        colorScheme: const ColorScheme.dark(
+          primary: AppColors.accent,
+          onPrimary: AppColors.onAccent,
+          primaryContainer: AppColors.accentMuted,
+          onPrimaryContainer: AppColors.ink,
+          secondary: AppColors.accentBright,
+          onSecondary: AppColors.onAccentBright,
+          secondaryContainer: AppColors.accentMuted,
+          onSecondaryContainer: AppColors.ink,
+          tertiary: AppColors.accentPale,
+          onTertiary: AppColors.onAccentBright,
+          tertiaryContainer: AppColors.surfaceHigh,
+          onTertiaryContainer: AppColors.ink,
+          error: AppColors.damage,
+          onError: AppColors.onAccentBright,
+          errorContainer: AppColors.surfaceHigh,
+          onErrorContainer: AppColors.damage,
+          surface: AppColors.surface,
+          onSurface: AppColors.ink,
+          surfaceContainerLowest: AppColors.ground,
+          surfaceContainerLow: AppColors.surface,
+          surfaceContainer: AppColors.surface,
+          surfaceContainerHigh: AppColors.surfaceHigh,
+          surfaceContainerHighest: AppColors.surfaceHigh,
+          onSurfaceVariant: AppColors.inkSoft,
+          outline: AppColors.hairline,
+          outlineVariant: AppColors.hairlineFaint,
+          inverseSurface: AppColors.ink,
+          onInverseSurface: AppColors.ground,
+          inversePrimary: AppColors.accentBright,
+          scrim: AppColors.scrim,
+          // Nothing in this app casts one, and stating it here means nothing
+          // can quietly start.
+          shadow: Colors.transparent,
+          surfaceTint: Colors.transparent,
         ),
       ),
       initialRoute: kDeskRoute,
@@ -213,7 +259,7 @@ class _Ground extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return const ColoredBox(
-      color: AppColors.deskGround,
+      color: AppColors.ground,
       child: SizedBox.expand(),
     );
   }

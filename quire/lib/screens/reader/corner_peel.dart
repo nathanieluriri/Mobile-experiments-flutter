@@ -280,11 +280,17 @@ class _PeelPainter extends SnapshotPainter {
     if (front == null) return;
     canvas.save();
     canvas.clipPath(flap);
+    // A layer paint carries an opacity and nothing else: only the alpha is
+    // read when the layer composites, which is why no palette colour is named
+    // here.
     canvas.saveLayer(
       flap.getBounds(),
       Paint()
-        ..color = const Color(
-          0xFFFFFFFF,
+        ..color = const Color.fromARGB(
+          255,
+          0,
+          0,
+          0,
         ).withValues(alpha: kShowThroughOpacity),
     );
     canvas.translate(offset.dx, offset.dy);
@@ -340,7 +346,7 @@ class _FoldLinePainter extends CustomPainter {
       shared.first,
       shared.last,
       Paint()
-        ..color = AppColors.thread
+        ..color = AppColors.accentBright
         ..strokeWidth = kDogEarLineWidth
         ..strokeCap = StrokeCap.round,
     );

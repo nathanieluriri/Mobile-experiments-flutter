@@ -280,7 +280,7 @@ class PlacementLayerState extends State<PlacementLayer>
                 child: ClipRRect(
                   borderRadius: kPeelableCorner,
                   child: ColoredBox(
-                    color: AppColors.deskGround.withValues(
+                    color: AppColors.ground.withValues(
                       alpha: (1 - kPlacementDim) * (1 - settled),
                     ),
                   ),
@@ -296,7 +296,7 @@ class PlacementLayerState extends State<PlacementLayer>
                 height: 1,
                 child: IgnorePointer(
                   child: ColoredBox(
-                    color: AppColors.thread.withValues(alpha: _guideOpacity),
+                    color: AppColors.accent.withValues(alpha: _guideOpacity),
                   ),
                 ),
               ),

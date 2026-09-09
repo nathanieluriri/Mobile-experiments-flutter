@@ -92,7 +92,7 @@ class ForeEdgePainter extends CustomPainter {
         size.width,
         kForeEdgePositionBar,
       ),
-      Paint()..color = AppColors.thread,
+      Paint()..color = AppColors.accentBright,
     );
     for (final at in dogEars) {
       canvas.drawRect(
@@ -102,16 +102,18 @@ class ForeEdgePainter extends CustomPainter {
           kForeEdgeNub + size.width / 2,
           kForeEdgeNub,
         ),
-        Paint()..color = AppColors.thread,
+        Paint()..color = AppColors.accentBright,
       );
     }
-    // A signed page carries a dot in the one colour that only ever means a
-    // signature, so the strip says where the mark is without a legend.
+    // A signed page carries a solid ink dot, the only one on the strip, so it
+    // says where the mark is without a legend. It cannot be the ink the mark
+    // itself is drawn in: that ink belongs on white paper and this strip is
+    // not paper.
     for (final at in signatures) {
       canvas.drawCircle(
         Offset(size.width / 2, _y(at, size)),
         kForeEdgeSignatureDot / 2,
-        Paint()..color = AppColors.signatureInk,
+        Paint()..color = AppColors.ink,
       );
     }
   }
@@ -122,10 +124,10 @@ class ForeEdgePainter extends CustomPainter {
   void _hairlines(Canvas canvas, Size size) {
     if (marks.isEmpty) return;
     if (marks.length >= size.height / 2) {
-      canvas.drawRect(Offset.zero & size, Paint()..color = AppColors.rule);
+      canvas.drawRect(Offset.zero & size, Paint()..color = AppColors.hairline);
       return;
     }
-    final rule = Paint()..color = AppColors.rule;
+    final rule = Paint()..color = AppColors.hairline;
     final counted = Paint()..color = AppColors.inkFaint;
     for (var i = 0; i < marks.length; i++) {
       final every = (i + 1) % kForeEdgeCountEvery == 0;
@@ -141,7 +143,7 @@ class ForeEdgePainter extends CustomPainter {
   void _matches(Canvas canvas, Size size) {
     if (matches.isEmpty || matchOpacity <= 0) return;
     final ordinary = Paint()
-      ..color = AppColors.marker.withValues(
+      ..color = AppColors.found.withValues(
         alpha: kMatchTickAlpha * matchOpacity,
       );
     var lastY = double.negativeInfinity;
@@ -164,7 +166,7 @@ class ForeEdgePainter extends CustomPainter {
           size.width,
           kMatchTickScrubbed,
         ),
-        Paint()..color = AppColors.marker.withValues(alpha: matchOpacity),
+        Paint()..color = AppColors.found.withValues(alpha: matchOpacity),
       );
     }
     final live = liveMatch;
@@ -177,11 +179,11 @@ class ForeEdgePainter extends CustomPainter {
           size.width,
           kMatchTickLive + kPageRule * 2,
         ),
-        Paint()..color = AppColors.leaf.withValues(alpha: matchOpacity),
+        Paint()..color = AppColors.surface.withValues(alpha: matchOpacity),
       );
       canvas.drawRect(
         Rect.fromLTWH(0, y - kMatchTickLive / 2, size.width, kMatchTickLive),
-        Paint()..color = AppColors.marker.withValues(alpha: matchOpacity),
+        Paint()..color = AppColors.found.withValues(alpha: matchOpacity),
       );
     }
   }

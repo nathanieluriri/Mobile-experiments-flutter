@@ -95,10 +95,13 @@ class FoldPainter extends CustomPainter {
     if (showThrough case final front?) {
       canvas.save();
       canvas.clipPath(flap);
+      // A layer paint carries an opacity and nothing else: only the alpha is
+      // read when the layer composites, which is why no palette colour is
+      // named here.
       canvas.saveLayer(
         flap.getBounds(),
         Paint()
-          ..color = const Color(0xFFFFFFFF)
+          ..color = const Color.fromARGB(255, 0, 0, 0)
               .withValues(alpha: kShowThroughOpacity),
       );
       canvas.transform(geometry.reflection.storage);

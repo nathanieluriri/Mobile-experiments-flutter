@@ -12,9 +12,10 @@ const kSheetTabGap = 8.0;
 
 /// The row of tabs across the top of a workbook.
 ///
-/// The active tab is [AppColors.leaf], which is the sheet's own colour, so it
-/// reads as the page you are holding rather than as a selected button. The
-/// others are [AppColors.panel]: paper still, but filed behind.
+/// The active tab is [AppColors.surface], the sheet's own colour, so it reads
+/// as continuous with the page you are holding rather than as a selected
+/// button. The others stand off it in [AppColors.surfaceHigh]: sheets still,
+/// but filed behind this one.
 class SheetTabs extends StatelessWidget {
   const SheetTabs({
     super.key,
@@ -63,12 +64,12 @@ class _Tab extends StatelessWidget {
         alignment: Alignment.center,
         padding: const EdgeInsets.symmetric(horizontal: 12),
         decoration: BoxDecoration(
-          color: selected ? AppColors.leaf : AppColors.panel,
+          color: selected ? AppColors.surface : AppColors.surfaceHigh,
           borderRadius: BorderRadius.circular(kChipRadius),
           border: selected
               ? const Border(
                   bottom: BorderSide(
-                    color: AppColors.thread,
+                    color: AppColors.accentBright,
                     width: kChipUnderlineHeight,
                   ),
                 )

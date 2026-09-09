@@ -557,7 +557,7 @@ class PdfPageView extends StatelessWidget {
         if (page.plan == RenderPlan.scanUnreadable)
           const Positioned.fill(
             child: ColoredBox(
-              color: AppColors.leaf,
+              color: AppColors.surface,
               child: Center(child: ScanCard()),
             ),
           ),
@@ -807,7 +807,7 @@ class _PdfPageBlockState extends State<PdfPageBlock>
           if (index < _layout.pageCount - 1)
             const SizedBox(
               height: kPageRule,
-              child: ColoredBox(color: AppColors.rule),
+              child: ColoredBox(color: AppColors.hairline),
             ),
         ],
       ),

@@ -11,7 +11,7 @@ import '../theme/colors.dart';
 class TearPainter extends CustomPainter {
   const TearPainter({
     required this.tear,
-    this.sheetColor = AppColors.leaf,
+    this.sheetColor = AppColors.surface,
     this.backColor = AppColors.leafBack,
     this.edgeColor = AppColors.damage,
     this.thickness = kTearThickness,
@@ -57,7 +57,7 @@ class TearPainter extends CustomPainter {
     canvas.drawPath(
       body,
       Paint()
-        ..color = AppColors.rule
+        ..color = AppColors.hairline
         ..style = PaintingStyle.stroke
         ..strokeWidth = edgeWidth * 2,
     );

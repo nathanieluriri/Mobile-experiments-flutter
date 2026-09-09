@@ -190,7 +190,7 @@ class _RiffleSheetState extends State<RiffleSheet> {
         children: [
           Positioned.fill(
             child: ColoredBox(
-              color: AppColors.deskDeep.withValues(alpha: kRiffleScrimOpacity),
+              color: AppColors.ground.withValues(alpha: kRiffleScrimOpacity),
             ),
           ),
           Positioned(
@@ -211,7 +211,7 @@ class _RiffleSheetState extends State<RiffleSheet> {
                 width: kHeaderButtonSize,
                 height: kHeaderButtonSize,
                 decoration: BoxDecoration(
-                  color: AppColors.leaf,
+                  color: AppColors.surface,
                   borderRadius: BorderRadius.circular(kHeaderButtonRadius),
                   border: AppEdges.all(context),
                 ),
@@ -239,7 +239,7 @@ class _RiffleSheetState extends State<RiffleSheet> {
                   finite: true,
                   itemCount: widget.items.length,
                   viewportHeight: _viewport,
-                  ground: AppColors.deskGround,
+                  ground: AppColors.ground,
                   onItemTap: widget.onSelect,
                   itemBuilder: (context, index) => _RiffleSlot(
                     item: widget.items[index],
@@ -266,7 +266,7 @@ class _RiffleSlot extends StatelessWidget {
   final RiffleItem item;
 
   /// True for the one item the arc has landed on, which lifts and takes the
-  /// thread folio.
+  /// folio in the accent.
   final bool centred;
 
   @override
@@ -280,14 +280,14 @@ class _RiffleSlot extends StatelessWidget {
             height: kRiffleDogEarDot,
             margin: const EdgeInsets.only(right: kSpace4),
             decoration: const BoxDecoration(
-              color: AppColors.thread,
+              color: AppColors.accentBright,
               shape: BoxShape.circle,
             ),
           ),
         Text(
           item.folio,
           style: AppText.folioSmall.copyWith(
-            color: centred ? AppColors.thread : AppColors.inkFaint,
+            color: centred ? AppColors.accentBright : AppColors.inkFaint,
           ),
         ),
       ],
@@ -321,7 +321,7 @@ class _Thumbnail extends StatelessWidget {
       // overlaps leaf on leaf, and without an edge on each one a run of
       // thumbnails would read as a single tall sheet.
       decoration: BoxDecoration(
-        color: AppColors.leaf,
+        color: AppColors.surface,
         borderRadius: kPeelableCorner,
         border: AppEdges.all(context),
       ),
@@ -362,7 +362,7 @@ class _Card extends StatelessWidget {
       height: kRiffleCardHeight,
       padding: const EdgeInsets.all(kSpace14),
       decoration: BoxDecoration(
-        color: AppColors.leaf,
+        color: AppColors.surface,
         borderRadius: BorderRadius.circular(kLeafRadius),
         border: AppEdges.all(context),
       ),

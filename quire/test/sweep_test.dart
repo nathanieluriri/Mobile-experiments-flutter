@@ -92,9 +92,9 @@ void main() {
         current: 1,
         liveFraction: 1,
       );
-      expect(frame.colorOf(0), AppColors.markerWash);
-      expect(frame.colorOf(2), AppColors.markerWash);
-      expect(frame.colorOf(1), AppColors.markerLive);
+      expect(frame.colorOf(0), AppColors.foundWash);
+      expect(frame.colorOf(2), AppColors.foundWash);
+      expect(frame.colorOf(1), AppColors.foundLive);
       expect(frame.fillOf(0), 1);
       expect(frame.fillOf(2), 1);
     });
@@ -107,8 +107,8 @@ void main() {
         liveFraction: 0.5,
       );
       final live = frame.colorOf(0);
-      expect(live.a, greaterThan(AppColors.markerWash.a));
-      expect(live.a, lessThan(AppColors.markerLive.a));
+      expect(live.a, greaterThan(AppColors.foundWash.a));
+      expect(live.a, lessThan(AppColors.foundLive.a));
     });
 
     test('the fade takes every wash down together', () {
@@ -119,8 +119,8 @@ void main() {
         liveFraction: 1,
         opacity: 0.5,
       );
-      expect(frame.colorOf(1).a, closeTo(AppColors.markerWash.a * 0.5, 0.001));
-      expect(frame.colorOf(0).a, closeTo(AppColors.markerLive.a * 0.5, 0.001));
+      expect(frame.colorOf(1).a, closeTo(AppColors.foundWash.a * 0.5, 0.001));
+      expect(frame.colorOf(0).a, closeTo(AppColors.foundLive.a * 0.5, 0.001));
     });
 
     test('the rail fades in with the sweep, not before it', () {
@@ -224,7 +224,7 @@ void main() {
       expect(marked.marks.first.start, 14);
       expect(marked.marks.first.end, 19);
       expect(marked.marks.first.fill, closeTo(0.75, 0.0001));
-      expect(marked.marks.first.color, AppColors.markerWash);
+      expect(marked.marks.first.color, AppColors.foundWash);
     });
   });
 
@@ -355,7 +355,7 @@ class _ProseStub extends ReaderBody {
         return Padding(
           padding: const EdgeInsets.only(bottom: kSpace8),
           child: ColoredBox(
-            color: AppColors.panel,
+            color: AppColors.surfaceHigh,
             child: Padding(
               padding: const EdgeInsets.all(kSpace8),
               child: SweptText(
@@ -370,7 +370,7 @@ class _ProseStub extends ReaderBody {
       case DividerBlock():
         return const Padding(
           padding: EdgeInsets.symmetric(vertical: kSpace12),
-          child: SizedBox(height: 1, child: ColoredBox(color: AppColors.rule)),
+          child: SizedBox(height: 1, child: ColoredBox(color: AppColors.hairline)),
         );
       case ImageBlock():
       case TableBlock():

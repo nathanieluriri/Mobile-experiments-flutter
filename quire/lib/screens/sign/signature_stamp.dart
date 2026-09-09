@@ -104,7 +104,7 @@ class _StampInkPainter extends CustomPainter {
     canvas.drawPath(
       mark.pathIn(Offset.zero & size),
       Paint()
-        ..color = AppColors.signatureInk.withValues(
+        ..color = AppColors.pageInk.withValues(
           alpha: kPlacedInkAlpha * opacity,
         ),
     );
@@ -127,7 +127,7 @@ class _StampOutlinePainter extends CustomPainter {
     final paint = Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1
-      ..color = AppColors.thread.withValues(alpha: opacity);
+      ..color = AppColors.accent.withValues(alpha: opacity);
     final box = Offset.zero & size;
     _dash(canvas, box.topLeft, box.topRight, paint);
     _dash(canvas, box.topRight, box.bottomRight, paint);
@@ -160,7 +160,7 @@ class _StampHandlePainter extends CustomPainter {
     final paint = Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1.5
-      ..color = AppColors.thread;
+      ..color = AppColors.accent;
     final corner = Offset(size.width, size.height);
     canvas.drawLine(corner - const Offset(kStampHandleArm, 0), corner, paint);
     canvas.drawLine(corner - const Offset(0, kStampHandleArm), corner, paint);

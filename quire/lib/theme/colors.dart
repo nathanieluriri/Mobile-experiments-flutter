@@ -1,113 +1,138 @@
 import 'dart:ui';
 
-/// The whole palette. One theme, no dark mode, no toggle. Every value is
-/// opaque unless an alpha is written into the hex.
+/// The whole palette. One theme, dark, no toggle. Every value is opaque unless
+/// an alpha is written into the hex.
 ///
-/// There are two accents and each has exactly one job: if a pixel is [marker]
-/// the app found it, and if a pixel is [thread] you made it or you are
-/// standing on it. Nothing else in the app is ever coloured, which is what
-/// lets two hundred marks on a page read as density instead of confetti.
+/// Three families and one rule each. The greys carry structure, so nothing in
+/// the app needs a shadow to sit above anything else: a surface is told from
+/// the ground by its own value and, where that is not enough, by [hairline].
+/// The purples carry the app itself, and they appear on exactly three things:
+/// the action button, the current selection, and whatever is happening right
+/// now. The formats carry identity, one hue each, on a type mark and a fore
+/// edge tick and nowhere else.
+///
+/// That division is what lets a hundred marks on a page read as density
+/// instead of confetti: a purple pixel is always the app, a yellow pixel is
+/// always a match, and a red pixel is always damage.
 abstract final class AppColors {
-  /// The desk. Everything sits on it, and it is dark enough that a sheet of
-  /// [leaf] reads as lifted against it with no help from anything else.
-  static const deskGround = Color(0xFFE5DED2);
+  // Grounds.
 
-  /// The scrim behind the riffle, and the ground showing through a tear.
-  static const deskDeep = Color(0xFFD5CEBE);
+  /// The app background, behind everything.
+  static const ground = Color(0xFF131316);
 
-  /// A sheet: a document page, a card, the pad, the reading surface.
-  static const leaf = Color(0xFFFDFBF6);
+  /// A raised surface: a grid card, the drawer, the sort menu, a sheet at
+  /// rest, the reading sheet itself.
+  static const surface = Color(0xFF1E1E22);
 
-  /// The alternating spreadsheet row, under one percent darker than [leaf],
-  /// which is striping you feel rather than see.
-  static const zebra = Color(0xFFF8F4EB);
+  /// A control on a surface: the search pill, an unselected toggle, an
+  /// overflow target, a header rail, a code slab.
+  static const surfaceHigh = Color(0xFF2B2930);
 
-  /// The reverse of a sheet, seen through a peel where the corner tore away.
-  static const leafBack = Color(0xFFF4EFE4);
+  /// Every rule, border and divider in the app, one physical pixel wide.
+  static const hairline = Color(0xFF2F2F35);
 
-  /// The flap itself, one step down from [leafBack], so a fold reads as two
-  /// thicknesses of paper rather than one grey shape.
-  ///
-  /// Light passes through paper rather than reflecting off it, so the back of
-  /// a lit sheet is warm, not grey. This value is stated, never derived with
-  /// [shade].
-  static const leafFlap = Color(0xFFEDE6D8);
+  /// [hairline] at 0.55, for the gridlines between two leader rules. Not a
+  /// second rule colour: the same rule, held back so it cannot lead the eye.
+  static const hairlineFaint = Color(0x8C2F2F35);
 
-  /// Header rails, code slabs, the row header column, the parse strip.
-  static const panel = Color(0xFFF2ECE0);
+  /// Black at 0.55, behind the drawer and behind the open action button.
+  static const scrim = Color(0x8C000000);
 
-  /// Every hairline: gridlines, dividers, the fore edge, the rule between PDF
-  /// pages, the signing baseline.
-  static const rule = Color(0xFFDDD5C8);
+  // The purple family.
 
-  /// A hairline that must not lead the eye: every table row except the fifth.
-  static const ruleFaint = Color(0xFFEBE4D7);
+  /// The action button at rest, its expanded pills, a filled button, reading
+  /// progress, and a guide drawn onto a white [page], where a light purple
+  /// would wash out.
+  static const accent = Color(0xFF4F378B);
 
-  /// Body text, titles, the current page bar. Warm near black, so it never
-  /// reads blue against warm paper.
-  static const ink = Color(0xFF1E1B17);
+  /// The action button when open, the spinner, and every purple that has to
+  /// hold as a line, a tick or a glyph against a dark ground, where [accent]
+  /// sits too near that ground to be seen. On it, text is [onAccentBright].
+  static const accentBright = Color(0xFFD0BCFF);
 
-  /// Secondary text, the whole back layer, quoted text.
-  static const inkSoft = Color(0xFF57514A);
+  /// The selected drawer row's pill, and the selected tab's.
+  static const accentMuted = Color(0xFF4A4458);
 
-  /// Metadata, folios, column letters, placeholders, disabled glyphs.
-  static const inkFaint = Color(0xFF9A9288);
+  /// The selected view toggle's fill.
+  static const accentPale = Color(0xFFE8DEF8);
 
-  /// YOU: reading progress, the current page bar, a dog ear, the selected
-  /// chip's underline, the selected cell's ring, the commit pill.
-  static const thread = Color(0xFFB23A20);
+  /// [accent] at 0.40, the wash inside a selected cell. The ring round that
+  /// cell is [accentBright]: the wash sits under text, the ring does not.
+  static const accentWash = Color(0x664F378B);
 
-  /// YOU, as a fill: the selected cell's wash, and nothing else.
-  static const threadWash = Color(0x1FB23A20);
+  /// Text and glyphs on [accent].
+  static const onAccent = Color(0xFFFFFFFF);
 
-  /// FOUND: a match tick on the fore edge, at full alpha.
-  static const marker = Color(0xFFE8B22E);
+  /// Text and glyphs on [accentBright] and [accentPale].
+  static const onAccentBright = Color(0xFF1D192B);
 
-  /// FOUND: the highlighter wash under an ordinary match.
-  static const markerWash = Color(0x4FE8B22E);
+  // Ink.
 
-  /// FOUND: the wash under the current match.
-  static const markerLive = Color(0x8FE8B22E);
+  /// Titles, body text, drawer labels, glyphs.
+  static const ink = Color(0xFFE6E1E5);
 
-  /// A drawn signature, and nothing else in the app.
-  static const signatureInk = Color(0xFF1F3B63);
+  /// The meta line under a title, sort labels, counts, quoted text.
+  static const inkSoft = Color(0xFFCAC4D0);
 
-  /// A document or a page that will not open, and nothing else.
-  static const damage = Color(0xFFB3402F);
+  /// Row numbers, column letters, placeholder text, disabled glyphs.
+  static const inkFaint = Color(0xFF938F99);
 
-  /// The search field's fill when a query has no matches. A whisper of
-  /// [damage] in [leaf], not a red error colour, because a search that finds
-  /// nothing is a keystroke on the way somewhere.
-  static const damageTint = Color(0xFFF7EDE9);
+  /// A finding: a damaged file, a ragged row, `NO TEXT LAYER`. Only ever this.
+  static const damage = Color(0xFFF2B8B5);
+
+  /// The find field's fill when a query has no matches: [surface] carrying a
+  /// whisper of [damage]. Derived rather than stated so the two can never
+  /// drift apart, and so this stays a tint of the palette's one red rather
+  /// than becoming a second red of its own.
+  static final damageTint = Color.lerp(surface, damage, 0.14)!;
+
+  /// FOUND: a match tick on the fore edge, at full alpha. One hue means found.
+  static const found = Color(0xFFF5C518);
+
+  /// [found] at 0.31, the wash under an ordinary match.
+  static const foundWash = Color(0x4FF5C518);
+
+  /// [found] at 0.56, the wash under the current match.
+  static const foundLive = Color(0x8FF5C518);
+
+  // Paper.
+
+  /// A rendered PDF page, a grid card's thumbnail, and the signature pad,
+  /// which is white because the mark made on it is going onto a white page and
+  /// has to be the same mark in both places. This is the only white in the
+  /// app.
+  static const page = Color(0xFFFFFFFF);
+
+  /// Ink on [page]: what the PDF engine paints, and what a signature is drawn
+  /// in.
+  static const pageInk = Color(0xFF111111);
+
+  /// The back of a sheet, uncovered by a fold, and the alternating row in a
+  /// table, which is the same one small step off the sheet. It has to stay
+  /// below [surfaceHigh]: the row header column is a control and the striped
+  /// rows are not, and a stripe that reached the gutter's value would make
+  /// every second row look like part of the gutter.
+  static const leafBack = Color(0xFF232329);
+
+  /// The flap: the back of the paper that just turned, one step above
+  /// [leafBack] so a fold reads as two thicknesses rather than one grey shape.
+  static const leafFlap = Color(0xFF2A2A31);
+
+  // Format chroma. One hue per format, on its type mark and its fore edge
+  // ticks and nothing else.
 
   /// PDF.
-  static const fmtPdf = Color(0xFF8C3A2A);
+  static const fmtPdf = Color(0xFFE8544A);
 
   /// Word.
-  static const fmtDocx = Color(0xFF3A4A66);
+  static const fmtDocx = Color(0xFF4285F4);
 
   /// Excel.
-  static const fmtXlsx = Color(0xFF2F5D50);
+  static const fmtXlsx = Color(0xFF21A366);
 
   /// CSV.
-  static const fmtCsv = Color(0xFF5C5330);
+  static const fmtCsv = Color(0xFFC9832B);
 
   /// Markdown.
-  static const fmtMd = Color(0xFF5A4A78);
-}
-
-/// Scales every channel of [color] by `1 + amount`, clamped to a byte. A
-/// negative amount darkens.
-///
-/// Kept for parity with the family. No entry in [AppColors] is derived with
-/// it: every colour in this palette is stated.
-Color shade(Color color, double amount) {
-  int channel(double component) =>
-      (component * (1 + amount)).round().clamp(0, 255);
-  return Color.fromARGB(
-    (color.a * 255).round(),
-    channel(color.r * 255),
-    channel(color.g * 255),
-    channel(color.b * 255),
-  );
+  static const fmtMd = Color(0xFFB39DDB);
 }

@@ -61,7 +61,7 @@ class DeskColophon extends StatelessWidget {
         const SizedBox(
           width: kColophonRuleWidth,
           height: 1,
-          child: ColoredBox(color: AppColors.rule),
+          child: ColoredBox(color: AppColors.hairline),
         ),
         const SizedBox(height: kColophonRuleGap),
         Text(

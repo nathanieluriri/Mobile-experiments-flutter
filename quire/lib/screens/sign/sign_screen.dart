@@ -102,7 +102,7 @@ class _SignScreenState extends State<SignScreen>
   Widget build(BuildContext context) {
     final hasInk = !_pad.isEmpty;
     return ColoredBox(
-      color: AppColors.deskGround,
+      color: AppColors.ground,
       child: Stack(
         children: <Widget>[
           Positioned(
@@ -177,13 +177,13 @@ class _SignScreenState extends State<SignScreen>
                 semanticLabel: 'Place the signature on the page',
                 child: DecoratedBox(
                   decoration: BoxDecoration(
-                    color: AppColors.thread,
+                    color: AppColors.accent,
                     borderRadius: BorderRadius.circular(kPillRadius),
                   ),
                   child: Center(
                     child: Text(
                       'Place on page',
-                      style: AppText.label.copyWith(color: AppColors.leaf),
+                      style: AppText.label.copyWith(color: AppColors.onAccent),
                     ),
                   ),
                 ),
@@ -211,7 +211,7 @@ class _BackPill extends StatelessWidget {
         width: kHeaderButtonSize,
         height: kHeaderButtonSize,
         decoration: BoxDecoration(
-          color: AppColors.leaf,
+          color: AppColors.surface,
           borderRadius: BorderRadius.circular(kHeaderButtonRadius),
           border: AppEdges.all(context),
         ),

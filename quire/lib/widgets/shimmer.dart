@@ -20,7 +20,7 @@ class Shimmer extends StatelessWidget {
     this.band = kShimmerBand,
     this.opacity = kShimmerOpacity,
     this.skew = kShimmerSkew,
-    this.color = AppColors.leaf,
+    this.color = AppColors.surface,
   });
 
   /// 0 to 1 across one sweep.

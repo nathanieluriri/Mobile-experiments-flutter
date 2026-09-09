@@ -389,7 +389,7 @@ class FindLayer extends StatelessWidget {
                 child: IgnorePointer(
                   child: Opacity(
                     opacity: controller.titleFade,
-                    child: const ColoredBox(color: AppColors.deskGround),
+                    child: const ColoredBox(color: AppColors.ground),
                   ),
                 ),
               ),

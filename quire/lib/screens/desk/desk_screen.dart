@@ -286,7 +286,7 @@ class _DeskScreenState extends State<DeskScreen> with TickerProviderStateMixin {
     final nothingMatched = !bare && store.visible.isEmpty;
     final bottom = MediaQuery.paddingOf(context).bottom;
     return ColoredBox(
-      color: AppColors.deskGround,
+      color: AppColors.ground,
       child: Stack(
         children: [
           if (bare)
@@ -327,7 +327,7 @@ class _DeskScreenState extends State<DeskScreen> with TickerProviderStateMixin {
     return Stack(
       children: [
         const Positioned.fill(
-          child: ColoredBox(color: AppColors.deskGround),
+          child: ColoredBox(color: AppColors.ground),
         ),
         Positioned(
           left: 0,

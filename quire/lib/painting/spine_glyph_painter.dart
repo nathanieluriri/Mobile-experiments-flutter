@@ -31,7 +31,7 @@ class SpineValue {
   final double extent;
 
   /// True when the cell holds a search match, which colours the mark
-  /// [AppColors.marker] so folding a column can never hide a result.
+  /// [AppColors.found] so folding a column can never hide a result.
   final bool found;
 }
 
@@ -57,7 +57,7 @@ class SpineGlyphPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     if (value.mark == SpineMark.none) return;
     final paint = Paint()
-      ..color = value.found ? AppColors.marker : AppColors.inkFaint;
+      ..color = value.found ? AppColors.found : AppColors.inkFaint;
     final middle = size.height / 2;
     switch (value.mark) {
       case SpineMark.none:

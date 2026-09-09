@@ -46,7 +46,7 @@ class CardMarquee extends StatefulWidget {
     this.initialIndex = 0,
     this.viewportHeight,
     this.tilts,
-    this.ground = AppColors.deskDeep,
+    this.ground = AppColors.ground,
     this.onItemTap,
   }) : assert(
           !finite || controller != null || viewportHeight != null,

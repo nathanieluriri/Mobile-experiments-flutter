@@ -11,8 +11,8 @@ import '../../widgets/press_fade.dart';
 ///
 /// The app draws no blur and casts no shadow, so a button that let the page
 /// under it show through would have nothing left saying which surface is in
-/// front. An opaque leaf fill and one rule is how a printed page marks off a
-/// panel from the text it lies on.
+/// front. An opaque fill and one rule is how a printed page marks off a panel
+/// from the text it lies on.
 
 /// Where the head band goes when it leaves: its top edge at y -52, which is
 /// exactly its own height above the screen.
@@ -124,7 +124,7 @@ class _HeaderButton extends StatelessWidget {
         width: kHeaderButtonSize,
         height: kHeaderButtonSize,
         decoration: BoxDecoration(
-          color: AppColors.leaf,
+          color: AppColors.surface,
           borderRadius: BorderRadius.circular(kHeaderButtonRadius),
           border: AppEdges.all(context),
         ),
@@ -167,7 +167,7 @@ class _Title extends StatelessWidget {
                 padding: const EdgeInsets.only(left: kSpace8),
                 child: Text(
                   '· BACK',
-                  style: AppText.micro.copyWith(color: AppColors.thread),
+                  style: AppText.micro.copyWith(color: AppColors.accentBright),
                 ),
               ),
           ],

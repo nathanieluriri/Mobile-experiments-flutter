@@ -78,7 +78,7 @@ class FindField extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final ground = Color.lerp(
-      AppColors.leaf,
+      AppColors.surface,
       AppColors.damageTint,
       tint.clamp(0.0, 1.0),
     )!;
@@ -115,7 +115,7 @@ class FindField extends StatelessWidget {
                 child: Center(
                   child: Text(
                     kFindCancelLabel,
-                    style: AppText.label.copyWith(color: AppColors.thread),
+                    style: AppText.label.copyWith(color: AppColors.accentBright),
                   ),
                 ),
               ),
@@ -145,11 +145,11 @@ class FindField extends StatelessWidget {
               controller: controller,
               focusNode: focusNode,
               style: AppText.label.copyWith(color: AppColors.ink),
-              cursorColor: AppColors.thread,
-              backgroundCursorColor: AppColors.rule,
+              cursorColor: AppColors.accentBright,
+              backgroundCursorColor: AppColors.hairline,
               cursorWidth: 1.5,
               cursorRadius: const Radius.circular(1),
-              selectionColor: AppColors.markerWash,
+              selectionColor: AppColors.foundWash,
               onChanged: onChanged,
               textInputAction: TextInputAction.search,
               maxLines: 1,

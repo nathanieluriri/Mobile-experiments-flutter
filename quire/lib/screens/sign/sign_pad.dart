@@ -156,6 +156,7 @@ class _SignPadState extends State<SignPad> with SingleTickerProviderStateMixin {
       onPointerUp: _up,
       onPointerCancel: _up,
       child: PaperSheet(
+        color: AppColors.page,
         width: kPadWidth,
         height: kPadHeight,
         foldInset: kFoldRestInset,
@@ -186,7 +187,7 @@ class _PadRulePainter extends CustomPainter {
       Offset(kPadRuleInset, y),
       Offset(size.width - kPadRuleInset, y),
       Paint()
-        ..color = AppColors.rule
+        ..color = AppColors.hairline
         ..strokeWidth = 1,
     );
     final arm = kPadCross / 2;

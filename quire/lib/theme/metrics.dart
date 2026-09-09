@@ -61,9 +61,23 @@ const kCardTextLeft = 58.0;
 const kCardFoldRestInset = 16.0;
 const kCardProgressWidth = 120.0;
 const kCardProgressHeight = 2.0;
-const kTypeMarkWidth = 30.0;
-const kTypeMarkHeight = 38.0;
-const kTypeMarkFoldInset = 9.0;
+
+/// The type mark is square, and the one in a list row is this big.
+const kTypeMarkSize = 30.0;
+
+/// The same mark on a grid card, where it shares a 44 tall header with a two
+/// line title.
+const kTypeMarkGridSize = 20.0;
+
+/// The mark's corner, at [kTypeMarkSize]. It scales with the mark, so the
+/// shape is the same object at both sizes rather than two different squircles.
+const kTypeMarkRadius = 8.0;
+
+/// Where the letters' 12 tall line box sits inside a [kTypeMarkSize] mark, so
+/// a painter that lays them out by hand centres them exactly where the widget
+/// does.
+const kTypeMarkLettersTop = 9.0;
+
 const kColophonRuleWidth = 120.0;
 
 /// What makes the collapse reachable: six cards plus the colophon plus this
@@ -398,3 +412,142 @@ double dockButtonCenterX(int index, double containerWidth, int actionCount) {
 /// Where the row of dock buttons sits below a lifted sheet of [sheetHeight].
 double dockRowCenterY(double sheetHeight) =>
     sheetHeight + kDockGap + kDockButtonSize / 2;
+
+// The shell: a top bar, a tab strip, a sort row and the body, with a drawer
+// that slides over all four.
+
+/// The top bar, holding the hamburger, the search pill and the avatar.
+const kTopBarHeight = 56.0;
+const kTopBarPaddingX = 12.0;
+
+/// The hamburger's tap target. The glyph inside it is three lines
+/// [kBurgerLine] wide and [kBurgerThickness] thick, [kBurgerGap] apart.
+const kBurgerTarget = 40.0;
+const kBurgerLine = 18.0;
+const kBurgerThickness = 2.0;
+const kBurgerGap = 5.0;
+
+/// What the top and bottom lines shorten to once they have rotated into the
+/// arrow, and how far the whole glyph walks left while they do.
+const kBurgerLineShort = 9.0;
+const kBurgerShift = 4.0;
+const kBurgerAngle = 45.0;
+
+/// The search pill, which takes whatever width the bar has left.
+const kSearchPillHeight = 44.0;
+const kSearchPillRadius = 22.0;
+
+/// The folder target at the pill's right edge.
+const kSearchFolderTarget = 36.0;
+const kAvatarSize = 34.0;
+
+/// The drawer takes this much of the screen, and stops at [kDrawerWidthMax] so
+/// it stays a drawer on a wide phone instead of becoming a second screen.
+const kDrawerWidthFraction = 0.84;
+const kDrawerWidthMax = 320.0;
+
+/// How wide the drawer is on a screen of [screenWidth].
+double drawerWidth(double screenWidth) =>
+    (screenWidth * kDrawerWidthFraction).clamp(0, kDrawerWidthMax);
+
+const kDrawerRowHeight = 52.0;
+const kDrawerRowRadius = 26.0;
+const kDrawerRowPaddingX = 16.0;
+const kDrawerRowGlyph = 24.0;
+
+/// Between a drawer row's glyph and its label.
+const kDrawerRowGap = 24.0;
+
+/// How far the divider before the last group is inset at both ends.
+const kDrawerDividerInset = 16.0;
+
+/// The tab strip, scrolling horizontally under the bar.
+const kTabStripHeight = 44.0;
+const kTabStripPaddingX = 12.0;
+const kTabGap = 8.0;
+const kTabPillHeight = 32.0;
+const kTabPillRadius = 16.0;
+const kTabPillPaddingX = 14.0;
+
+/// Between a tab's label and its count.
+const kTabCountGap = 6.0;
+
+/// The sort row, holding the current sort on the left and the view toggles on
+/// the right.
+const kSortRowHeight = 48.0;
+const kSortRowPaddingX = 12.0;
+
+/// The circle round the sort direction arrow, which turns over when the
+/// direction flips.
+const kSortArrowCircle = 24.0;
+const kSortArrowFlip = Duration(milliseconds: 200);
+
+/// One of the two view toggles, list then grid.
+const kViewToggleWidth = 40.0;
+const kViewToggleHeight = 32.0;
+const kViewToggleRadius = 16.0;
+const kViewToggleGap = 8.0;
+
+/// The sort menu, anchored under the sort label.
+const kSortMenuWidth = 240.0;
+const kSortMenuRadius = 12.0;
+const kSortMenuOffset = 8.0;
+const kSortMenuRowHeight = 48.0;
+const kSortMenuPaddingLeft = 16.0;
+const kSortMenuPaddingRight = 20.0;
+
+/// The gutter a check sits in, left aligned, so the labels of checked and
+/// unchecked rows start at the same x.
+const kSortMenuGutter = 40.0;
+const kSortMenuCheck = 18.0;
+const kSortMenuIn = Duration(milliseconds: 160);
+
+/// The menu grows from this about its top left corner.
+const kSortMenuScaleFrom = 0.94;
+
+// The list body: one row per document.
+const kListRowHeight = 72.0;
+const kListRowPaddingX = 12.0;
+
+/// The rule under a row starts here, under the title rather than under the
+/// mark, so the marks read as a column and the rules as a list.
+const kListRuleInset = 64.0;
+
+/// Between the mark and the title column.
+const kListMarkGap = 14.0;
+
+/// Between the title and the meta line under it.
+const kListTitleGap = 4.0;
+
+/// The overflow target, holding three dots [kOverflowDot] across with
+/// [kOverflowDotGap] between them.
+const kOverflowTarget = 40.0;
+const kOverflowDot = 4.0;
+const kOverflowDotGap = 3.0;
+
+/// A row's reading progress, inset to the title's left edge.
+const kListProgressWidth = 140.0;
+const kListProgressHeight = 2.0;
+
+// The grid body: two columns of cards, each showing its document's real first
+// page.
+const kGridColumns = 2;
+const kGridGap = 12.0;
+const kGridPadding = 12.0;
+const kGridCardRadius = 12.0;
+
+/// The card's header, above the thumbnail.
+const kGridCardHeaderHeight = 44.0;
+const kGridCardPadding = 10.0;
+
+/// Between the mark and the title in a card header.
+const kGridHeaderGap = 8.0;
+const kGridOverflowTarget = 32.0;
+
+/// The thumbnail is the card's full width, and this much taller than it is
+/// wide, which is a page's proportion without being a page's exact one.
+const kThumbnailAspect = 1 / 1.15;
+
+/// Every rule in the app is one physical pixel. Divided by the view's device
+/// pixel ratio for logical units, which is what `hairline` does.
+const kHairline = 1.0;

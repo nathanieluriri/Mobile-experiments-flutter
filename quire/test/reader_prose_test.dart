@@ -75,7 +75,7 @@ void main() {
       expect(style.color, AppColors.ink);
       expect(style.fontWeight, FontWeight.w500);
       expect(style.decoration, TextDecoration.underline);
-      expect(style.decorationColor, AppColors.rule);
+      expect(style.decorationColor, AppColors.hairline);
     });
 
     test('a document colour is never carried onto the page', () {
@@ -276,7 +276,7 @@ Future<void> _pumpBlocks(
     MaterialApp(
       debugShowCheckedModeBanner: false,
       home: ColoredBox(
-        color: AppColors.leaf,
+        color: AppColors.surface,
         child: Align(
           alignment: Alignment.topLeft,
           child: SizedBox(

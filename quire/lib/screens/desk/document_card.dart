@@ -1,7 +1,6 @@
 import 'package:flutter/widgets.dart';
 
 import '../../data/library.dart';
-import '../../painting/fold_painter.dart';
 import '../../services/document_store.dart';
 import '../../theme/colors.dart';
 import '../../theme/metrics.dart';
@@ -155,7 +154,7 @@ class DocumentCard extends StatelessWidget {
         children: [
           Positioned(
             left: kCardPadding,
-            top: (kCardHeight - kTypeMarkHeight) / 2,
+            top: (kCardHeight - kTypeMarkSize) / 2,
             child: TypeMark(
               letters: entry.mark,
               chroma: chromaFor(entry.format),
@@ -168,7 +167,7 @@ class DocumentCard extends StatelessWidget {
             child: MarkedText(
               entry.title,
               style: AppText.title.copyWith(color: AppColors.ink),
-              markerColor: AppColors.markerWash,
+              markerColor: AppColors.foundWash,
               query: query,
               maxLines: 1,
               ellipsis: '…',
@@ -223,13 +222,15 @@ class _Progress extends StatelessWidget {
       height: kCardProgressHeight,
       child: Stack(
         children: [
-          const Positioned.fill(child: ColoredBox(color: AppColors.rule)),
+          const Positioned.fill(
+            child: ColoredBox(color: AppColors.surfaceHigh),
+          ),
           Positioned(
             left: 0,
             top: 0,
             bottom: 0,
             width: kCardProgressWidth * fraction.clamp(0, 1),
-            child: const ColoredBox(color: AppColors.thread),
+            child: const ColoredBox(color: AppColors.accent),
           ),
         ],
       ),
@@ -247,7 +248,7 @@ class _SignedChip extends StatelessWidget {
       alignment: Alignment.center,
       padding: const EdgeInsets.symmetric(horizontal: kSignedChipPaddingX),
       decoration: BoxDecoration(
-        color: AppColors.panel,
+        color: AppColors.surfaceHigh,
         borderRadius: BorderRadius.circular(kChipRadius),
       ),
       child: Text(
@@ -329,27 +330,21 @@ class CardFacePainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    const markSize = Size(kTypeMarkWidth, kTypeMarkHeight);
+    const markSize = Size(kTypeMarkSize, kTypeMarkSize);
     canvas.save();
-    canvas.translate(kCardPadding, (kCardHeight - kTypeMarkHeight) / 2);
-    canvas.drawRect(Offset.zero & markSize, Paint()..color = AppColors.leaf);
-    FoldPainter.atRest(
-      restInset: kTypeMarkFoldInset,
-      background: AppColors.leaf,
-      flapColor: chroma,
-    ).paint(canvas, markSize);
-    canvas.drawRect(
-      (Offset.zero & markSize).deflate(0.5),
-      Paint()
-        ..color = AppColors.rule
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1,
+    canvas.translate(kCardPadding, (kCardHeight - kTypeMarkSize) / 2);
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Offset.zero & markSize,
+        const Radius.circular(kTypeMarkRadius),
+      ),
+      Paint()..color = chroma,
     );
     _line(
       canvas,
       letters,
-      AppText.micro.copyWith(color: chroma),
-      const Offset(0, kTypeMarkHeight - kTypeMarkFoldInset - 11),
+      typeMarkStyle(kTypeMarkSize),
+      const Offset(0, kTypeMarkLettersTop),
       markSize.width,
       centre: true,
     );

@@ -55,7 +55,7 @@ class DeskSearchField extends StatelessWidget {
     // nothing under it now to say which surface is in front, so letting a title
     // ghost through the fill would read as a rendering fault rather than as
     // depth.
-    const fill = AppColors.leaf;
+    const fill = AppColors.surfaceHigh;
 
     if (open <= 0) {
       return PaperPress(
@@ -128,11 +128,11 @@ class DeskSearchField extends StatelessWidget {
             controller: controller,
             focusNode: focusNode,
             style: style,
-            cursorColor: AppColors.thread,
-            backgroundCursorColor: AppColors.rule,
+            cursorColor: AppColors.accentBright,
+            backgroundCursorColor: AppColors.hairline,
             cursorWidth: 1.5,
             cursorRadius: const Radius.circular(1),
-            selectionColor: AppColors.markerWash,
+            selectionColor: AppColors.foundWash,
             onChanged: onChanged,
             textInputAction: TextInputAction.search,
             maxLines: 1,

@@ -441,8 +441,9 @@ class _ReaderScreenState extends State<ReaderScreen>
     return widget.matchCounts[at];
   }
 
-  /// How far the folio chip has tinted from leaf toward thread: it runs with
-  /// the distance the scrub has travelled past the nub it last caught.
+  /// How far the folio chip has tinted from the sheet toward the accent: it
+  /// runs with the distance the scrub has travelled past the nub it last
+  /// caught.
   double get _folioTint {
     if (!_scrubbing || _tintFrom.isNaN) return 0;
     return ((_scrubY - _tintFrom).abs() / kFolioTintTravel).clamp(0, 1);
@@ -571,7 +572,7 @@ class _ReaderScreenState extends State<ReaderScreen>
               Positioned.fill(
                 child: IgnorePointer(
                   child: ColoredBox(
-                    color: AppColors.deskGround.withValues(
+                    color: AppColors.ground.withValues(
                       alpha:
                           kDeskDim * (1 - (slide / kScreenWidth).clamp(0, 1)),
                     ),
@@ -583,7 +584,7 @@ class _ReaderScreenState extends State<ReaderScreen>
                 child: Stack(
                   children: [
                     const Positioned.fill(
-                      child: ColoredBox(color: AppColors.deskGround),
+                      child: ColoredBox(color: AppColors.ground),
                     ),
                     Positioned.fromRect(
                       rect: kSheetRect,
@@ -678,7 +679,7 @@ class _ReaderScreenState extends State<ReaderScreen>
                           // is one object changing size, not two swapping.
                           child: DecoratedBox(
                             decoration: BoxDecoration(
-                              color: AppColors.leaf,
+                              color: AppColors.surface,
                               borderRadius: kPeelableCorner,
                               border: AppEdges.all(context),
                             ),

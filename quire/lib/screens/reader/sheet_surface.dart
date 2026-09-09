@@ -154,7 +154,7 @@ class SheetSurface extends StatelessWidget {
       height: kSheetHeight,
       child: DecoratedBox(
         decoration: const BoxDecoration(
-          color: AppColors.leaf,
+          color: AppColors.surface,
           borderRadius: kPeelableCorner,
         ),
         child: ClipRRect(

@@ -101,9 +101,9 @@ class ParseStrip extends StatelessWidget {
     return SizedBox(
       height: kParseStripHeight,
       child: Container(
-        decoration: const BoxDecoration(color: AppColors.panel),
+        decoration: const BoxDecoration(color: AppColors.surfaceHigh),
         foregroundDecoration: const BoxDecoration(
-          border: Border(bottom: BorderSide(color: AppColors.rule)),
+          border: Border(bottom: BorderSide(color: AppColors.hairline)),
         ),
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: kCellPaddingX),

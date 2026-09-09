@@ -24,6 +24,13 @@ abstract final class AppSprings {
   /// The cell bar rising from the sheet's bottom edge.
   static const valueBarSpring =
       SpringDescription(mass: 1, stiffness: 240, damping: 28);
+
+  /// The navigation drawer coming in and going out, and with it the hamburger
+  /// morphing into an arrow. One spring drives both, so the glyph is a readout
+  /// of where the panel is rather than an animation of its own that happens to
+  /// finish at about the same moment.
+  static const drawer =
+      SpringDescription(mass: 1, stiffness: 210, damping: 24);
 }
 
 /// Runs a [SpringDescription] from 0 to 1 as a [Curve] over [duration], so a

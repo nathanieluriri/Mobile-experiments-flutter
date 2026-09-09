@@ -129,7 +129,7 @@ class _ShelfChipsState extends State<ShelfChips>
                 top: kChipHeight - kChipUnderlineHeight,
                 width: from.width + (to.width - from.width) * t,
                 height: kChipUnderlineHeight,
-                child: const ColoredBox(color: AppColors.thread),
+                child: const ColoredBox(color: AppColors.accentBright),
               ),
             ],
           );

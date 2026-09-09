@@ -117,14 +117,14 @@ class SweepFrame {
   /// How much of the stroke over the [ordinal]th match is drawn.
   double fillOf(int ordinal) => schedule.fillAt(ordinal, elapsedMs);
 
-  /// The wash under the [ordinal]th match: [AppColors.markerWash] ordinarily,
-  /// lerped toward [AppColors.markerLive] for the one being stood on.
+  /// The wash under the [ordinal]th match: [AppColors.foundWash] ordinarily,
+  /// lerped toward [AppColors.foundLive] for the one being stood on.
   ///
   /// Two alphas of one hue rather than two hues, so a page carrying two
   /// hundred marks reads as density and never as confetti.
   Color colorOf(int ordinal) {
     final live = ordinal == current ? liveFraction : 0.0;
-    final base = Color.lerp(AppColors.markerWash, AppColors.markerLive, live)!;
+    final base = Color.lerp(AppColors.foundWash, AppColors.foundLive, live)!;
     if (opacity >= 1) return base;
     return base.withValues(alpha: base.a * opacity.clamp(0.0, 1.0));
   }
@@ -325,7 +325,7 @@ class SweptText extends StatelessWidget {
     return MarkedText(
       text,
       style: style,
-      markerColor: AppColors.markerWash,
+      markerColor: AppColors.foundWash,
       marks: <TextMark>[
         for (final range in ranges)
           TextMark(

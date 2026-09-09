@@ -1,6 +1,7 @@
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import '../pdf/display_list.dart';
+import '../theme/colors.dart';
 
 export '../pdf/display_list.dart' show LaidOutRun, mergeRuns, kWordGapEm;
 
@@ -32,7 +33,7 @@ class PageListPainter extends CustomPainter {
     canvas.scale(scale);
     canvas.drawRect(
       Rect.fromLTWH(0, 0, list.widthPts, list.heightPts),
-      Paint()..color = const Color(0xFFFFFFFF),
+      Paint()..color = AppColors.page,
     );
 
     // One ordered pass. Painting images, then paths, then text in separate

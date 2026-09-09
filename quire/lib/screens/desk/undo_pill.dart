@@ -50,11 +50,11 @@ class UndoPill extends StatelessWidget {
           width: kUndoPillWidth,
           height: kUndoPillHeight,
           // The one piece of floating chrome that carries no hairline: at
-          // [AppColors.ink] it is the darkest thing on the desk by a wide
-          // margin, and an outline round it would only soften that.
+          // [AppColors.surfaceHigh] it stands a full step off the ground on
+          // its own, and an outline round it would only soften that.
           child: DecoratedBox(
             decoration: BoxDecoration(
-              color: AppColors.ink,
+              color: AppColors.surfaceHigh,
               borderRadius: BorderRadius.circular(kPillRadius),
             ),
             child: ClipRRect(
@@ -73,7 +73,7 @@ class UndoPill extends StatelessWidget {
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style:
-                                AppText.label.copyWith(color: AppColors.leaf),
+                                AppText.label.copyWith(color: AppColors.ink),
                           ),
                         ),
                         const SizedBox(width: kSpace12),
@@ -83,7 +83,7 @@ class UndoPill extends StatelessWidget {
                           child: Text(
                             'UNDO',
                             style: AppText.label
-                                .copyWith(color: AppColors.thread),
+                                .copyWith(color: AppColors.accentBright),
                           ),
                         ),
                       ],
@@ -94,7 +94,7 @@ class UndoPill extends StatelessWidget {
                     bottom: 0,
                     height: kUndoDrainHeight,
                     width: kUndoPillWidth * (1 - drained).clamp(0, 1),
-                    child: const ColoredBox(color: AppColors.thread),
+                    child: const ColoredBox(color: AppColors.accentBright),
                   ),
                 ],
               ),

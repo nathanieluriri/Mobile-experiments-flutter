@@ -467,7 +467,7 @@ class _ProseStub extends ReaderBody {
         return Padding(
           padding: const EdgeInsets.only(bottom: kSpace8),
           child: ColoredBox(
-            color: AppColors.panel,
+            color: AppColors.surfaceHigh,
             child: Padding(
               padding: const EdgeInsets.all(kSpace8),
               child: SweptText(
@@ -482,7 +482,7 @@ class _ProseStub extends ReaderBody {
       case DividerBlock():
         return const Padding(
           padding: EdgeInsets.symmetric(vertical: kSpace12),
-          child: SizedBox(height: 1, child: ColoredBox(color: AppColors.rule)),
+          child: SizedBox(height: 1, child: ColoredBox(color: AppColors.hairline)),
         );
       case ImageBlock():
       case TableBlock():

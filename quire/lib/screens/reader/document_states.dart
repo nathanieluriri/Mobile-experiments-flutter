@@ -75,7 +75,7 @@ class LockedSheet extends StatelessWidget {
       width: kSheetWidth,
       height: kSheetHeight,
       decoration: BoxDecoration(
-        color: AppColors.leaf,
+        color: AppColors.surface,
         borderRadius: kPeelableCorner,
         border: AppEdges.all(context),
       ),
@@ -111,7 +111,7 @@ class LockedSheet extends StatelessWidget {
                 height: kLockedButtonHeight,
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(kPillRadius),
-                  border: Border.all(color: AppColors.rule),
+                  border: Border.all(color: AppColors.hairline),
                 ),
                 child: Center(
                   child: Text(
@@ -138,7 +138,7 @@ class _FoldedMarkPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final stroke = Paint()
-      ..color = AppColors.rule
+      ..color = AppColors.hairline
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1;
     final body = Path()
@@ -231,7 +231,7 @@ class DamagedSheet extends StatelessWidget {
                     if (onOpenAsText != null)
                       _TextButton(
                         label: 'Open as plain text',
-                        color: AppColors.thread,
+                        color: AppColors.accentBright,
                         onTap: onOpenAsText,
                       ),
                   ],
