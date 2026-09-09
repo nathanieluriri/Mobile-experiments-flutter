@@ -15,6 +15,7 @@ import 'package:quire/format/document_loader.dart';
 import 'package:quire/model/document.dart';
 import 'package:quire/pdf/display_list.dart';
 import 'package:quire/services/document_store.dart';
+import 'package:quire/widgets/marked_text.dart';
 
 final Map<String, Uint8List> _bytes = <String, Uint8List>{};
 final Map<String, LoadedDocument> _loaded = <String, LoadedDocument>{};
@@ -60,6 +61,17 @@ Future<QuireDocument> parsedDocument(String fileName) async {
 /// The desk entry for a bundled document.
 LibraryEntry entryFor(String fileName) =>
     libraryEntries.firstWhere((e) => e.fileName == fileName);
+
+/// A document's title where the desk draws it, in a list row or on a grid
+/// card.
+///
+/// It is never a plain [Text]: a title can be struck through by the search,
+/// so it is laid out and painted by [MarkedText] in one pass and `find.text`
+/// would miss every one of them.
+Finder documentTitled(String title) => find.byWidgetPredicate(
+      (widget) => widget is MarkedText && widget.text == title,
+      description: 'document titled "$title"',
+    );
 
 /// A store already holding a parsed bundled document.
 Future<DocumentStore> storeFor(String fileName) async =>

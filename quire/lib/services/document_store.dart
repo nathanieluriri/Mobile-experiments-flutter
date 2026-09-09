@@ -299,7 +299,7 @@ class LibraryStore extends ChangeNotifier {
   final Set<String> _removed = <String>{};
   Shelf _shelf = Shelf.all;
   String _query = '';
-  _Removal? _lastRemoval;
+  LibraryEntry? _lastRemoved;
 
   /// Everything on the desk, removals included.
   List<LibraryEntry> get allEntries => _entries;
@@ -392,52 +392,65 @@ class LibraryStore extends ChangeNotifier {
     }
   }
 
-  /// Takes [entry] off the desk, retaining the snapshot the dissolve came
-  /// apart from so undo can gather it back together.
-  void remove(LibraryEntry entry, {ui.Image? snapshot}) {
+  /// Takes [entry] off the desk.
+  ///
+  /// The desk only records that the document has gone. What it looked like
+  /// while it was there is the list's business: the pixels a row comes apart
+  /// into belong to whatever drew the row, and a model that held an image
+  /// would be a model that could not be tested without a rasteriser.
+  void remove(LibraryEntry entry) {
     if (!_removed.add(entry.assetPath)) return;
-    _lastRemoval?.snapshot?.dispose();
-    _lastRemoval = _Removal(entry, snapshot);
+    _lastRemoved = entry;
     notifyListeners();
   }
 
   /// The entry the undo pill is offering to bring back, or null.
-  LibraryEntry? get lastRemoved => _lastRemoval?.entry;
+  LibraryEntry? get lastRemoved => _lastRemoved;
 
-  /// The retained snapshot of the removed card, or null.
-  ui.Image? get retainedSnapshot => _lastRemoval?.snapshot;
-
-  /// Puts the last removed entry back and hands over its snapshot.
+  /// Puts the last removed entry back.
   void undoRemove() {
-    final removal = _lastRemoval;
-    if (removal == null) return;
-    _removed.remove(removal.entry.assetPath);
-    _lastRemoval = null;
+    final entry = _lastRemoved;
+    if (entry == null) return;
+    _removed.remove(entry.assetPath);
+    _lastRemoved = null;
     notifyListeners();
   }
 
   /// Forgets the last removal, which is what happens when the pill runs out.
+  ///
+  /// Whatever is still holding that document's pixels watches this: once the
+  /// offer is withdrawn there is nothing left to gather back together.
   void commitRemoval() {
-    _lastRemoval?.snapshot?.dispose();
-    _lastRemoval = null;
+    if (_lastRemoved == null) return;
+    _lastRemoved = null;
     notifyListeners();
   }
 
   /// The colophon's first number.
   int get documentCount => entries.length;
 
-  /// The colophon's second number: real extracted words from every document
-  /// that has been parsed. A document nobody has opened contributes nothing,
+  /// The words in [shown]: real extracted words from every one of them that
+  /// has been parsed. A document nobody has opened contributes nothing,
   /// because counting it would mean parsing all six to draw the first frame.
-  int get wordCount {
+  ///
+  /// It counts what it is given rather than the whole library, because the
+  /// colophon sits under a list and not under the desk: a tab or a search
+  /// that leaves two documents on screen has to be a colophon of two.
+  int wordsIn(Iterable<LibraryEntry> shown) {
     var total = 0;
-    for (final entry in entries) {
+    for (final entry in shown) {
       total += _stores[entry.assetPath]?.wordCount ?? 0;
     }
     return total;
   }
 
-  /// The colophon's third number.
+  /// [wordsIn] at the reading speed the app assumes.
+  int minutesIn(Iterable<LibraryEntry> shown) => readingMinutes(wordsIn(shown));
+
+  /// The colophon's second number for the whole desk.
+  int get wordCount => wordsIn(entries);
+
+  /// The colophon's third number for the whole desk.
   int get minutes => readingMinutes(wordCount);
 
   @override
@@ -446,14 +459,6 @@ class LibraryStore extends ChangeNotifier {
       store.removeListener(notifyListeners);
       store.dispose();
     }
-    _lastRemoval?.snapshot?.dispose();
-    _lastRemoval = null;
     super.dispose();
   }
-}
-
-class _Removal {
-  const _Removal(this.entry, this.snapshot);
-  final LibraryEntry entry;
-  final ui.Image? snapshot;
 }

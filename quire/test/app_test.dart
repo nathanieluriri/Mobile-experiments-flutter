@@ -17,10 +17,16 @@ void main() {
     await settle(tester);
 
     // The desk lays itself out from the manifest, then the six files are read
-    // and their real counts land on the cards already on the ground.
+    // and their real counts land on the rows already on the ground.
     expect(find.byType(DeskScreen), findsOneWidget);
-    expect(find.text('PDF \u00b7 6 PAGES \u00b7 306 KB'), findsOneWidget);
-    expect(find.text('MD \u00b7 1,010 WORDS \u00b7 6 KB'), findsOneWidget);
+    expect(
+      find.textContaining(RegExp('6 pages', caseSensitive: false)),
+      findsOneWidget,
+    );
+    expect(
+      find.textContaining(RegExp('1,010 words', caseSensitive: false)),
+      findsOneWidget,
+    );
   });
 
   testWidgets('a card grows into the reader it was tapped from', (

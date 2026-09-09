@@ -1,8 +1,7 @@
-import 'dart:ui' as ui;
-
-import 'package:flutter/rendering.dart';
+import 'package:flutter/physics.dart';
 import 'package:flutter/widgets.dart';
 
+import '../../constants/gooey_fab.dart';
 import '../../data/library.dart';
 import '../../services/document_store.dart';
 import '../../theme/colors.dart';
@@ -10,13 +9,22 @@ import '../../theme/easings.dart';
 import '../../theme/metrics.dart';
 import '../../theme/springs.dart';
 import '../../theme/typography.dart';
-import '../../widgets/dissolve/dissolve_scope.dart';
-import 'card_peel.dart';
+import '../../widgets/gooey_fab/gooey_fab.dart';
 import 'desk_colophon.dart';
 import 'desk_empty.dart';
-import 'desk_header.dart';
-import 'desk_search_field.dart';
-import 'shelf_chips.dart';
+import 'desk_top_bar.dart';
+import 'destination_panel.dart';
+import 'grid_body.dart';
+// Named for the list it draws, under the alias that keeps it clear of the
+// ListBody Flutter exports for laying children out one after another.
+import 'list_body.dart' show DeskListBody;
+import 'nav_drawer.dart';
+import 'overflow_menu.dart';
+import 'search_pill.dart';
+import 'shell_model.dart';
+import 'sort_menu.dart';
+import 'sort_row.dart';
+import 'tab_strip.dart';
 import 'undo_pill.dart';
 
 /// Where the two lines of a search that found nothing sit.
@@ -26,14 +34,22 @@ const kNoResultsGap = 8.0;
 /// How long the undo pill takes to come up off the desk.
 const kUndoPillIn = Duration(milliseconds: 180);
 
-/// The slot the colophon occupies in the shelf, keyed like a card so it opens
-/// and closes on the same spring the cards do.
-const _kColophonSlot = 'colophon';
+/// The chrome above the body: the top bar, the tabs and the sort row.
+const kShellChrome = kTopBarHeight + kTabStripHeight + kSortRowHeight;
 
-/// The desk: every document you have, lying on warm ground.
+/// How fast a finger has to be going for its direction to decide the drawer,
+/// in points a second. Below this the drawer goes wherever it is nearest.
+const kDrawerFlingVelocity = 300.0;
+
+/// How much room the body keeps under the last row.
+const kBodyBottomPadding = 96.0;
+
+/// The desk: a top bar, the format tabs, the sort row, and the library.
 ///
-/// One scroll, one collapse, one row of shelves, and cards you can turn the
-/// corner of. Everything else in quire is reached from here.
+/// The four parts are stacked and none of them scrolls under another, so the
+/// only thing that moves when you scroll is the documents. A drawer comes in
+/// over all four from the left, and the hamburger that opens it is a readout
+/// of where it has got to rather than an animation of its own.
 class DeskScreen extends StatefulWidget {
   const DeskScreen({
     super.key,
@@ -44,11 +60,11 @@ class DeskScreen extends StatefulWidget {
 
   final LibraryStore store;
 
-  /// Opening a document, either by tapping its card or by dropping it on READ.
+  /// Opening a document.
   ///
-  /// The card's rect on the desk comes with it, because the reader grows out
-  /// of the card rather than sliding over it, and the desk is the only thing
-  /// that knows where a card has been scrolled to.
+  /// The row's rect on the desk comes with it, because the reader grows out of
+  /// the row rather than sliding over it, and the desk is the only thing that
+  /// knows where a row has been scrolled to.
   final void Function(LibraryEntry entry, Rect cardRect)? onOpen;
 
   /// Taking a document to the signature pad.
@@ -62,42 +78,47 @@ class _DeskScreenState extends State<DeskScreen> with TickerProviderStateMixin {
   final ScrollController _scroll = ScrollController();
   final TextEditingController _query = TextEditingController();
   final FocusNode _queryFocus = FocusNode();
-  final Map<String, GlobalKey> _cardKeys = <String, GlobalKey>{};
-  final Set<String> _hidden = <String>{};
-
-  late final AnimationController _search;
-  late final AnimationController _dim;
-  late final AnimationController _shelf;
+  late final AnimationController _drawer;
+  late final AnimationController _menu;
+  late final AnimationController _overflow;
   late final AnimationController _undo;
   late final AnimationController _undoRise;
-  late final SpringCurve _shelfCurve;
 
-  /// Where every slot in the shelf was when the last change arrived, and where
-  /// it is going. One controller drives all of them, because a keystroke moves
-  /// the whole list at once and a removal has to close the gap on the same
-  /// spring the rest of the list is riding.
-  final Map<String, double> _from = <String, double>{};
-  final Map<String, double> _to = <String, double>{};
+  /// Which end the drawer was last sent to, so a spring that stops inside its
+  /// own tolerance can be put exactly on it. A panel resting a hundredth of a
+  /// point short is a panel whose glyph is a hundredth of a degree short, and
+  /// the two are only ever the same object if both land.
+  bool _drawerOpen = false;
 
-  String? _lifted;
+  DrawerDestination _destination = DrawerDestination.recent;
+  DeskTab _tab = DeskTab.recent;
+  SortField _sortField = SortField.dateModified;
+  SortOrder _sortOrder = SortOrder.newToOld;
+  DeskView _view = DeskView.list;
   LibraryEntry? _pill;
+
+  /// The document whose overflow menu is open, and where its row was when the
+  /// three dots were tapped, which is what the menu is hung off.
+  LibraryEntry? _acting;
+  Rect _actingRect = Rect.zero;
 
   @override
   void initState() {
     super.initState();
-    _search = AnimationController(
-      vsync: this,
-      duration: kSearchOpen,
-      reverseDuration: kSearchClose,
-    );
-    _dim = AnimationController(vsync: this, duration: kDim);
-    final shelfDuration = springDuration(AppSprings.shelfLayout);
-    _shelf = AnimationController(
-      vsync: this,
-      duration: shelfDuration,
-      value: 1,
-    );
-    _shelfCurve = SpringCurve(AppSprings.shelfLayout, duration: shelfDuration);
+    // The drawer is driven by a simulation, so its duration is only what a
+    // stopped controller falls back to. Its bounds are what clamp the spring's
+    // overshoot, so the panel never opens past its own edge.
+    _drawer = AnimationController(vsync: this, duration: kChromeIn);
+    _drawer.addStatusListener((status) {
+      if (status == AnimationStatus.forward ||
+          status == AnimationStatus.reverse) {
+        return;
+      }
+      final rest = _drawerOpen ? 1.0 : 0.0;
+      if (_drawer.value != rest) _drawer.value = rest;
+    });
+    _menu = AnimationController(vsync: this, duration: kSortMenuIn);
+    _overflow = AnimationController(vsync: this, duration: kSortMenuIn);
     _undo = AnimationController(vsync: this, duration: kUndoPill);
     _undo.addStatusListener((status) {
       if (status == AnimationStatus.completed && mounted) {
@@ -107,15 +128,14 @@ class _DeskScreenState extends State<DeskScreen> with TickerProviderStateMixin {
     });
     _undoRise = AnimationController(vsync: this, duration: kUndoPillIn);
     widget.store.addListener(_onStoreChanged);
-    _syncSlots(animate: false);
   }
 
   @override
   void dispose() {
     widget.store.removeListener(_onStoreChanged);
-    _search.dispose();
-    _dim.dispose();
-    _shelf.dispose();
+    _drawer.dispose();
+    _menu.dispose();
+    _overflow.dispose();
     _undo.dispose();
     _undoRise.dispose();
     _scroll.dispose();
@@ -124,105 +144,137 @@ class _DeskScreenState extends State<DeskScreen> with TickerProviderStateMixin {
     super.dispose();
   }
 
-  void _onStoreChanged() {
-    _syncSlots();
-    setState(() {});
+  void _onStoreChanged() => setState(() {});
+
+  // The drawer.
+
+  double get _drawerWidth => drawerWidth(MediaQuery.sizeOf(context).width);
+
+  void _toggleDrawer() => _settleDrawer(open: _drawer.value < 0.5, velocity: 0);
+
+  void _dragDrawer(double delta) {
+    _drawer
+      ..stop()
+      ..value = (_drawer.value + delta / _drawerWidth).clamp(0.0, 1.0);
   }
 
-  GlobalKey _keyFor(LibraryEntry entry) =>
-      _cardKeys.putIfAbsent(entry.assetPath, GlobalKey.new);
+  void _endDrawerDrag(double velocity) {
+    final open = velocity.abs() > kDrawerFlingVelocity
+        ? velocity > 0
+        : _drawer.value > 0.5;
+    _settleDrawer(open: open, velocity: velocity / _drawerWidth);
+  }
 
-  /// Where [entry]'s card is on the screen right now.
+  /// Sends the drawer to whichever end it is going to, on the one spring that
+  /// also turns the hamburger.
   ///
-  /// A card with no box to measure, because it has been scrolled out of the
-  /// shelf or has not been laid out yet, reports an empty rect, and the reader
-  /// opens without growing out of anything the way a deep link does.
-  Rect _rectOf(LibraryEntry entry) {
-    final box = _keyFor(entry).currentContext?.findRenderObject();
-    if (box is! RenderBox || !box.hasSize) return Rect.zero;
-    return box.localToGlobal(Offset.zero) & box.size;
+  /// Handing the finger's own velocity to the simulation is what makes a flick
+  /// and a tap the same motion at two speeds rather than two behaviours.
+  void _settleDrawer({required bool open, required double velocity}) {
+    _drawerOpen = open;
+    _drawer.animateWith(
+      SpringSimulation(
+        AppSprings.drawer,
+        _drawer.value,
+        open ? 1 : 0,
+        velocity,
+      ),
+    );
   }
 
-  void _open(LibraryEntry entry) => widget.onOpen?.call(entry, _rectOf(entry));
-
-  double _factorOf(String slot) {
-    final from = _from[slot] ?? 0;
-    final to = _to[slot] ?? 0;
-    return from + (to - from) * _shelfCurve.transform(_shelf.value);
+  void _select(DrawerDestination destination) {
+    setState(() => _destination = destination);
+    _settleDrawer(open: false, velocity: 0);
   }
 
-  /// Points every slot at where it belongs now and springs the list there.
-  void _syncSlots({bool animate = true}) {
-    final visible =
-        widget.store.visible.map((entry) => entry.assetPath).toSet();
-    final next = <String, double>{
-      for (final entry in widget.store.allEntries)
-        entry.assetPath: visible.contains(entry.assetPath) ? 1.0 : 0.0,
-      _kColophonSlot: visible.isEmpty ? 0.0 : 1.0,
-    };
-    if (_sameTargets(next)) return;
-    if (!animate) {
-      _from
-        ..clear()
-        ..addAll(next);
-      _to
-        ..clear()
-        ..addAll(next);
-      _shelf.value = 1;
-      return;
-    }
-    final from = <String, double>{
-      for (final slot in next.keys) slot: _factorOf(slot),
-    };
-    _from
-      ..clear()
-      ..addAll(from);
-    _to
-      ..clear()
-      ..addAll(next);
-    _shelf.forward(from: 0);
+  // The sort menu.
+
+  void _openMenu() => _menu.forward();
+
+  void _closeMenu() => _menu.reverse();
+
+  void _setField(SortField field) {
+    setState(() => _sortField = field);
+    _closeMenu();
   }
 
-  bool _sameTargets(Map<String, double> next) {
-    if (next.length != _to.length) return false;
-    for (final entry in next.entries) {
-      if (_to[entry.key] != entry.value) return false;
-    }
-    return true;
+  void _setOrder(SortOrder order) {
+    setState(() => _sortOrder = order);
+    _closeMenu();
   }
 
-  void _openSearch() {
-    _search.forward();
-    _queryFocus.requestFocus();
-  }
-
-  void _closeSearch() {
-    _queryFocus.unfocus();
-    _query.clear();
-    widget.store.query = '';
-    _search.reverse();
-    setState(() {});
-  }
+  // Search.
 
   void _onQueryChanged(String value) {
     widget.store.query = value;
     setState(() {});
   }
 
-  void _focus(LibraryEntry entry) {
-    setState(() => _lifted = entry.assetPath);
-    _dim.animateTo(1, duration: kDim, curve: easeOutQuad);
+  /// The way in to a file by name, which is what the folder glyph on the pill
+  /// and the button's first action both mean.
+  ///
+  /// Every document quire can open is already in the library, so opening one
+  /// is a matter of finding it. The field takes the focus and the destination
+  /// widens to everything, so nothing typed into it is held back by wherever
+  /// the drawer had left you standing.
+  void _browse() {
+    setState(() => _destination = DrawerDestination.allFiles);
+    _queryFocus.requestFocus();
   }
 
-  void _blur() {
-    setState(() => _lifted = null);
-    _dim.animateBack(0, duration: kDim, curve: easeOutQuad);
+  /// What the action button's three pills do, in the order [kFabActions] lists
+  /// them.
+  void _fabAction(int index) {
+    switch (index) {
+      // Open a file.
+      case 0:
+        _browse();
+      // Sign a PDF. Which PDF is a question only the library can answer, so
+      // this narrows the desk to the two documents that can carry a signature
+      // and leaves the choosing where the choosing belongs.
+      case 1:
+        setState(() {
+          _destination = DrawerDestination.allFiles;
+          _tab = DeskTab.pdf;
+        });
+      // Recent.
+      case 2:
+        setState(() {
+          _destination = DrawerDestination.recent;
+          _tab = DeskTab.recent;
+        });
+        if (_scroll.hasClients) _scroll.jumpTo(0);
+    }
+  }
+
+  void _clearQuery() {
+    _query.clear();
+    widget.store.query = '';
+    _queryFocus.unfocus();
+    setState(() {});
+  }
+
+  // What a document can have done to it.
+
+  /// Opens the overflow menu against the row that asked for it.
+  void _openOverflow(LibraryEntry entry, Rect rect) {
+    setState(() {
+      _acting = entry;
+      _actingRect = rect;
+    });
+    _overflow.forward(from: 0);
+  }
+
+  void _closeOverflow() {
+    _overflow.value = 0;
+    setState(() => _acting = null);
   }
 
   void _act(LibraryEntry entry, DeskAction action) {
+    _closeOverflow();
     switch (action) {
       case DeskAction.read:
-        _open(entry);
+        widget.onOpen?.call(entry, _actingRect);
       case DeskAction.sign:
         widget.onSign?.call(entry);
       case DeskAction.dogEar:
@@ -233,74 +285,57 @@ class _DeskScreenState extends State<DeskScreen> with TickerProviderStateMixin {
     }
   }
 
-  /// Takes a card off the desk by taking it apart.
+  /// Takes a document off the desk.
   ///
-  /// The snapshot is what the dust is made of and what undo puts back, so it
-  /// is captured before the card is hidden and kept on the store until the
-  /// pill runs out.
+  /// Nothing here touches the row's pixels. The desk announces that the
+  /// document has gone and the body, which drew the row, is what takes it
+  /// apart: that is what makes every route out of the library crumble the same
+  /// way, and what makes it impossible for a sort or a filter to crumble
+  /// anything.
   void _remove(LibraryEntry entry) {
-    final image = DissolveScope.of(context).dissolve(
-      _keyFor(entry),
-      pixelRatio: MediaQuery.devicePixelRatioOf(context),
-      onCaptured: () => setState(() => _hidden.add(entry.assetPath)),
-      onDone: () {
-        if (mounted) setState(() => _hidden.remove(entry.assetPath));
-      },
-    );
-    widget.store.remove(entry, snapshot: image);
+    widget.store.remove(entry);
     setState(() => _pill = entry);
     _undoRise.forward(from: 0);
     _undo.forward(from: 0);
   }
 
   void _undoRemoval() {
-    final entry = _pill;
-    if (entry == null) return;
-    final ui.Image? image = widget.store.retainedSnapshot;
+    if (_pill == null) return;
     _undo.stop();
     _undoRise.value = 0;
-    setState(() {
-      _pill = null;
-      if (image != null) _hidden.add(entry.assetPath);
-    });
+    setState(() => _pill = null);
     widget.store.undoRemove();
-    if (image == null) return;
-    // The slot has to exist again before there is anywhere for the dust to
-    // gather into, so the run starts on the frame after the list reopens.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      DissolveScope.of(context).materialize(
-        _keyFor(entry),
-        image,
-        onDone: () {
-          if (mounted) setState(() => _hidden.remove(entry.assetPath));
-        },
-      );
-    });
   }
+
+  /// What the body shows: the search, then the tab, then the sort.
+  List<LibraryEntry> get _entries => shellEntries(
+        widget.store.visible,
+        _tab,
+        _sortField,
+        _sortOrder,
+        widget.store.peek,
+      );
+
+  /// How much each tab holds, before the search is applied, so a count is a
+  /// fact about the library rather than about what you have typed.
+  Map<DeskTab, int> get _counts => <DeskTab, int>{
+        for (final tab in DeskTab.values)
+          tab: widget.store.entries.where(tab.holds).length,
+      };
 
   @override
   Widget build(BuildContext context) {
-    final store = widget.store;
-    final bare = store.entries.isEmpty;
-    final nothingMatched = !bare && store.visible.isEmpty;
+    final top = MediaQuery.paddingOf(context).top;
     final bottom = MediaQuery.paddingOf(context).bottom;
+    final bare = widget.store.entries.isEmpty;
+    final nothingMatched =
+        !bare && _destination.library && widget.store.visible.isEmpty;
     return ColoredBox(
       color: AppColors.ground,
       child: Stack(
         children: [
-          if (bare)
-            const Positioned.fill(child: DeskEmpty(onOpen: null))
-          else
-            Positioned.fill(child: _list()),
+          Positioned.fill(child: _shell(top, bottom, bare)),
           if (nothingMatched) _noResults(),
-          Positioned(
-            left: 0,
-            right: 0,
-            top: 0,
-            height: kCardListTop,
-            child: _chrome(bare: bare),
-          ),
           if (_pill case final removed?)
             Positioned(
               left: 0,
@@ -318,62 +353,192 @@ class _DeskScreenState extends State<DeskScreen> with TickerProviderStateMixin {
                 ),
               ),
             ),
+          // Over the library and under everything that opens on top of it:
+          // the button is the desk's own control, so a menu or the drawer
+          // covers it rather than the other way round.
+          GooeyFab(onSelected: _fabAction),
+          if (_destination.library && !bare) _menuLayer(top),
+          if (_acting case final entry?) _overflowLayer(entry),
+          AnimatedBuilder(
+            animation: _drawer,
+            builder: (context, _) => NavDrawer(
+              progress: _drawer.value,
+              selected: _destination,
+              onSelect: _select,
+              onDismiss: () => _settleDrawer(open: false, velocity: 0),
+              onDrag: _dragDrawer,
+              onDragEnd: _endDrawerDrag,
+            ),
+          ),
+          // Above the drawer, because it is the drawer's handle: the arrow it
+          // turns into has to be legible over the panel it opened.
+          Positioned(
+            left: kTopBarPaddingX,
+            top: top + kMenuButtonTop,
+            child: AnimatedBuilder(
+              animation: _drawer,
+              builder: (context, _) => MenuButton(
+                progress: _drawer.value,
+                onTap: _toggleDrawer,
+              ),
+            ),
+          ),
         ],
       ),
     );
   }
 
-  Widget _chrome({required bool bare}) {
-    return Stack(
+  Widget _shell(double top, double bottom, bool bare) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        const Positioned.fill(
-          child: ColoredBox(color: AppColors.ground),
-        ),
-        Positioned(
-          left: 0,
-          right: 0,
-          top: 0,
-          child: AnimatedBuilder(
-            animation:
-                Listenable.merge(<Listenable>[_scroll, _search, _dim, _query]),
-            builder: (context, _) => DeskHeader(
-              scrollY: _scroll.hasClients ? _scroll.offset : 0,
-              searchOpen: easeOutCubic.transform(_search.value),
-              searchRaw: _search.value,
-              dim: _dim.value,
-              field: DeskSearchField(
-                open: easeOutCubic.transform(_search.value),
-                controller: _query,
-                focusNode: _queryFocus,
-                onOpen: _openSearch,
-                onClose: _closeSearch,
-                onChanged: _onQueryChanged,
-              ),
+        SizedBox(height: top),
+        AnimatedBuilder(
+          animation: _query,
+          builder: (context, _) => DeskTopBar(
+            search: SearchPill(
+              controller: _query,
+              focusNode: _queryFocus,
+              onChanged: _onQueryChanged,
+              onClear: _clearQuery,
+              onBrowse: _browse,
             ),
           ),
         ),
-        if (!bare)
-          Positioned(
-            left: kScreenPadding,
-            right: kScreenPadding,
-            top: kChipRowTop,
-            child: AnimatedBuilder(
-              animation: _dim,
-              builder: (context, child) => Opacity(
-                opacity: 1 - kChromeDimAmount * _dim.value,
-                child: child,
-              ),
-              child: ShelfChips(
-                selected: widget.store.shelf,
-                counts: <Shelf, int>{
-                  for (final shelf in Shelf.values)
-                    shelf: widget.store.countOn(shelf),
-                },
-                onSelect: (shelf) => widget.store.shelf = shelf,
-              ),
-            ),
+        // A desk with nothing on it drops the tabs and the sort row, for the
+        // same reason a destination with nothing in it does: they are chrome
+        // about a list, and there is no list.
+        if (_destination.library && !bare) ...[
+          TabStrip(
+            selected: _tab,
+            counts: _counts,
+            onSelect: (tab) => setState(() => _tab = tab),
           ),
+          SortRow(
+            field: _sortField,
+            order: _sortOrder,
+            view: _view,
+            onOpenMenu: _openMenu,
+            onView: (view) => setState(() => _view = view),
+          ),
+        ],
+        Expanded(child: _body(bottom, bare)),
       ],
+    );
+  }
+
+  Widget _body(double bottom, bool bare) {
+    if (!_destination.library) {
+      return DestinationPanel(destination: _destination);
+    }
+    if (bare) return const DeskEmpty(onOpen: null);
+    // Counted off what is on screen, not off the library. A tab that shows
+    // two documents with `6 DOCUMENTS` set under them would be the desk
+    // contradicting itself in the same glance.
+    final colophon = DeskColophon(
+      documents: _entries.length,
+      words: widget.store.wordsIn(_entries),
+      minutes: widget.store.minutesIn(_entries),
+    );
+    // The body is what scrolls, because the rows are its own: a slot closing
+    // behind a removal has to be able to move the list under the finger. The
+    // shell only says how much room to leave at the bottom for what it floats
+    // over the body.
+    if (_view == DeskView.list) {
+      return DeskListBody(
+        library: widget.store,
+        entries: _entries,
+        query: widget.store.query,
+        onOpen: widget.onOpen,
+        onOverflow: _openOverflow,
+        controller: _scroll,
+        padding: EdgeInsets.only(bottom: bottom + kBodyBottomPadding),
+        footer: colophon,
+      );
+    }
+    return GridBody(
+      library: widget.store,
+      entries: _entries,
+      query: widget.store.query,
+      onOpen: widget.onOpen,
+      onOverflow: _openOverflow,
+      controller: _scroll,
+      padding: const EdgeInsets.all(kGridPadding).copyWith(
+        bottom: bottom + kBodyBottomPadding,
+      ),
+      footer: colophon,
+    );
+  }
+
+  /// The sort menu, and the tap anywhere else that closes it.
+  ///
+  /// It is drawn in the shell's own stack rather than pushed as a route, so
+  /// the library behind it stays live and the menu cannot be left behind by a
+  /// navigation.
+  Widget _menuLayer(double top) {
+    return AnimatedBuilder(
+      animation: _menu,
+      builder: (context, _) {
+        // Built from the first frame of the run rather than the first frame
+        // with something to see, so the arrival has a t of exactly 0.
+        if (_menu.status == AnimationStatus.dismissed) {
+          return const SizedBox.shrink();
+        }
+        return Stack(
+          children: [
+            Positioned.fill(
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: _closeMenu,
+              ),
+            ),
+            Positioned(
+              left: kSortRowPaddingX,
+              top: top + kShellChrome + kSortMenuOffset,
+              child: SortMenu(
+                t: _menu.value,
+                field: _sortField,
+                order: _sortOrder,
+                onField: _setField,
+                onOrder: _setOrder,
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  /// The overflow menu, hung off the three dots that opened it.
+  ///
+  /// Its right edge lines up with the row's own right padding and it hangs
+  /// just under the row, so it reads as belonging to that document rather than
+  /// to the screen. Like the sort menu it is drawn in the shell's own stack
+  /// rather than pushed as a route, so the library behind it stays live.
+  Widget _overflowLayer(LibraryEntry entry) {
+    return AnimatedBuilder(
+      animation: _overflow,
+      builder: (context, _) {
+        return Stack(
+          children: [
+            Positioned.fill(
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: _closeOverflow,
+              ),
+            ),
+            Positioned(
+              right: kListRowPaddingX,
+              top: _actingRect.bottom + kOverflowMenuOffset,
+              child: OverflowMenu(
+                t: _overflow.value,
+                entry: entry,
+                onAction: (action) => _act(entry, action),
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 
@@ -397,251 +562,6 @@ class _DeskScreenState extends State<DeskScreen> with TickerProviderStateMixin {
           ),
         ],
       ),
-    );
-  }
-
-  Widget _list() {
-    final entries = widget.store.allEntries;
-    return SingleChildScrollView(
-      controller: _scroll,
-      physics: const BouncingScrollPhysics(
-        parent: AlwaysScrollableScrollPhysics(),
-      ),
-      padding: const EdgeInsets.only(
-        top: kCardListTop,
-        bottom: kDeskListBottomPadding,
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: kScreenPadding),
-        child: AnimatedBuilder(
-          animation: Listenable.merge(<Listenable>[_shelf, _dim]),
-          builder: (context, _) {
-            final lifted = _lifted;
-            return _DeskColumn(
-              gap: kCardGap,
-              paintLast: lifted == null
-                  ? null
-                  : entries.indexWhere((e) => e.assetPath == lifted),
-              children: [
-                for (final entry in entries)
-                  _DeskSlot(
-                    factor: _factorOf(entry.assetPath),
-                    child: CardPeel(
-                      key: ValueKey<String>(entry.assetPath),
-                      cardKey: _keyFor(entry),
-                      entry: entry,
-                      store: widget.store.peek(entry),
-                      query: widget.store.query,
-                      lifted: entry.assetPath == lifted,
-                      dimmed: lifted != null && entry.assetPath != lifted,
-                      hidden: _hidden.contains(entry.assetPath),
-                      onFocus: () => _focus(entry),
-                      onBlur: _blur,
-                      onAction: (action) => _act(entry, action),
-                      onOpen: () => _open(entry),
-                    ),
-                  ),
-                _DeskSlot(
-                  factor: _factorOf(_kColophonSlot),
-                  child: Opacity(
-                    opacity: 1 - (1 - kDimmedCardOpacity) * _dim.value,
-                    child: DeskColophon(
-                      documents: widget.store.documentCount,
-                      words: widget.store.wordCount,
-                      minutes: widget.store.minutes,
-                      topGap: kColophonGap - kCardGap,
-                    ),
-                  ),
-                ),
-              ],
-            );
-          },
-        ),
-      ),
-    );
-  }
-}
-
-/// How much of its own slot a card is taking. At 1 it has its full height and
-/// the gap above it; at 0 it takes no room and is not drawn.
-class _DeskSlotData extends ContainerBoxParentData<RenderBox> {
-  double factor = 1;
-}
-
-class _DeskSlot extends ParentDataWidget<_DeskSlotData> {
-  const _DeskSlot({required this.factor, required super.child});
-
-  final double factor;
-
-  @override
-  void applyParentData(RenderObject renderObject) {
-    final data = renderObject.parentData! as _DeskSlotData;
-    if (data.factor == factor) return;
-    data.factor = factor;
-    renderObject.parent?.markNeedsLayout();
-  }
-
-  @override
-  Type get debugTypicalAncestorWidgetClass => _DeskColumn;
-}
-
-/// The shelf: cards stacked with a fixed gap, doing two things a [Column]
-/// cannot.
-///
-/// A lifted card paints its fold and its dock outside its own box and over the
-/// cards below it, so [paintLast] pulls one child to the front of the paint
-/// and hit test order without moving it. And a card arriving or leaving opens
-/// and closes its own slot, so the list closes the gap rather than jumping.
-class _DeskColumn extends MultiChildRenderObjectWidget {
-  const _DeskColumn({
-    required this.gap,
-    this.paintLast,
-    required super.children,
-  });
-
-  final double gap;
-  final int? paintLast;
-
-  @override
-  _RenderDeskColumn createRenderObject(BuildContext context) =>
-      _RenderDeskColumn(gap, paintLast);
-
-  @override
-  void updateRenderObject(
-    BuildContext context,
-    _RenderDeskColumn renderObject,
-  ) {
-    renderObject
-      ..gap = gap
-      ..paintLast = paintLast;
-  }
-}
-
-class _RenderDeskColumn extends RenderBox
-    with
-        ContainerRenderObjectMixin<RenderBox, _DeskSlotData>,
-        RenderBoxContainerDefaultsMixin<RenderBox, _DeskSlotData> {
-  _RenderDeskColumn(this._gap, this._paintLast);
-
-  double _gap;
-  double get gap => _gap;
-  set gap(double value) {
-    if (_gap == value) return;
-    _gap = value;
-    markNeedsLayout();
-  }
-
-  int? _paintLast;
-  int? get paintLast => _paintLast;
-  set paintLast(int? value) {
-    if (_paintLast == value) return;
-    _paintLast = value;
-    markNeedsPaint();
-  }
-
-  @override
-  void setupParentData(RenderBox child) {
-    if (child.parentData is! _DeskSlotData) child.parentData = _DeskSlotData();
-  }
-
-  double _factorOf(RenderBox child) =>
-      (child.parentData! as _DeskSlotData).factor.clamp(0.0, 1.0);
-
-  @override
-  void performLayout() {
-    final width = constraints.maxWidth;
-    var y = 0.0;
-    var placed = false;
-    var child = firstChild;
-    while (child != null) {
-      final data = child.parentData! as _DeskSlotData;
-      child.layout(BoxConstraints.tightFor(width: width), parentUsesSize: true);
-      final factor = _factorOf(child);
-      // The gap belongs to the card below it, so a card that is not there
-      // takes neither its own height nor the space above it.
-      if (placed) y += _gap * factor;
-      data.offset = Offset(0, y);
-      y += child.size.height * factor;
-      if (factor > 0) placed = true;
-      child = childAfter(child);
-    }
-    size = constraints.constrain(Size(width, y));
-  }
-
-  @override
-  Size computeDryLayout(BoxConstraints constraints) {
-    final width = constraints.maxWidth;
-    var y = 0.0;
-    var placed = false;
-    var child = firstChild;
-    while (child != null) {
-      final factor = _factorOf(child);
-      if (placed) y += _gap * factor;
-      y += child.getDryLayout(BoxConstraints.tightFor(width: width)).height *
-          factor;
-      if (factor > 0) placed = true;
-      child = childAfter(child);
-    }
-    return constraints.constrain(Size(width, y));
-  }
-
-  @override
-  void paint(PaintingContext context, Offset offset) {
-    final children = getChildrenAsList();
-    final last = _paintLast;
-    for (var i = 0; i < children.length; i++) {
-      if (i != last) _paintChild(context, children[i], offset);
-    }
-    if (last != null && last >= 0 && last < children.length) {
-      _paintChild(context, children[last], offset);
-    }
-  }
-
-  void _paintChild(PaintingContext context, RenderBox child, Offset offset) {
-    final data = child.parentData! as _DeskSlotData;
-    final factor = _factorOf(child);
-    if (factor <= 0) return;
-    if (factor >= 1) {
-      context.paintChild(child, data.offset + offset);
-      return;
-    }
-    // Half a slot shows the top half of the card, so it reads as being drawn
-    // out of the list rather than squashed into it.
-    context.pushClipRect(
-      needsCompositing,
-      offset + data.offset,
-      Offset.zero & Size(child.size.width, child.size.height * factor),
-      (innerContext, innerOffset) =>
-          innerContext.paintChild(child, innerOffset),
-    );
-  }
-
-  @override
-  bool hitTestChildren(BoxHitTestResult result, {required Offset position}) {
-    final children = getChildrenAsList();
-    final last = _paintLast;
-    if (last != null && last >= 0 && last < children.length) {
-      if (_hitTestChild(result, children[last], position)) return true;
-    }
-    for (var i = children.length - 1; i >= 0; i--) {
-      if (i == last) continue;
-      if (_hitTestChild(result, children[i], position)) return true;
-    }
-    return false;
-  }
-
-  bool _hitTestChild(
-    BoxHitTestResult result,
-    RenderBox child,
-    Offset position,
-  ) {
-    if (_factorOf(child) <= 0) return false;
-    final data = child.parentData! as _DeskSlotData;
-    return result.addWithPaintOffset(
-      offset: data.offset,
-      position: position,
-      hitTest: (result, transformed) =>
-          child.hitTest(result, position: transformed),
     );
   }
 }

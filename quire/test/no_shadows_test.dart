@@ -3,6 +3,8 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:quire/app.dart';
+import 'package:quire/screens/desk/desk_top_bar.dart';
+import 'package:quire/screens/desk/sort_row.dart';
 import 'package:quire/screens/reader/reader_host.dart';
 
 import 'support/fixtures.dart';
@@ -22,20 +24,24 @@ void main() {
       expectNoShadows(tester);
     });
 
-    testWidgets('the desk with a card lifted and its dock open', (
+    testWidgets('the desk with the drawer over it and the sort menu open', (
       tester,
     ) async {
       await pumpScreen(tester, const App());
       await settle(tester);
 
-      final card = find.byType(GestureDetector).first;
-      final gesture = await tester.startGesture(tester.getCenter(card));
-      await tester.pump(const Duration(milliseconds: 600));
-      await gesture.moveBy(const Offset(-60, 0));
-      await pumpMs(tester, 120);
-      expectNoShadows(tester);
-      await gesture.up();
+      await tester.tap(find.byType(HamburgerGlyph));
       await settle(tester);
+      expectNoShadows(tester);
+
+      await tester.tapAt(const Offset(380, 400));
+      await settle(tester);
+      await tester.tap(
+        find.descendant(of: find.byType(SortRow), matching: find.byType(Text))
+            .first,
+      );
+      await settle(tester);
+      expectNoShadows(tester);
     });
 
     for (final fileName in <String>[
@@ -67,7 +73,12 @@ void main() {
       'boxShadow:',
       'shadows:',
       'elevation:',
+      'Shadow(',
       'MaskFilter.blur',
+      // Not a shadow, but the same failure: chrome you can read the page
+      // through separates by blur instead of by value, and it costs a debug
+      // versus release difference no golden can pin down.
+      'BackdropFilter',
     ];
     final offenders = <String>[];
     for (final file in Directory('lib')

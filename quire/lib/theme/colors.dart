@@ -95,6 +95,17 @@ abstract final class AppColors {
   /// [found] at 0.56, the wash under the current match.
   static const foundLive = Color(0x8FF5C518);
 
+  // The person.
+
+  /// The avatar's ground in the top bar, and the one green in the app.
+  ///
+  /// It sits outside the purple family on purpose: purple is reserved for the
+  /// app acting, and the avatar stands for whoever is holding the phone, which
+  /// is the one thing on the bar that is not quire. Its letter is drawn in
+  /// [onAccent], because a second white would be a second decision about the
+  /// same colour.
+  static const avatar = Color(0xFF3B6B45);
+
   // Paper.
 
   /// A rendered PDF page, a grid card's thumbnail, and the signature pad,
@@ -106,6 +117,17 @@ abstract final class AppColors {
   /// Ink on [page]: what the PDF engine paints, and what a signature is drawn
   /// in.
   static const pageInk = Color(0xFF111111);
+
+  /// [pageInk] let down towards the paper, for the body text, the gridlines
+  /// and the rules of a thumbnail.
+  ///
+  /// A page drawn at a third of its size has every line of body text within a
+  /// point or two of every other, so setting all of it in solid [pageInk]
+  /// turns a document's shape into one block of grey. Holding the body back
+  /// from the headings is what lets a title, a table and a paragraph still be
+  /// told apart at that size. Derived from the two colours it sits between so
+  /// it can never drift away from either.
+  static final pageInkSoft = Color.lerp(page, pageInk, 0.45)!;
 
   /// The back of a sheet, uncovered by a fold, and the alternating row in a
   /// table, which is the same one small step off the sheet. It has to stay

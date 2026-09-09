@@ -10,21 +10,26 @@ import '../../widgets/press_fade.dart';
 /// The mark: a sheet with its corner turned, at the one size it is ever drawn.
 const kEmptyMarkWidth = 64.0;
 const kEmptyMarkHeight = 82.0;
-const kEmptyMarkTop = 340.0;
 const kEmptyMarkFoldInset = 18.0;
 
-/// Where the two lines and the pill sit.
-const kEmptyHeadlineTop = 436.0;
-const kEmptyBodyTop = 474.0;
+/// How far down its own box the block starts, and the gaps inside it.
+///
+/// It is measured from the top of the body rather than from the top of the
+/// screen, because the shell drops the tabs and the sort row when there is no
+/// library for them to be about, and a block pinned to the screen would move
+/// whenever that chrome did.
+const kEmptyBlockTop = 222.0;
+const kEmptyHeadlineGap = 14.0;
+const kEmptyBodyGap = 7.0;
 const kEmptyBodyWidth = 280.0;
-const kEmptyPillTop = 528.0;
+const kEmptyPillGap = 16.0;
 const kEmptyPillWidth = 148.0;
 const kEmptyPillHeight = 44.0;
 
 /// What the desk says when there is nothing on it.
 ///
 /// No watermark and no illustration: the mark is the app's own folded sheet at
-/// the size a real card's type mark is, and the rest of the screen stays warm
+/// the size a real document's type mark is, and the rest of the screen stays
 /// ground, because an empty desk is empty.
 class DeskEmpty extends StatelessWidget {
   const DeskEmpty({super.key, required this.onOpen});
@@ -35,36 +40,25 @@ class DeskEmpty extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Stack(
+    return Column(
       children: [
-        Positioned(
-          left: 0,
-          right: 0,
-          top: kEmptyMarkTop,
-          child: const Center(
-            child: PaperSheet(
-              width: kEmptyMarkWidth,
-              height: kEmptyMarkHeight,
-              foldInset: kEmptyMarkFoldInset,
-              foldCorner: Corner.bottomRight,
-              foldBackground: AppColors.ground,
-              foldColor: AppColors.leafFlap,
-            ),
-          ),
+        const SizedBox(height: kEmptyBlockTop),
+        const PaperSheet(
+          width: kEmptyMarkWidth,
+          height: kEmptyMarkHeight,
+          foldInset: kEmptyMarkFoldInset,
+          foldCorner: Corner.bottomRight,
+          foldBackground: AppColors.ground,
+          foldColor: AppColors.leafFlap,
         ),
-        Positioned(
-          left: 0,
-          right: 0,
-          top: kEmptyHeadlineTop,
-          child: Text(
-            'Nothing on the desk',
-            textAlign: TextAlign.center,
-            style: AppText.display.copyWith(color: AppColors.ink),
-          ),
+        const SizedBox(height: kEmptyHeadlineGap),
+        Text(
+          'Nothing on the desk',
+          textAlign: TextAlign.center,
+          style: AppText.display.copyWith(color: AppColors.ink),
         ),
-        Positioned(
-          left: (kScreenWidth - kEmptyBodyWidth) / 2,
-          top: kEmptyBodyTop,
+        const SizedBox(height: kEmptyBodyGap),
+        SizedBox(
           width: kEmptyBodyWidth,
           child: Text(
             'Documents you open live here. Every one keeps its place.',
@@ -72,24 +66,21 @@ class DeskEmpty extends StatelessWidget {
             style: AppText.bodyTight.copyWith(color: AppColors.inkSoft),
           ),
         ),
-        Positioned(
-          left: (kScreenWidth - kEmptyPillWidth) / 2,
-          top: kEmptyPillTop,
-          width: kEmptyPillWidth,
-          height: kEmptyPillHeight,
-          child: PaperPress(
-            onTap: onOpen,
-            semanticLabel: 'Open a document',
-            child: Container(
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: AppColors.accent,
-                borderRadius: BorderRadius.circular(kPillRadius),
-              ),
-              child: Text(
-                'Open a document',
-                style: AppText.label.copyWith(color: AppColors.onAccent),
-              ),
+        const SizedBox(height: kEmptyPillGap),
+        PaperPress(
+          onTap: onOpen,
+          semanticLabel: 'Open a document',
+          child: Container(
+            width: kEmptyPillWidth,
+            height: kEmptyPillHeight,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: AppColors.accent,
+              borderRadius: BorderRadius.circular(kPillRadius),
+            ),
+            child: Text(
+              'Open a document',
+              style: AppText.label.copyWith(color: AppColors.onAccent),
             ),
           ),
         ),

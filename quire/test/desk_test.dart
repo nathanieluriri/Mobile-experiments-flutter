@@ -8,7 +8,6 @@ import 'package:quire/pdf/document.dart';
 import 'package:quire/screens/desk/desk_colophon.dart';
 import 'package:quire/screens/desk/desk_screen.dart';
 import 'package:quire/screens/desk/document_card.dart';
-import 'package:quire/screens/desk/shelf_chips.dart';
 import 'package:quire/services/document_store.dart';
 
 import 'support/fixtures.dart';
@@ -145,78 +144,19 @@ void main() {
     expect(store.visible.single.fileName, kSubscribers);
   });
 
-  testWidgets('the desk lays out six cards, the shelves and the colophon',
-      (tester) async {
-    final store = await deskStore();
-    await pumpScreen(tester, deskApp(store));
-    await settle(tester);
-
-    expect(tester.getTopLeft(find.byType(DeskColophon)).dx, 20);
-    await capture(tester, 'desk__six');
-  });
-
-  testWidgets('the READING shelf leaves three cards and warm ground',
-      (tester) async {
-    final store = await deskStore();
-    await pumpScreen(tester, deskApp(store));
-    await settle(tester);
-
-    store.shelf = Shelf.reading;
-    await settle(tester);
-    await capture(tester, 'desk__three');
-  });
-
-  testWidgets('the wordmark collapses into the bar as the list goes under it',
-      (tester) async {
-    final store = await deskStore();
-    await pumpScreen(tester, deskApp(store));
-    await settle(tester);
-
-    final position =
-        tester.state<ScrollableState>(find.byType(Scrollable)).position;
-    // The collapse is only reachable if the list is taller than the viewport,
-    // which is what kDeskListBottomPadding is there to guarantee.
-    expect(position.maxScrollExtent, greaterThan(58));
-    position.jumpTo(58);
-    await tester.pump();
-    await capture(tester, 'desk__scrolled');
-  });
-
-  testWidgets('a shelf with nothing on it stands down rather than lying',
-      (tester) async {
-    // Nothing parsed and nothing read, so two of the three shelves are empty.
-    final store = LibraryStore();
-    await pumpScreen(tester, deskApp(store));
-    await settle(tester);
-
-    expect(store.countOn(Shelf.reading), 0);
-    expect(store.countOn(Shelf.signed), 0);
-    for (final shelf in <Shelf>[Shelf.reading, Shelf.signed]) {
-      final faded = tester.widget<Opacity>(
-        find
-            .ancestor(
-              of: find.text(shelfLabel(shelf)),
-              matching: find.byType(Opacity),
-            )
-            .first,
-      );
-      expect(faded.opacity, kEmptyShelfOpacity);
-    }
-    await tester.tap(find.text(shelfLabel(Shelf.reading)));
-    await settle(tester);
-    expect(store.shelf, Shelf.all);
-  });
-
   testWidgets('an empty desk shows the mark, the two lines and the pill',
       (tester) async {
     final store = await deskStore();
     await pumpScreen(tester, deskApp(store));
     await settle(tester);
 
+    // One at a time, the way the overflow menu takes them, so every row comes
+    // apart into its own dust and the desk is empty because six documents
+    // left rather than because the model was emptied behind its back.
     for (final entry in libraryEntries) {
       store.remove(entry);
+      await settle(tester);
     }
-    await settle(tester);
     expect(store.entries, isEmpty);
     await capture(tester, 'desk__empty');
   });

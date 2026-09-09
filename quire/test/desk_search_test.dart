@@ -1,17 +1,13 @@
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:lucide_icons_flutter/lucide_icons.dart';
-import 'package:quire/screens/desk/desk_search_field.dart';
-import 'package:quire/theme/metrics.dart';
+import 'package:quire/screens/desk/search_pill.dart';
 
 import 'desk_test.dart' show deskApp, deskStore;
 import 'support/golden.dart';
 
-/// Opens the field and lets it finish arriving.
+/// Puts the cursor in the pill, which is already on the bar.
 Future<void> openSearch(WidgetTester tester) async {
-  await tester.tap(find.byIcon(LucideIcons.search));
-  await tester.pump();
-  await pumpMs(tester, kSearchOpen.inMilliseconds);
+  await tester.tap(find.byType(SearchPill));
   await settle(tester);
 }
 
@@ -25,7 +21,7 @@ void main() {
     EditableText.debugDeterministicCursor = false;
   });
 
-  testWidgets('typing filters the desk and marks what matched', (tester) async {
+  testWidgets('typing in the pill filters the desk', (tester) async {
     final store = await deskStore();
     await pumpScreen(tester, deskApp(store));
     await settle(tester);

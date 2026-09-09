@@ -113,6 +113,66 @@ abstract final class AppText {
   /// Interface paragraphs, the whole back layer, search snippets.
   static final bodyTight = _text(size: 14, lineHeight: 19);
 
+  /// A list row's document title.
+  ///
+  /// One step down from [title] and set in the regular weight, because six
+  /// titles in a column set in semibold read as six headings rather than as a
+  /// list of six documents.
+  static final rowTitle = _text(size: 16, lineHeight: 20);
+
+  /// The search pill's placeholder and whatever is typed into it.
+  static final search = _text(size: 15, lineHeight: 20);
+
+  /// A drawer row's label, and the same label on the row you are standing on.
+  static final drawerRow = _text(size: 16, lineHeight: 21);
+  static final drawerRowSelected = _text(
+    size: 16,
+    lineHeight: 21,
+    weight: FontWeight.w500,
+  );
+
+  /// The current sort, on the left of the sort row.
+  static final sortLabel = _text(
+    size: 14,
+    lineHeight: 19,
+    weight: FontWeight.w500,
+  );
+
+  /// A sort menu row, and the one row in each group that carries a check.
+  static final menuRow = _text(size: 15, lineHeight: 20);
+  static final menuRowSelected = _text(
+    size: 15,
+    lineHeight: 20,
+    weight: FontWeight.w500,
+  );
+
+  /// The single letter in the top bar's avatar.
+  static final avatar = _text(
+    size: 15,
+    lineHeight: 20,
+    weight: FontWeight.w600,
+  );
+
+  /// A drawer destination's headline, and the sentence under it.
+  static final destinationTitle = _text(
+    size: 19,
+    lineHeight: 25,
+    weight: FontWeight.w600,
+  );
+  static final destinationBody = _text(size: 14, lineHeight: 20);
+
+  /// An action pill's label on the expanding button.
+  ///
+  /// [label] one size up: the pill is a control like every other, so it keeps
+  /// the control face and the control's own tightening rather than becoming a
+  /// second recipe at a second size.
+  static final actionPill = _text(
+    size: 15,
+    lineHeight: 20,
+    weight: FontWeight.w500,
+    letterSpacing: -0.1,
+  );
+
   /// A card's meta line.
   static final docMeta = _text(size: 13, lineHeight: 17);
 

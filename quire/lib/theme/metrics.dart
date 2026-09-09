@@ -525,6 +525,17 @@ const kOverflowTarget = 40.0;
 const kOverflowDot = 4.0;
 const kOverflowDotGap = 3.0;
 
+/// The overflow menu, hung off the three dots that opened it.
+///
+/// It borrows the sort menu's width, radius, row height and arrival, because
+/// the two are the same object asking about different things and a second set
+/// of numbers would make them look like two designs. What is its own is the
+/// gutter, which holds a glyph rather than a check, and the corner it grows
+/// from, which is the one nearest its own three dots.
+const kOverflowMenuGutter = 32.0;
+const kOverflowMenuGlyph = 17.0;
+const kOverflowMenuOffset = 4.0;
+
 /// A row's reading progress, inset to the title's left edge.
 const kListProgressWidth = 140.0;
 const kListProgressHeight = 2.0;
