@@ -34,6 +34,15 @@ const String kDocumentUnreadableLabel = 'THIS FILE HAS NO PAGES';
 /// of the band is to say that something is happening.
 const double kShimmerFirstFrame = 0.5;
 
+/// How many pages either side of the current one have their text layer
+/// extracted along with it.
+///
+/// One, because a fold can be started on the page a reader is on and finished
+/// on either the page before it or the page after it. Reaching further would
+/// buy nothing: a third page cannot be uncovered without another turn, and
+/// that turn brings its own extraction with it.
+const int kBackPrimeReach = 1;
+
 /// The family the painter sets a PDF's text in.
 ///
 /// It is Inter for both, because there is one family in this app and a reader
@@ -154,8 +163,17 @@ class PdfPages extends ChangeNotifier {
     return Size((box[2] - box[0]).abs(), (box[3] - box[1]).abs());
   });
 
-  /// True when [page] has been interpreted and is still held.
+  /// True when [page]'s display list is still in the cache.
   bool holds(int page) => _cache.holds(page);
+
+  /// True once [page] has been through the interpreter, whatever came out of
+  /// it.
+  ///
+  /// It is a different question from [holds]. A display list is evictable and
+  /// the lines pulled off it are not, so a page scrolled far enough out of the
+  /// cache to lose its pixels still knows what it says, and the back of the
+  /// sheet is built from what it says.
+  bool extracted(int page) => _plans.containsKey(page);
 
   /// Everything the reader needs to draw [page] right now.
   PdfPageRender pageAt(int page) {
@@ -202,13 +220,36 @@ class PdfPages extends ChangeNotifier {
     return _linesOf(page);
   }
 
-  /// The same lines, but only if the page has already been run.
+  /// The same lines, but only if the page's text layer has already been
+  /// pulled off it.
   ///
   /// This is what anything drawing during a build must use. Interpreting a
   /// page inside a build would make the loading state unreachable, because the
   /// first frame would already have paid for the page it claims to be waiting
-  /// for.
-  List<String>? heldLinesOf(int page) => holds(page) ? _linesOf(page) : null;
+  /// for. Null here means the page has never been read, which is why [prime]
+  /// exists: the current page is never in that state, so null on the current
+  /// page can only mean the page carries no text at all.
+  List<String>? heldLinesOf(int page) =>
+      extracted(page) ? _linesOf(page) : null;
+
+  /// Reads [page] and the [reach] pages either side of it now, so the back of
+  /// the sheet is built before a corner can be lifted.
+  ///
+  /// This is the one place that pays for a page before anything asks to draw
+  /// it, and it is paid because the sheet has two sides: a corner that turns
+  /// has to uncover the page's own words, and a text layer extracted lazily on
+  /// the first fold is a text layer that arrives one frame after the paper
+  /// moved. Interpreting a page costs well under the frame it is spent in, so
+  /// three of them are affordable while [runNext] still paces the rest of the
+  /// block one page per frame.
+  void prime(int page, {int reach = kBackPrimeReach}) {
+    var changed = _interpret(page);
+    for (var step = 1; step <= reach; step++) {
+      if (_interpret(page - step)) changed = true;
+      if (_interpret(page + step)) changed = true;
+    }
+    if (changed) notifyListeners();
+  }
 
   List<String> _linesOf(int page) =>
       <String>[for (final run in _runs[page] ?? const []) run.text];
@@ -267,6 +308,8 @@ class PdfPages extends ChangeNotifier {
   @override
   void dispose() {
     _cache.clear();
+    _runs.clear();
+    _plans.clear();
     super.dispose();
   }
 }
@@ -562,21 +605,25 @@ class PdfBody extends ReaderBody {
   Widget buildFront(BuildContext context) =>
       PdfPageBlock(store: store, pages: pages);
 
+  /// Makes the current page's text layer ready before a corner can move.
+  ///
+  /// The fold arms on a long press, so this runs while the paper is still
+  /// flat. By the time the corner lifts there is nothing left for the back to
+  /// wait for.
+  @override
+  void prepareBack() => pages.prime(store.position);
+
   /// The back of the page: its extracted text layer, in reading order.
   ///
-  /// A page nobody has read yet has an empty back rather than a claim about
-  /// it. `NO TEXT LAYER` is a finding, and it is only honest once the page has
-  /// actually been run.
+  /// The current page is extracted the frame it becomes current and again the
+  /// moment a fold arms, so a page with no lines here is a page that carries
+  /// no text at all. That is the scanned page, and [PdfTextBack] says so in
+  /// the document's own terms. It is never a flat fill: a fold that uncovered
+  /// blank paper would be the app contradicting the one thing it claims, which
+  /// is that a sheet has two sides.
   @override
-  Widget buildBack(BuildContext context) {
-    final lines = pages.heldLinesOf(store.position);
-    if (lines == null) {
-      return const SizedBox.expand(
-        child: ColoredBox(color: AppColors.leafBack),
-      );
-    }
-    return PdfTextBack(lines: lines);
-  }
+  Widget buildBack(BuildContext context) =>
+      PdfTextBack(lines: pages.heldLinesOf(store.position) ?? const <String>[]);
 
   @override
   int get unitCount => pages.pageCount;
@@ -694,6 +741,10 @@ class _PdfPageBlockState extends State<PdfPageBlock>
   void _afterFrame() {
     _scheduled = false;
     if (!mounted) return;
+    // The page the reader is on is the page whose words the back of the sheet
+    // shows, so it is extracted the frame it becomes the current one rather
+    // than the frame somebody folds it.
+    widget.pages.prime(widget.store.position);
     final (first, last) = _layout.visible(_offset, _viewport);
     final ran = widget.pages.runNext(first, last);
     if (ran != null && widget.pages.wantsImages(ran)) {

@@ -8,6 +8,7 @@ import 'package:quire/painting/pdf_page_painter.dart';
 import 'package:quire/pdf/document.dart';
 import 'package:quire/pdf/interpreter.dart';
 import 'package:quire/screens/reader/back_layer.dart';
+import 'package:quire/screens/reader/bodies/pdf_body.dart';
 import 'package:quire/screens/reader/reader_chrome.dart';
 import 'package:quire/screens/reader/reader_screen.dart';
 import 'package:quire/screens/reader/sheet_surface.dart';
@@ -125,7 +126,11 @@ void main() {
     });
 
     testWidgets('flip keyframes', (tester) async {
-      await _pumpReader(tester, back: const _PlainBack());
+      // The real reader on a real page file, front and back, because the whole
+      // claim of the fold is that the corner uncovers this page's own words.
+      // A stand in on either face would let a keyframe photograph an empty
+      // wedge for ever without anything failing.
+      await _pumpPdfReader(tester, kPressLease);
       final gesture = await tester.startGesture(sheetCornerHandle());
       await pumpMs(tester, 160);
       for (var i = 0; i < 10; i++) {
@@ -257,6 +262,28 @@ Future<DocumentStore> _pumpReader(
   return store;
 }
 
+/// The bundled page file open in the real reader, with the pages around the
+/// one it opens on already read.
+Future<DocumentStore> _pumpPdfReader(
+  WidgetTester tester,
+  String fileName,
+) async {
+  final store = await storeFor(fileName);
+  final pages = PdfPages.open(await documentBytes(fileName));
+  await pumpScreen(
+    tester,
+    MaterialApp(
+      debugShowCheckedModeBanner: false,
+      home: ReaderScreen(
+        store: store,
+        bodyBuilder: (context) => PdfBody(store: store, pages: pages),
+      ),
+    ),
+  );
+  await settle(tester);
+  return store;
+}
+
 /// A column of real paragraphs, so a fold has something to show through and a
 /// flip has something to hide.
 const _front = '''
@@ -281,24 +308,6 @@ None of this asks a reader to learn anything. A corner that lifts under a
 finger is a corner that lifts under a finger, and a stack of pages seen edge on
 is a stack of pages seen edge on. The whole vocabulary was already in the
 object.''';
-
-/// The other side of that column, so a keyframe of a fold shows two real
-/// faces rather than one face and a blank.
-class _PlainBack extends StatelessWidget {
-  const _PlainBack();
-
-  @override
-  Widget build(BuildContext context) {
-    return BackSurface(
-      child: Text(
-        'Grain direction is recorded on the reverse of every sheet in the '
-        'bindery, because by the time a leaf reaches a press nobody can tell '
-        'which way it was made by looking at it.',
-        style: AppText.bodyTight.copyWith(color: AppColors.inkSoft),
-      ),
-    );
-  }
-}
 
 /// A body of prose that fills the sheet, standing in for a real format.
 class _StubBody extends ReaderBody {

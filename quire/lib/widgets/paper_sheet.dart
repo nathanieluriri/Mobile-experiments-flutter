@@ -24,8 +24,6 @@ class PaperSheet extends StatelessWidget {
     this.foldCorner = Corner.bottomRight,
     this.foldBackground = AppColors.deskGround,
     this.foldColor = AppColors.leafFlap,
-    this.foldBackLayer,
-    this.foldShowThrough,
     this.child,
   });
 
@@ -44,15 +42,16 @@ class PaperSheet extends StatelessWidget {
 
   final Corner foldCorner;
 
-  /// What shows through where the corner has torn away.
+  /// What shows through where the corner has torn away, which on every sheet
+  /// that carries a resting fold is the desk under it.
+  ///
+  /// A sheet whose back holds something to read draws its own fold rather than
+  /// asking for one here: the reader puts the live widget tree of the back
+  /// into the torn region itself, and a desk card hands [FoldPainter] the
+  /// card's back the moment a finger starts turning it. Neither goes through
+  /// this widget, so there is no back layer for it to take.
   final Color foldBackground;
   final Color foldColor;
-
-  /// What the sheet holds on its back, drawn into the torn away region.
-  final CustomPainter? foldBackLayer;
-
-  /// The sheet's own front, redrawn on the flap mirrored about the fold line.
-  final CustomPainter? foldShowThrough;
 
   final Widget? child;
 
@@ -92,8 +91,6 @@ class PaperSheet extends StatelessWidget {
                         corner: foldCorner,
                         background: foldBackground,
                         flapColor: foldColor,
-                        backLayer: foldBackLayer,
-                        showThrough: foldShowThrough,
                       ),
                     ),
                   ),

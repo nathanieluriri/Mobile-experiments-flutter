@@ -5,7 +5,9 @@ import 'package:flutter/widgets.dart';
 import '../../painting/signature_painter.dart';
 import '../../pdf/pdf_search.dart';
 import '../../services/document_store.dart';
+import '../../theme/metrics.dart';
 import '../sign/placement_layer.dart';
+import 'bodies/page_states.dart';
 import 'bodies/pdf_body.dart';
 import 'bodies/prose_body.dart';
 import 'bodies/sheet_body.dart';
@@ -306,16 +308,20 @@ class _ReaderHostState extends State<ReaderHost> with TickerProviderStateMixin {
 /// It exists so the shell always has a body to ask, and it claims nothing: no
 /// units, no marks, and a label the chip never gets to print, because a
 /// document in either state carries neither chip nor strip.
+///
+/// Both faces are the loading band. A file that has not been read yet holds
+/// nothing on either side of itself, so turning its corner has to uncover the
+/// same answer the front is already giving rather than blank paper.
 class _NoBody extends ReaderBody {
   const _NoBody({required this.store});
 
   final DocumentStore store;
 
   @override
-  Widget buildFront(BuildContext context) => const SizedBox.expand();
+  Widget buildFront(BuildContext context) => const _UnreadSheet();
 
   @override
-  Widget buildBack(BuildContext context) => const SizedBox.expand();
+  Widget buildBack(BuildContext context) => const _UnreadSheet();
 
   @override
   int get unitCount => 0;
@@ -325,4 +331,20 @@ class _NoBody extends ReaderBody {
 
   @override
   List<double> get foreEdgeMarks => const <double>[];
+}
+
+/// The sheet of a document that is still being read, on either face.
+///
+/// It is the same band a page of a PDF shows while its content stream is being
+/// run, held at the frame a page first appears on, because there is no
+/// controller to sweep it and a document waits for its bytes rather than for a
+/// clock.
+class _UnreadSheet extends StatelessWidget {
+  const _UnreadSheet();
+
+  @override
+  Widget build(BuildContext context) => const PageShimmer(
+    size: Size(kSheetWidth, kSheetHeight),
+    progress: kShimmerFirstFrame,
+  );
 }

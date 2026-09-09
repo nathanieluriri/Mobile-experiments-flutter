@@ -11,6 +11,7 @@ import '../../../theme/metrics.dart';
 import '../../../theme/springs.dart';
 import '../sheet_surface.dart';
 import 'cell_bar.dart';
+import 'page_states.dart';
 import 'parse_strip.dart';
 import 'sheet_tabs.dart';
 import 'spine_table.dart';
@@ -103,6 +104,13 @@ class SheetBody extends ReaderBody {
   Widget buildFront(BuildContext context) =>
       SheetView(store: store, matches: matches);
 
+  /// The back of a grid: the same cells, showing what the file stores rather
+  /// than what the formatting makes of it.
+  ///
+  /// Both faces are built from the one parse the store is already holding, so
+  /// the back has nothing to load and is ready in the frame the front is. A
+  /// workbook with no grid in it says so on both faces, which is the only way
+  /// a fold here can uncover anything other than the document.
   @override
   Widget buildBack(BuildContext context) =>
       SheetView(store: store, matches: matches, face: SheetFace.back);
@@ -148,17 +156,12 @@ class SheetView extends StatefulWidget {
 
 class _SheetViewState extends State<SheetView>
     with TickerProviderStateMixin {
-  late final AnimationController _column = AnimationController(
-    vsync: this,
-    duration: kColumnOpen,
-    value: 1,
-  )..addListener(_repaint);
-
-  late final AnimationController _bar = AnimationController(
-    vsync: this,
-    duration: kCellBarIn,
-    reverseDuration: kCellBarOut,
-  )..addListener(_repaint);
+  /// Both are built in [initState] rather than lazily on first use, because a
+  /// sheet with no grid on it never reaches the part of the build that would
+  /// touch them, and a controller that first exists inside [dispose] is a
+  /// ticker created against a tree that has already gone.
+  late final AnimationController _column;
+  late final AnimationController _bar;
 
   /// The bar rises on its spring and leaves on a plain ease, because arriving
   /// is an object being lifted and leaving is a thing being put down.
@@ -194,6 +197,13 @@ class _SheetViewState extends State<SheetView>
   @override
   void initState() {
     super.initState();
+    _column = AnimationController(vsync: this, duration: kColumnOpen, value: 1)
+      ..addListener(_repaint);
+    _bar = AnimationController(
+      vsync: this,
+      duration: kCellBarIn,
+      reverseDuration: kCellBarOut,
+    )..addListener(_repaint);
     _sheet = SheetController.of(widget.store);
     _sheet.addListener(_onController);
     widget.store.addListener(_onStore);
@@ -339,12 +349,16 @@ class _SheetViewState extends State<SheetView>
   Widget build(BuildContext context) {
     final document = _document;
     if (document == null || document.sections.isEmpty) {
-      return const SizedBox.expand();
+      return _emptySheet();
     }
     final index = _sheetIndex;
     final section = document.sections[index];
     final table = _tableIn(section);
-    if (table == null) return const SizedBox.expand();
+    // A workbook sheet with no grid on it is a real thing to open, and it is
+    // the same nothing on both faces. Neither one is allowed to be a blank
+    // rectangle: a corner turned here has to uncover the same answer the
+    // front is giving.
+    if (table == null) return _emptySheet();
 
     final columns = _columnCount(table);
     _sheet.startOn(index, math.min(table.frozenColumns, columns - 1));
@@ -449,6 +463,11 @@ class _SheetViewState extends State<SheetView>
     }
     return math.max(1, columns);
   }
+
+  Widget _emptySheet() => TornPage(
+    size: const Size(kSheetWidth, kSheetHeight),
+    label: kDocumentEmptyLabel,
+  );
 
   int _bodyFrom(TableBlock table) {
     if (table.frozenRows > 0) return table.frozenRows;

@@ -48,6 +48,16 @@ abstract class ReaderBody extends StatelessWidget {
   /// source of a Markdown file, the stored values behind formatted cells.
   Widget buildBack(BuildContext context);
 
+  /// Makes whatever [buildBack] needs ready, called the moment a fold arms and
+  /// before the corner has moved a point.
+  ///
+  /// A body whose back is already built from what it is holding does nothing
+  /// here. A body that has to go and read something, which is the page file,
+  /// reads it now: the sheet is committed to having two sides, so the second
+  /// side cannot be a thing the app starts looking for once the paper is
+  /// already turning.
+  void prepareBack() {}
+
   /// Pages for a PDF, sections for prose, rows for a grid. It is the scale the
   /// fore edge is drawn against.
   int get unitCount;

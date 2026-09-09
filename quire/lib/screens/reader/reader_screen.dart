@@ -781,7 +781,13 @@ class _ReaderScreenState extends State<ReaderScreen>
               _CornerPeelRecognizer.new,
               (recognizer) {
                 recognizer.region = cornerRegion(_corner);
-                recognizer.onArm = _peelArm;
+                // The back is made ready on the arm rather than on the first
+                // move, so the frame the corner lifts on is already a frame
+                // with something under it.
+                recognizer.onArm = (at) {
+                  body.prepareBack();
+                  _peelArm(at);
+                };
                 recognizer.onUpdate = _peelUpdate;
                 recognizer.onEnd = _peelEnd;
               },

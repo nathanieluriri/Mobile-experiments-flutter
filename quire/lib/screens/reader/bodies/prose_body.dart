@@ -728,21 +728,41 @@ class ProseBody extends ReaderBody {
     for (final section in document.sections) ...section.blocks,
   ];
 
-  @override
-  Widget buildFront(BuildContext context) => ProseSheet(
-    store: store,
-    blocks: blocks,
-    assets: document.assets,
-    anchorBlock: anchorBlock,
-    foldBreaks: document.sourceFormat == 'md',
-  );
+  /// True when the parse produced a document with nothing in it, which a file
+  /// that is empty or holds only whitespace does.
+  bool get _empty => blocks.isEmpty;
 
   @override
+  Widget buildFront(BuildContext context) {
+    if (_empty) return _emptySheet();
+    return ProseSheet(
+      store: store,
+      blocks: blocks,
+      assets: document.assets,
+      anchorBlock: anchorBlock,
+      foldBreaks: document.sourceFormat == 'md',
+    );
+  }
+
+  /// The back of a flowing sheet: a Markdown file's own source, or the style
+  /// names a Word file stored behind its paragraphs.
+  ///
+  /// Both are read straight off the parse the front is drawn from, so the back
+  /// is ready in the same frame the front is and a fold never has to wait for
+  /// it. The empty file is the only case with nothing to show, and it says so
+  /// on both faces rather than turning over onto blank paper.
+  @override
   Widget buildBack(BuildContext context) {
+    if (_empty) return _emptySheet();
     final raw = source;
-    if (raw != null) return SourceBack(source: raw);
+    if (raw != null && raw.trim().isNotEmpty) return SourceBack(source: raw);
     return ProseBack(blocks: blocks);
   }
+
+  Widget _emptySheet() => TornPage(
+    size: const Size(kSheetWidth, kSheetHeight),
+    label: kDocumentEmptyLabel,
+  );
 
   @override
   int get unitCount => blocks.length;

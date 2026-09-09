@@ -6,6 +6,8 @@
 /// nothing reads a clock and nothing reaches outside the bundle.
 library;
 
+import 'dart:convert';
+
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:quire/data/library.dart';
@@ -168,3 +170,46 @@ ImageCmd imageCmd({
       height: height,
       seq: seq,
     );
+
+/// A genuine one page file whose only content is a filled rectangle.
+///
+/// It stands for the scanned page: a page the engine reads all the way
+/// through and which turns out to carry no text layer at all. None of the six
+/// bundled documents is one, and the back of a sheet has a designed answer for
+/// exactly that case, so the case has to exist somewhere for the answer to be
+/// tested against. The bytes are assembled here rather than checked in as a
+/// blob, so what makes this page textless is visible.
+Uint8List pageWithoutTextLayer() {
+  final content = ascii.encode('0 0 0 rg 72 72 468 648 re f\n');
+  final objects = <List<int>>[
+    ascii.encode('<< /Type /Catalog /Pages 2 0 R >>'),
+    ascii.encode('<< /Type /Pages /Kids [3 0 R] /Count 1 >>'),
+    ascii.encode(
+      '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] '
+      '/Resources << >> /Contents 4 0 R >>',
+    ),
+    <int>[
+      ...ascii.encode('<< /Length ${content.length} >>\nstream\n'),
+      ...content,
+      ...ascii.encode('\nendstream'),
+    ],
+  ];
+  final out = <int>[];
+  void add(String text) => out.addAll(ascii.encode(text));
+  add('%PDF-1.7\n');
+  final offsets = <int>[];
+  for (var i = 0; i < objects.length; i++) {
+    offsets.add(out.length);
+    add('${i + 1} 0 obj\n');
+    out.addAll(objects[i]);
+    add('\nendobj\n');
+  }
+  final startXref = out.length;
+  add('xref\n0 ${objects.length + 1}\n0000000000 65535 f \n');
+  for (final offset in offsets) {
+    add('${offset.toString().padLeft(10, '0')} 00000 n \n');
+  }
+  add('trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\n');
+  add('startxref\n$startXref\n%%EOF\n');
+  return Uint8List.fromList(out);
+}

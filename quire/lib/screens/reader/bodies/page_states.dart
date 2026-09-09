@@ -16,6 +16,14 @@ const String kImageLabel = 'IMAGE';
 /// What a page that would not interpret prints across itself.
 const String kPageDamagedLabel = 'THIS PAGE WILL NOT OPEN';
 
+/// What a file that opened and parsed, and turned out to hold nothing at all,
+/// prints across the sheet.
+///
+/// It is said on both faces. A file with nothing in it has nothing on its
+/// back either, and turning the corner of one has to uncover the same answer
+/// rather than blank paper.
+const String kDocumentEmptyLabel = 'THIS FILE IS EMPTY';
+
 /// How wide the scan card is, from section 11.7.
 const double kScanCardWidth = 320.0;
 
