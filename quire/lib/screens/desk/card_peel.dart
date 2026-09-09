@@ -13,7 +13,6 @@ import '../../services/document_store.dart';
 import '../../theme/colors.dart';
 import '../../theme/easings.dart';
 import '../../theme/metrics.dart';
-import '../../theme/shadows.dart';
 import '../../theme/springs.dart';
 import '../../widgets/action_dock.dart';
 import '../../widgets/press_fade.dart';
@@ -332,7 +331,7 @@ class _CardPeelState extends State<CardPeel> with TickerProviderStateMixin {
                   opacity: widget.hidden
                       ? 0
                       : (widget.dimmed ? kDimmedCardOpacity : 1),
-                  child: _card(lift),
+                  child: _card(),
                 ),
               ),
             ),
@@ -362,7 +361,7 @@ class _CardPeelState extends State<CardPeel> with TickerProviderStateMixin {
     );
   }
 
-  Widget _card(double lift) {
+  Widget _card() {
     final face = CardFacePainter(
       title: widget.entry.title,
       meta: cardMeta(widget.entry, widget.store),
@@ -372,7 +371,6 @@ class _CardPeelState extends State<CardPeel> with TickerProviderStateMixin {
     return PaperPress(
       onTap: widget.onOpen,
       semanticLabel: widget.entry.title,
-      borderRadius: kPeelableCorner,
       child: RepaintBoundary(
         key: widget.cardKey,
         child: SizedBox(
@@ -385,9 +383,6 @@ class _CardPeelState extends State<CardPeel> with TickerProviderStateMixin {
                 entry: widget.entry,
                 store: widget.store,
                 query: widget.query,
-                shadows: lift > 0
-                    ? AppShadows.leafLift(AppShadows.leafLiftAlpha * lift)
-                    : const <BoxShadow>[],
               ),
               Positioned.fill(
                 child: IgnorePointer(

@@ -2,7 +2,6 @@ import 'package:flutter/widgets.dart';
 
 import '../../painting/signature_painter.dart';
 import '../../theme/colors.dart';
-import '../../theme/shadows.dart';
 
 /// The scale handle's side, at the stamp's bottom right corner.
 const kStampHandle = 24.0;
@@ -16,11 +15,10 @@ const kStampHandleArm = 12.0;
 
 /// A signature that has been picked up but not yet set into the page.
 ///
-/// It draws three separate things over each other on purpose: the mark, the
-/// dashed outline that says it is still loose, and the shadow that says it is
-/// off the paper. Only the mark sits inside [inkKey], because the outline and
-/// the shadow are chrome, and chrome must not end up in the snapshot the
-/// grains of the absorb are made of.
+/// It draws two separate things over each other on purpose: the mark, and the
+/// dashed outline that says it is still loose. Only the mark sits inside
+/// [inkKey], because the outline is chrome, and chrome must not end up in the
+/// snapshot the grains of the absorb are made of.
 class SignatureStamp extends StatelessWidget {
   const SignatureStamp({
     super.key,
@@ -28,7 +26,6 @@ class SignatureStamp extends StatelessWidget {
     required this.inkKey,
     this.ink = 1,
     this.outline = 1,
-    this.shadow = 1,
     this.onDrag,
     this.onScale,
   });
@@ -45,9 +42,6 @@ class SignatureStamp extends StatelessWidget {
   /// How far in the dashed outline still is, 1 to 0 across [kStampOutlineFade].
   final double outline;
 
-  /// How much of [AppShadows.leafLift] is left under the mark.
-  final double shadow;
-
   /// Moves the whole stamp.
   final ValueChanged<Offset>? onDrag;
 
@@ -61,13 +55,6 @@ class SignatureStamp extends StatelessWidget {
       onPanUpdate: (details) => onDrag?.call(details.delta),
       child: Stack(
         children: <Widget>[
-          Positioned.fill(
-            child: IgnorePointer(
-              child: CustomPaint(
-                painter: _StampShadowPainter(mark: mark, opacity: shadow),
-              ),
-            ),
-          ),
           Positioned.fill(
             child: RepaintBoundary(
               key: inkKey,
@@ -125,33 +112,6 @@ class _StampInkPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_StampInkPainter old) =>
-      old.opacity != opacity || old.mark != mark;
-}
-
-/// The lift shadow, thrown by the mark's own shape rather than by a box.
-///
-/// A rectangle of shadow under a transparent mark would say a card is
-/// floating. What is floating is a signature.
-class _StampShadowPainter extends CustomPainter {
-  const _StampShadowPainter({required this.mark, required this.opacity});
-
-  final SignatureMark mark;
-  final double opacity;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    if (mark.isEmpty || opacity <= 0) return;
-    final lift = AppShadows.leafLift(AppShadows.leafLiftAlpha * opacity).first;
-    canvas.drawPath(
-      mark.pathIn(Offset.zero & size).shift(lift.offset),
-      Paint()
-        ..color = lift.color
-        ..maskFilter = MaskFilter.blur(BlurStyle.normal, lift.blurSigma),
-    );
-  }
-
-  @override
-  bool shouldRepaint(_StampShadowPainter old) =>
       old.opacity != opacity || old.mark != mark;
 }
 

@@ -371,8 +371,9 @@ const kFoldRest = Duration(milliseconds: 260);
 /// The placement outline leaving.
 const kStampOutlineFade = Duration(milliseconds: 160);
 
-/// The lift shadow relaxing to nothing.
-const kStampShadowRelax = Duration(milliseconds: 220);
+/// The chrome coming off a mark that has landed: the placement dim clearing
+/// and the dashed outline leaving, both read off this one span.
+const kStampSettle = Duration(milliseconds: 220);
 
 /// The baseline guide holding, then fading.
 const kSnapGuideHold = Duration(milliseconds: 220);

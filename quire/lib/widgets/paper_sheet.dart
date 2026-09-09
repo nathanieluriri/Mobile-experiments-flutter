@@ -3,8 +3,8 @@ import 'package:flutter/widgets.dart';
 import '../helpers/fold_geometry.dart';
 import '../painting/fold_painter.dart';
 import '../theme/colors.dart';
+import '../theme/edges.dart';
 import '../theme/metrics.dart';
-import '../theme/shadows.dart';
 
 /// A leaf of paper: the one rectangle every surface in the app is made of.
 ///
@@ -19,7 +19,6 @@ class PaperSheet extends StatelessWidget {
     this.height,
     this.color = AppColors.leaf,
     this.borderRadius = kPeelableCorner,
-    this.shadows,
     this.border,
     this.foldInset,
     this.foldCorner = Corner.bottomRight,
@@ -35,10 +34,9 @@ class PaperSheet extends StatelessWidget {
   final Color color;
   final BorderRadius borderRadius;
 
-  /// Defaults to [AppShadows.leafRest]. Pass an empty list for a sheet whose
-  /// shadow is drawn by something else, such as a [PaperPress] around it.
-  final List<BoxShadow>? shadows;
-
+  /// The hairline that tells the paper from the ground it is lying on.
+  /// Defaults to [AppEdges.all]. Pass a different one for a leaf that wants a
+  /// different edge, never null, because a leaf with no edge is a hole.
   final BoxBorder? border;
 
   /// How far in the resting fold sits, or null for a sheet with no fold.
@@ -64,18 +62,27 @@ class PaperSheet extends StatelessWidget {
       width: width,
       height: height,
       child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: color,
-          borderRadius: borderRadius,
-          boxShadow: shadows ?? AppShadows.leafRest(),
-          border: border,
-        ),
+        decoration: BoxDecoration(color: color, borderRadius: borderRadius),
         child: ClipRRect(
           borderRadius: borderRadius,
           child: Stack(
             fit: StackFit.passthrough,
             children: [
               ?child,
+              // Over the content and under the fold. Over, because a body that
+              // paints its own ground out to the edge would otherwise bury the
+              // rule; under, because a turned corner is not paper any more and
+              // must not be outlined as though it were.
+              Positioned.fill(
+                child: IgnorePointer(
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      borderRadius: borderRadius,
+                      border: border ?? AppEdges.all(context),
+                    ),
+                  ),
+                ),
+              ),
               if (foldInset case final inset?)
                 Positioned.fill(
                   child: IgnorePointer(

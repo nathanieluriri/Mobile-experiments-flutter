@@ -8,8 +8,8 @@ import 'dart:ui';
 /// standing on it. Nothing else in the app is ever coloured, which is what
 /// lets two hundred marks on a page read as density instead of confetti.
 abstract final class AppColors {
-  /// The desk. Everything sits on it, and it is dark enough that a sheet reads
-  /// as lifted with only a contact shadow.
+  /// The desk. Everything sits on it, and it is dark enough that a sheet of
+  /// [leaf] reads as lifted against it with no help from anything else.
   static const deskGround = Color(0xFFE5DED2);
 
   /// The scrim behind the riffle, and the ground showing through a tear.
@@ -52,9 +52,6 @@ abstract final class AppColors {
 
   /// Metadata, folios, column letters, placeholders, disabled glyphs.
   static const inkFaint = Color(0xFF9A9288);
-
-  /// The single colour every shadow is tinted with.
-  static const shadowInk = Color(0xFF4A3F2E);
 
   /// YOU: reading progress, the current page bar, a dog ear, the selected
   /// chip's underline, the selected cell's ring, the commit pill.

@@ -2,8 +2,8 @@ import 'package:flutter/widgets.dart';
 
 import '../theme/colors.dart';
 import '../theme/easings.dart';
+import '../theme/edges.dart';
 import '../theme/metrics.dart';
-import '../theme/shadows.dart';
 import '../theme/springs.dart';
 import '../theme/typography.dart';
 
@@ -208,7 +208,10 @@ class _DockButtonState extends State<DockButton> with TickerProviderStateMixin {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Transform.scale(scale: _currentScale, child: _circle()),
+                  Transform.scale(
+                    scale: _currentScale,
+                    child: _circle(context),
+                  ),
                   Padding(
                     padding: const EdgeInsets.only(top: kSpace8),
                     child: Opacity(
@@ -232,14 +235,14 @@ class _DockButtonState extends State<DockButton> with TickerProviderStateMixin {
     );
   }
 
-  Widget _circle() {
+  Widget _circle(BuildContext context) {
     return Container(
       width: kDockButtonSize,
       height: kDockButtonSize,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
         color: AppColors.leaf,
-        boxShadow: AppShadows.dock(),
+        border: AppEdges.all(context),
       ),
       child: Center(
         child: Icon(

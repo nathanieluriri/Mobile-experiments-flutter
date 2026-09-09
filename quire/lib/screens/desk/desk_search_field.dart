@@ -3,18 +3,10 @@ import 'package:flutter/widgets.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../theme/colors.dart';
+import '../../theme/edges.dart';
 import '../../theme/metrics.dart';
-import '../../theme/shadows.dart';
 import '../../theme/typography.dart';
 import '../../widgets/press_fade.dart';
-
-/// How opaque the closed button is, and how opaque the open field is.
-///
-/// Both sit over paper rather than over a blur, which on this palette is the
-/// same picture and one less way for a golden to disagree with a release
-/// build.
-const kSearchButtonFill = 0.94;
-const kSearchFieldFill = 0.96;
 
 /// The magnifier's size closed and open, and how far its ink drops as the
 /// field takes over the job of saying what this is.
@@ -59,16 +51,16 @@ class DeskSearchField extends StatelessWidget {
       color: AppColors.ink
           .withValues(alpha: 1 - (1 - kSearchGlyphFade) * open),
     );
-    final fill = AppColors.leaf.withValues(
-      alpha: kSearchButtonFill + (kSearchFieldFill - kSearchButtonFill) * open,
-    );
+    // Opaque, not a wash. This sits over the top card in the list and there is
+    // nothing under it now to say which surface is in front, so letting a title
+    // ghost through the fill would read as a rendering fault rather than as
+    // depth.
+    const fill = AppColors.leaf;
 
     if (open <= 0) {
       return PaperPress(
         onTap: onOpen,
-        shadow: false,
         semanticLabel: 'Search',
-        borderRadius: BorderRadius.circular(kFieldRadius),
         child: Container(
           width: kHeaderButtonSize,
           height: kHeaderButtonSize,
@@ -76,7 +68,7 @@ class DeskSearchField extends StatelessWidget {
           decoration: BoxDecoration(
             color: fill,
             borderRadius: BorderRadius.circular(kFieldRadius),
-            boxShadow: AppShadows.dock(),
+            border: AppEdges.all(context),
           ),
           child: glyph,
         ),
@@ -88,7 +80,7 @@ class DeskSearchField extends StatelessWidget {
       decoration: BoxDecoration(
         color: fill,
         borderRadius: BorderRadius.circular(kFieldRadius),
-        boxShadow: AppShadows.dock(),
+        border: AppEdges.all(context),
       ),
       child: Row(
         children: [
@@ -101,9 +93,7 @@ class DeskSearchField extends StatelessWidget {
             opacity: open,
             child: PaperPress(
               onTap: onClose,
-              shadow: false,
               semanticLabel: 'Close search',
-              borderRadius: BorderRadius.circular(kFieldRadius),
               child: const SizedBox(
                 width: kHeaderButtonSize,
                 height: kHeaderButtonSize,

@@ -2,8 +2,8 @@ import 'package:flutter/widgets.dart';
 
 import '../../painting/fore_edge_painter.dart';
 import '../../theme/colors.dart';
+import '../../theme/edges.dart';
 import '../../theme/metrics.dart';
-import '../../theme/shadows.dart';
 import '../../theme/typography.dart';
 
 /// How tall the bubble that follows a scrubbing thumb is.
@@ -103,7 +103,7 @@ class ForeEdgeBubble extends StatelessWidget {
       decoration: BoxDecoration(
         color: AppColors.leaf,
         borderRadius: BorderRadius.circular(kPillRadius),
-        boxShadow: AppShadows.leafRest(),
+        border: AppEdges.all(context),
       ),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,

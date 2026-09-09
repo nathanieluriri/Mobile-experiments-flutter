@@ -159,9 +159,7 @@ class _Chip extends StatelessWidget {
       child: PaperPress(
         onTap: empty ? null : () => onSelect(shelf),
         enabled: !empty,
-        shadow: false,
         semanticLabel: shelfLabel(shelf),
-        borderRadius: BorderRadius.circular(kChipRadius),
         child: Align(
           alignment: Alignment.topCenter,
           child: Padding(

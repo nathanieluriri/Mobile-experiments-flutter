@@ -2,17 +2,17 @@ import 'package:flutter/widgets.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../theme/colors.dart';
+import '../../theme/edges.dart';
 import '../../theme/metrics.dart';
-import '../../theme/shadows.dart';
 import '../../theme/typography.dart';
 import '../../widgets/press_fade.dart';
 
-/// How opaque floating chrome is over paper.
+/// Floating chrome is opaque paper with a hairline round it.
 ///
-/// The app draws no blur anywhere, and a solid fill at this alpha over the
-/// reading ground is indistinguishable from one, without the debug versus
-/// release hazard a blur brings to a golden.
-const kChromeFill = 0.94;
+/// The app draws no blur and casts no shadow, so a button that let the page
+/// under it show through would have nothing left saying which surface is in
+/// front. An opaque leaf fill and one rule is how a printed page marks off a
+/// panel from the text it lies on.
 
 /// Where the head band goes when it leaves: its top edge at y -52, which is
 /// exactly its own height above the screen.
@@ -119,16 +119,14 @@ class _HeaderButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return PaperPress(
       onTap: onTap,
-      shadow: false,
-      borderRadius: BorderRadius.circular(kHeaderButtonRadius),
       semanticLabel: semanticLabel,
       child: Container(
         width: kHeaderButtonSize,
         height: kHeaderButtonSize,
         decoration: BoxDecoration(
-          color: AppColors.leaf.withValues(alpha: kChromeFill),
+          color: AppColors.leaf,
           borderRadius: BorderRadius.circular(kHeaderButtonRadius),
-          boxShadow: AppShadows.dock(),
+          border: AppEdges.all(context),
         ),
         child: Center(
           child: Icon(icon, size: kChromeIcon, color: AppColors.ink),

@@ -120,7 +120,7 @@ class PlacementLayerState extends State<PlacementLayer>
   /// the two relaxations and each one reads its own share of it.
   late final AnimationController _settling = AnimationController(
     vsync: this,
-    duration: kStampShadowRelax,
+    duration: kStampSettle,
   );
 
   late final List<double> _baselines = <double>[
@@ -266,7 +266,7 @@ class PlacementLayerState extends State<PlacementLayer>
         final settled = easeOutQuad.transform(_settling.value);
         final outlineGone = easeOutQuad.transform(
           (_settling.value *
-                  kStampShadowRelax.inMilliseconds /
+                  kStampSettle.inMilliseconds /
                   kStampOutlineFade.inMilliseconds)
               .clamp(0.0, 1.0),
         );
@@ -317,7 +317,6 @@ class PlacementLayerState extends State<PlacementLayer>
                   inkKey: _inkKey,
                   ink: _committed ? 0 : 1,
                   outline: _committed ? 1 - outlineGone : 1,
-                  shadow: 1 - settled,
                   onDrag: _drag,
                   onScale: _scaleBy,
                 ),

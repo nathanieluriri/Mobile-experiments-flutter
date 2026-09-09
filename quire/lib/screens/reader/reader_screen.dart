@@ -10,8 +10,8 @@ import '../../services/document_store.dart';
 import '../../services/render_plan.dart';
 import '../../theme/colors.dart';
 import '../../theme/easings.dart';
+import '../../theme/edges.dart';
 import '../../theme/metrics.dart';
-import '../../theme/shadows.dart';
 import '../../theme/springs.dart';
 import 'corner_peel.dart';
 import 'document_states.dart';
@@ -673,14 +673,14 @@ class _ReaderScreenState extends State<ReaderScreen>
                           easeOutCubic.transform(_riffleCommit.value),
                         )!,
                         child: IgnorePointer(
+                          // The same leaf and the same hairline the sheet
+                          // itself wears, so the slot growing into the reader
+                          // is one object changing size, not two swapping.
                           child: DecoratedBox(
                             decoration: BoxDecoration(
                               color: AppColors.leaf,
                               borderRadius: kPeelableCorner,
-                              boxShadow: AppShadows.leafLift(
-                                AppShadows.leafLiftAlpha *
-                                    (1 - _riffleCommit.value),
-                              ),
+                              border: AppEdges.all(context),
                             ),
                           ),
                         ),

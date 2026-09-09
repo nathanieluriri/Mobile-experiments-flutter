@@ -45,10 +45,6 @@ class DeskEmpty extends StatelessWidget {
             child: PaperSheet(
               width: kEmptyMarkWidth,
               height: kEmptyMarkHeight,
-              shadows: <BoxShadow>[],
-              border: Border.fromBorderSide(
-                BorderSide(color: AppColors.rule, width: 1),
-              ),
               foldInset: kEmptyMarkFoldInset,
               foldCorner: Corner.bottomRight,
               foldBackground: AppColors.deskGround,
@@ -83,9 +79,7 @@ class DeskEmpty extends StatelessWidget {
           height: kEmptyPillHeight,
           child: PaperPress(
             onTap: onOpen,
-            shadow: false,
             semanticLabel: 'Open a document',
-            borderRadius: BorderRadius.circular(kPillRadius),
             child: Container(
               alignment: Alignment.center,
               decoration: BoxDecoration(

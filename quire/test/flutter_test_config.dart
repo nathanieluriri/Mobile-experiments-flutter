@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -13,19 +12,12 @@ const _packageFonts = <String, String>{
       'packages/lucide_icons_flutter/assets/lucide.ttf',
 };
 
-/// The default test binding paints every shadow as a hard silhouette. This one
-/// keeps the blur, so a golden shows the same soft shadow the app draws. Paper
-/// in this app is read by its edges, and a hard edge is the wrong edge.
-class _BlurredShadowsBinding extends AutomatedTestWidgetsFlutterBinding {
-  @override
-  bool get disableShadows => false;
-}
-
 /// Loads the fonts under assets/fonts and the icon font before any test runs,
 /// so goldens render real glyphs instead of the test harness placeholder font.
 Future<void> testExecutable(FutureOr<void> Function() testMain) async {
-  _BlurredShadowsBinding();
-  debugDisableShadows = false;
+  // The bundle is read below, before any test has had a chance to bring the
+  // binding up itself.
+  TestWidgetsFlutterBinding.ensureInitialized();
   final loaders = <String, FontLoader>{};
   final dir = Directory('assets/fonts');
   if (dir.existsSync()) {

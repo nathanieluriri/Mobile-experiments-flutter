@@ -133,7 +133,6 @@ class DocumentCard extends StatelessWidget {
     required this.entry,
     required this.store,
     this.query = '',
-    this.shadows,
   });
 
   final LibraryEntry entry;
@@ -144,9 +143,6 @@ class DocumentCard extends StatelessWidget {
   /// The desk search, marked wherever it appears in the title.
   final String query;
 
-  /// Overrides the sheet's resting shadow, for a card that has been picked up.
-  final List<BoxShadow>? shadows;
-
   @override
   Widget build(BuildContext context) {
     final held = store;
@@ -155,7 +151,6 @@ class DocumentCard extends StatelessWidget {
     return PaperSheet(
       width: kCardWidth,
       height: kCardHeight,
-      shadows: shadows,
       child: Stack(
         children: [
           Positioned(

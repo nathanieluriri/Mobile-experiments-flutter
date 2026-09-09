@@ -2,7 +2,6 @@ import 'package:flutter/widgets.dart';
 
 import '../../theme/colors.dart';
 import '../../theme/metrics.dart';
-import '../../theme/shadows.dart';
 import '../../theme/typography.dart';
 import '../../widgets/press_fade.dart';
 
@@ -50,11 +49,13 @@ class UndoPill extends StatelessWidget {
         child: SizedBox(
           width: kUndoPillWidth,
           height: kUndoPillHeight,
+          // The one piece of floating chrome that carries no hairline: at
+          // [AppColors.ink] it is the darkest thing on the desk by a wide
+          // margin, and an outline round it would only soften that.
           child: DecoratedBox(
             decoration: BoxDecoration(
               color: AppColors.ink,
               borderRadius: BorderRadius.circular(kPillRadius),
-              boxShadow: AppShadows.dock(),
             ),
             child: ClipRRect(
               borderRadius: BorderRadius.circular(kPillRadius),
@@ -78,10 +79,7 @@ class UndoPill extends StatelessWidget {
                         const SizedBox(width: kSpace12),
                         PaperPress(
                           onTap: onUndo,
-                          shadow: false,
                           semanticLabel: 'Undo',
-                          borderRadius:
-                              BorderRadius.circular(kInlineCodeRadius),
                           child: Text(
                             'UNDO',
                             style: AppText.label

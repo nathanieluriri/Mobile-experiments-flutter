@@ -4,8 +4,8 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../painting/signature_painter.dart';
 import '../../theme/colors.dart';
 import '../../theme/easings.dart';
+import '../../theme/edges.dart';
 import '../../theme/metrics.dart';
-import '../../theme/shadows.dart';
 import '../../theme/typography.dart';
 import '../../widgets/press_fade.dart';
 import 'sign_pad.dart';
@@ -174,8 +174,6 @@ class _SignScreenState extends State<SignScreen>
               child: PaperPress(
                 onTap: _commit,
                 enabled: hasInk,
-                shadow: false,
-                borderRadius: BorderRadius.circular(kPillRadius),
                 semanticLabel: 'Place the signature on the page',
                 child: DecoratedBox(
                   decoration: BoxDecoration(
@@ -208,8 +206,6 @@ class _BackPill extends StatelessWidget {
   Widget build(BuildContext context) {
     return PaperPress(
       onTap: onTap,
-      shadow: false,
-      borderRadius: BorderRadius.circular(kHeaderButtonRadius),
       semanticLabel: 'Back to the document',
       child: Container(
         width: kHeaderButtonSize,
@@ -217,7 +213,7 @@ class _BackPill extends StatelessWidget {
         decoration: BoxDecoration(
           color: AppColors.leaf,
           borderRadius: BorderRadius.circular(kHeaderButtonRadius),
-          boxShadow: AppShadows.dock(),
+          border: AppEdges.all(context),
         ),
         child: const Center(
           child: Icon(
@@ -253,8 +249,6 @@ class _Tool extends StatelessWidget {
       child: PaperPress(
         onTap: onTap,
         enabled: enabled,
-        shadow: false,
-        borderRadius: BorderRadius.circular(kChipRadius),
         semanticLabel: label,
         child: SizedBox(
           width: kSignToolSize,

@@ -6,8 +6,8 @@ import 'package:flutter/widgets.dart';
 import '../../helpers/tear_path.dart';
 import '../../painting/tear_painter.dart';
 import '../../theme/colors.dart';
+import '../../theme/edges.dart';
 import '../../theme/metrics.dart';
-import '../../theme/shadows.dart';
 import '../../theme/typography.dart';
 import '../../widgets/press_fade.dart';
 
@@ -77,7 +77,7 @@ class LockedSheet extends StatelessWidget {
       decoration: BoxDecoration(
         color: AppColors.leaf,
         borderRadius: kPeelableCorner,
-        boxShadow: AppShadows.leafRest(),
+        border: AppEdges.all(context),
       ),
       child: Center(
         child: Column(
@@ -105,8 +105,6 @@ class LockedSheet extends StatelessWidget {
             const SizedBox(height: kSpace20),
             PaperPress(
               onTap: onLeave,
-              shadow: false,
-              borderRadius: BorderRadius.circular(kPillRadius),
               semanticLabel: 'Back to the desk',
               child: Container(
                 width: kLockedButtonWidth,
@@ -196,7 +194,11 @@ class DamagedSheet extends StatelessWidget {
       height: kSheetHeight,
       child: Stack(
         children: [
-          Positioned.fill(child: CustomPaint(painter: _TornSheet(tear))),
+          Positioned.fill(
+            child: CustomPaint(
+              painter: _TornSheet(tear, edge: hairline(context)),
+            ),
+          ),
           Positioned(
             left: 0,
             right: 0,
@@ -243,35 +245,27 @@ class DamagedSheet extends StatelessWidget {
   }
 }
 
-/// The torn sheet itself, with the contact shadow a whole sheet would cast.
+/// The torn sheet itself, edged like every other sheet in the app.
 ///
-/// The shadow is drawn from the tear path rather than from a rectangle, so the
-/// missing part of the sheet is missing from its shadow too.
+/// [TearPainter] runs its own hairline along the tear, in [AppColors.damage],
+/// because that edge is the damage. The three edges that did not tear get the
+/// ordinary rule, so a ruined leaf is still recognisably the same stock as a
+/// whole one.
 class _TornSheet extends CustomPainter {
-  const _TornSheet(this.tear);
+  const _TornSheet(this.tear, {required this.edge});
 
   final List<Offset> tear;
 
+  /// One physical pixel at the view's device pixel ratio.
+  final double edge;
+
   @override
   void paint(Canvas canvas, Size size) {
-    final body = tornSheetPath(size.width, tear);
-    canvas.save();
-    canvas.translate(0, 3);
-    canvas.drawPath(
-      body,
-      Paint()
-        ..color = AppColors.shadowInk.withValues(alpha: 0.08)
-        ..maskFilter = MaskFilter.blur(
-          BlurStyle.normal,
-          blurForShadowRadius(10),
-        ),
-    );
-    canvas.restore();
-    TearPainter(tear: tear).paint(canvas, size);
+    TearPainter(tear: tear, edgeWidth: edge).paint(canvas, size);
   }
 
   @override
-  bool shouldRepaint(_TornSheet old) => old.tear != tear;
+  bool shouldRepaint(_TornSheet old) => old.tear != tear || old.edge != edge;
 }
 
 /// A word that acts, with nothing drawn around it.
@@ -286,8 +280,6 @@ class _TextButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return PaperPress(
       onTap: onTap,
-      shadow: false,
-      borderRadius: BorderRadius.circular(kChipRadius),
       semanticLabel: label,
       child: Padding(
         padding: const EdgeInsets.symmetric(

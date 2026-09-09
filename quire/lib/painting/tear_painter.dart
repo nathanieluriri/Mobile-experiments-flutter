@@ -15,6 +15,7 @@ class TearPainter extends CustomPainter {
     this.backColor = AppColors.leafBack,
     this.edgeColor = AppColors.damage,
     this.thickness = kTearThickness,
+    this.edgeWidth = 1,
   });
 
   /// The ragged edge, built once from `Random(42)` and held for the life of
@@ -32,16 +33,35 @@ class TearPainter extends CustomPainter {
 
   final double thickness;
 
+  /// How wide the sheet's own rule is, in logical units. One physical pixel at
+  /// the view's device pixel ratio.
+  final double edgeWidth;
+
   @override
   void paint(Canvas canvas, Size size) {
     if (tear.length < 2) {
       return;
     }
     final edge = tearEdgePath(tear);
+    final body = tornSheetPath(size.width, tear);
+    canvas.drawPath(body, Paint()..color = sheetColor);
+    // The whole outline, tear included. The exposed back and the damage
+    // hairline are drawn over the torn part straight after, so what survives
+    // of this is the rule along the three edges that did not give way.
+    //
+    // Clipped to the sheet and stroked at twice the width, which lands the
+    // rule wholly inside the paper. A centred stroke would straddle the sheet
+    // edge and spread one physical pixel across two.
+    canvas.save();
+    canvas.clipPath(body);
     canvas.drawPath(
-      tornSheetPath(size.width, tear),
-      Paint()..color = sheetColor,
+      body,
+      Paint()
+        ..color = AppColors.rule
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = edgeWidth * 2,
     );
+    canvas.restore();
     canvas.save();
     canvas.translate(0, thickness);
     canvas.drawPath(
@@ -67,5 +87,6 @@ class TearPainter extends CustomPainter {
       old.sheetColor != sheetColor ||
       old.backColor != backColor ||
       old.edgeColor != edgeColor ||
-      old.thickness != thickness;
+      old.thickness != thickness ||
+      old.edgeWidth != edgeWidth;
 }

@@ -112,8 +112,8 @@ void main() {
     });
 
     test('an empty page is drawn as an empty page', () {
-      // A PDF is allowed to hold a genuinely blank leaf. It gets the sheet, its
-      // rule and its shadow, which is not the same thing as a blank white
+      // A PDF is allowed to hold a genuinely blank leaf. It gets the sheet,
+      // its rule and its edge, which is not the same thing as a blank white
       // screen presented as a document.
       expect(planFor(blankPage(), encrypted: false, threw: false),
           RenderPlan.rich);

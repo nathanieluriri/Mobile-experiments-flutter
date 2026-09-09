@@ -1,8 +1,8 @@
 import 'package:flutter/widgets.dart';
 
 import '../../../theme/colors.dart';
+import '../../../theme/edges.dart';
 import '../../../theme/metrics.dart';
-import '../../../theme/shadows.dart';
 import '../../../theme/typography.dart';
 
 /// How much of the bar's right end is left empty.
@@ -50,10 +50,12 @@ class CellBar extends StatelessWidget {
           left: 12,
           right: kCellBarChipClearance,
         ),
+        // One rule along the top edge, and an opaque leaf fill under it. The
+        // bar covers the last row of the grid, so the rule is the whole of
+        // what says the row has been covered rather than recoloured.
         decoration: BoxDecoration(
           color: AppColors.leaf,
-          border: const Border(top: BorderSide(color: AppColors.rule)),
-          boxShadow: AppShadows.valueBar(),
+          border: Border(top: AppEdges.side(context)),
         ),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.center,

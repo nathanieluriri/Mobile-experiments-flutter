@@ -3,15 +3,10 @@ import 'package:flutter/widgets.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../../theme/colors.dart';
+import '../../../theme/edges.dart';
 import '../../../theme/metrics.dart';
-import '../../../theme/shadows.dart';
 import '../../../theme/typography.dart';
 import '../../../widgets/press_fade.dart';
-
-/// How opaque the field is over the page. Solid at this alpha over paper is
-/// the same picture a blur would give on this palette, without the debug
-/// versus release hazard a blur brings to a golden.
-const kFindFieldFill = 0.96;
 
 /// The magnifier closed, in the reader's own search pill, and open, once the
 /// words being typed are what should lead.
@@ -90,9 +85,9 @@ class FindField extends StatelessWidget {
     return Container(
       height: kFindFieldHeight,
       decoration: BoxDecoration(
-        color: ground.withValues(alpha: kFindFieldFill),
+        color: ground,
         borderRadius: BorderRadius.circular(kFieldRadius),
-        boxShadow: AppShadows.dock(),
+        border: AppEdges.all(context),
       ),
       child: Row(
         children: [
@@ -113,9 +108,7 @@ class FindField extends StatelessWidget {
             opacity: open,
             child: PaperPress(
               onTap: open <= 0 ? null : onClose,
-              shadow: false,
               semanticLabel: 'Close find',
-              borderRadius: BorderRadius.circular(kFieldRadius),
               child: SizedBox(
                 width: kFindCancelWidth,
                 height: kFindFieldHeight,

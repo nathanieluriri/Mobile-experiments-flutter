@@ -98,7 +98,7 @@ class SignPadController extends ChangeNotifier {
 /// The 362 x 240 sheet a signature is drawn on.
 ///
 /// It is paper like everything else in the app, which is why it carries a
-/// resting fold and a contact shadow rather than reading as an input field.
+/// resting fold and a hairline edge rather than reading as an input field.
 class SignPad extends StatefulWidget {
   const SignPad({super.key, required this.controller});
 

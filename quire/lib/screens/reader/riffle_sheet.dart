@@ -6,8 +6,8 @@ import '../../model/document.dart';
 import '../../painting/fold_painter.dart';
 import '../../services/document_store.dart';
 import '../../theme/colors.dart';
+import '../../theme/edges.dart';
 import '../../theme/metrics.dart';
-import '../../theme/shadows.dart';
 import '../../theme/typography.dart';
 import '../../widgets/card_marquee/card_marquee.dart';
 import '../../widgets/card_marquee/marquee_constants.dart';
@@ -206,16 +206,14 @@ class _RiffleSheetState extends State<RiffleSheet> {
             top: kRiffleHeaderTop - (kHeaderButtonSize - 11) / 2,
             child: PaperPress(
               onTap: widget.onClose,
-              shadow: false,
-              borderRadius: BorderRadius.circular(kHeaderButtonRadius),
               semanticLabel: 'Close the riffle',
               child: Container(
                 width: kHeaderButtonSize,
                 height: kHeaderButtonSize,
                 decoration: BoxDecoration(
-                  color: AppColors.leaf.withValues(alpha: kChromeFill),
+                  color: AppColors.leaf,
                   borderRadius: BorderRadius.circular(kHeaderButtonRadius),
-                  boxShadow: AppShadows.dock(),
+                  border: AppEdges.all(context),
                 ),
                 child: const Center(
                   child: Icon(
@@ -319,12 +317,13 @@ class _Thumbnail extends StatelessWidget {
     return Container(
       width: kRiffleThumbWidth,
       height: kRiffleThumbHeight,
+      // Every slot carries the same hairline, centred or not. The stack
+      // overlaps leaf on leaf, and without an edge on each one a run of
+      // thumbnails would read as a single tall sheet.
       decoration: BoxDecoration(
         color: AppColors.leaf,
         borderRadius: kPeelableCorner,
-        boxShadow: centred
-            ? AppShadows.leafLift(AppShadows.leafLiftAlpha)
-            : AppShadows.leafRest(),
+        border: AppEdges.all(context),
       ),
       child: ClipRRect(
         borderRadius: kPeelableCorner,
@@ -365,9 +364,7 @@ class _Card extends StatelessWidget {
       decoration: BoxDecoration(
         color: AppColors.leaf,
         borderRadius: BorderRadius.circular(kLeafRadius),
-        boxShadow: centred
-            ? AppShadows.leafLift(AppShadows.leafLiftAlpha)
-            : AppShadows.leafRest(),
+        border: AppEdges.all(context),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,

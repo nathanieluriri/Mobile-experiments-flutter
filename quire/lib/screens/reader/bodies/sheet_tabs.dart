@@ -58,8 +58,6 @@ class _Tab extends StatelessWidget {
   Widget build(BuildContext context) {
     return PaperPress(
       onTap: onTap,
-      shadow: false,
-      borderRadius: BorderRadius.circular(kChipRadius),
       semanticLabel: name,
       child: Container(
         alignment: Alignment.center,

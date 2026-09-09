@@ -516,9 +516,7 @@ class _Chevron extends StatelessWidget {
   Widget build(BuildContext context) {
     return PaperPress(
       onTap: onTap,
-      shadow: false,
       semanticLabel: label,
-      borderRadius: BorderRadius.circular(kChipRadius),
       child: Opacity(
         opacity: onTap == null ? kChevronDisabled : 1,
         child: SizedBox(

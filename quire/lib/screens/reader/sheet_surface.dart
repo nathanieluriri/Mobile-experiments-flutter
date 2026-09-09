@@ -2,8 +2,8 @@ import 'package:flutter/widgets.dart';
 
 import '../../helpers/fold_geometry.dart';
 import '../../theme/colors.dart';
+import '../../theme/edges.dart';
 import '../../theme/metrics.dart';
-import '../../theme/shadows.dart';
 import 'corner_peel.dart';
 
 /// The reading sheet's rectangle on screen.
@@ -101,7 +101,8 @@ class PlacementSlot extends StatelessWidget {
 }
 
 /// The 372 x 714 leaf the whole reader is built on: its fill, its one square
-/// corner, its contact shadow, and the fold that corner carries.
+/// corner, the hairline that tells it from the desk, and the fold that corner
+/// carries.
 ///
 /// The sheet clips its own content, so a page that is taller than the leaf
 /// scrolls inside it rather than over the desk, and the fold is drawn last so
@@ -115,7 +116,6 @@ class SheetSurface extends StatelessWidget {
     this.foldPoint,
     this.restInset = kFoldRestInset,
     this.caught = false,
-    this.shadows,
   });
 
   /// The face that is up.
@@ -135,36 +135,54 @@ class SheetSurface extends StatelessWidget {
   /// True once a dog ear has caught, which lights the fold line.
   final bool caught;
 
-  final List<BoxShadow>? shadows;
-
   @override
   Widget build(BuildContext context) {
     final showing = side == SheetSide.front ? front : back;
     final hidden = side == SheetSide.front ? back : front;
-    return Container(
+    return SizedBox(
       width: kSheetWidth,
       height: kSheetHeight,
-      decoration: BoxDecoration(
-        color: AppColors.leaf,
-        borderRadius: kPeelableCorner,
-        boxShadow: shadows ?? AppShadows.leafRest(),
-      ),
-      child: ClipRRect(
-        borderRadius: kPeelableCorner,
-        // A body starts at the sheet's own top edge. Without this it would
-        // inherit the screen's safe area as content padding and every format
-        // would begin 62 points down its own page.
-        child: MediaQuery.removePadding(
-          context: context,
-          removeTop: true,
-          removeBottom: true,
-          child: CornerPeel(
-            corner: side.restCorner,
-            point: foldPoint,
-            restInset: restInset,
-            caught: caught,
-            back: hidden,
-            child: showing,
+      child: DecoratedBox(
+        decoration: const BoxDecoration(
+          color: AppColors.leaf,
+          borderRadius: kPeelableCorner,
+        ),
+        child: ClipRRect(
+          borderRadius: kPeelableCorner,
+          // A body starts at the sheet's own top edge. Without this it would
+          // inherit the screen's safe area as content padding and every format
+          // would begin 62 points down its own page.
+          child: MediaQuery.removePadding(
+            context: context,
+            removeTop: true,
+            removeBottom: true,
+            child: CornerPeel(
+              corner: side.restCorner,
+              point: foldPoint,
+              restInset: restInset,
+              caught: caught,
+              back: hidden,
+              // The face carries the sheet's rule rather than the sheet
+              // carrying it, so the hairline lands over a grid that paints its
+              // own header out to the edge, and still disappears where the
+              // corner turns down.
+              child: Stack(
+                fit: StackFit.passthrough,
+                children: <Widget>[
+                  showing,
+                  Positioned.fill(
+                    child: IgnorePointer(
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          borderRadius: kPeelableCorner,
+                          border: AppEdges.all(context),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ),
         ),
       ),

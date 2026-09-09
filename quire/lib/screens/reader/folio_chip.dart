@@ -1,11 +1,10 @@
 import 'package:flutter/widgets.dart';
 
 import '../../theme/colors.dart';
+import '../../theme/edges.dart';
 import '../../theme/metrics.dart';
-import '../../theme/shadows.dart';
 import '../../theme/typography.dart';
 import '../../widgets/digit_roll.dart';
-import 'reader_chrome.dart';
 
 /// How wide the dog ear tick on the chip is drawn.
 const kFolioTick = 3.0;
@@ -43,9 +42,12 @@ class FolioChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Opaque at both ends of the tint. The chip lands squarely on body text,
+    // and a number you can read the page through is the one thing here that
+    // would look like a bug rather than like a chip.
     final fill = Color.lerp(
-      AppColors.leaf.withValues(alpha: kChromeFill),
-      AppColors.thread.withValues(alpha: kChromeFill),
+      AppColors.leaf,
+      AppColors.thread,
       tint.clamp(0, 1),
     )!;
     final ink = Color.lerp(AppColors.ink, AppColors.leaf, tint.clamp(0, 1))!;
@@ -57,7 +59,7 @@ class FolioChip extends StatelessWidget {
         decoration: BoxDecoration(
           color: fill,
           borderRadius: BorderRadius.circular(kPillRadius),
-          boxShadow: AppShadows.dock(),
+          border: AppEdges.all(context),
         ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
