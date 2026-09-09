@@ -27,6 +27,14 @@ gathers them back into the gap they left.
   on the page.
 - **Signing** a PDF: draw a signature, place it, and it snaps to the rule it
   belongs on.
+- **Protected PDFs** open on the password that unlocks them. A file locked only
+  against printing or copying opens with nothing asked for at all, which is
+  most of them. The password is used and dropped: it is never stored and it
+  never leaves the phone.
+
+A file this version cannot decrypt says which cipher sealed it, and a password
+protected Word or Excel file is called protected rather than damaged, because
+an intact document should never be described as a broken one.
 
 ## Run
 

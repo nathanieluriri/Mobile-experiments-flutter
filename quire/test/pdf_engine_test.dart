@@ -6,6 +6,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:quire/painting/pdf_page_painter.dart';
+import 'package:quire/pdf/crypt.dart';
 import 'package:quire/pdf/display_list.dart';
 import 'package:quire/pdf/document.dart';
 import 'package:quire/pdf/encodings.dart';
@@ -439,15 +440,28 @@ endbfrange
           reason: 'encryption is decided by the value, never by the key');
     });
 
-    test('a trailer with a real /Encrypt reports the file as encrypted', () {
-      final doc = PdfFile.open(buildPdf([
+    test('a trailer with a real /Encrypt does not open on a guess', () {
+      // The dictionary carries no /O and no /U, so no password can be checked
+      // against it and none is claimed to have been tried. Handing back a page
+      // tree read through a key nothing verified would be the failure that
+      // looks like success: uniform noise presented as a document.
+      final bytes = buildPdf([
         obj('<< /Type /Catalog /Pages 2 0 R >>'),
         obj('<< /Type /Pages /Kids [3 0 R] /Count 1 >>'),
         obj('<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>'),
         obj('<< /Filter /Standard /V 2 /R 3 >>'),
-      ], trailerExtra: '/Encrypt 4 0 R '));
-      expect(doc.encrypted, isTrue);
-      expect(doc.pageCount, 1);
+      ], trailerExtra: '/Encrypt 4 0 R ');
+      expect(
+        () => PdfFile.open(bytes),
+        throwsA(
+          isA<PdfLocked>()
+              .having((e) => e.cipher, 'cipher', kCipherRc4)
+              .having((e) => e.wrongPassword, 'wrongPassword', isFalse),
+        ),
+      );
+      final security = PdfFile.securityOf(bytes)!;
+      expect(security.version, 2);
+      expect(security.revision, 3);
     });
 
     test('a stream whose /Length lies is recovered by finding endstream', () {

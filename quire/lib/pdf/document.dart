@@ -1,7 +1,27 @@
 import 'dart:typed_data';
+import 'crypt.dart';
 import 'filters.dart';
 import 'lexer.dart';
 import 'objects.dart';
+
+/// Thrown when the file is encrypted and the password did not open it.
+///
+/// [wrongPassword] is false when no password was supplied at all, and true
+/// when one was supplied and rejected, so the reader can tell "locked" from
+/// "that is not the password" and ask the right question.
+class PdfLocked implements Exception {
+  const PdfLocked({required this.wrongPassword, required this.cipher});
+
+  final bool wrongPassword;
+
+  /// [kCipherRc4] when this reader can decrypt the file given the right
+  /// password, or the cipher's own name when it cannot, for example `AESV2`.
+  final String cipher;
+
+  @override
+  String toString() =>
+      'PdfLocked(cipher: $cipher, wrongPassword: $wrongPassword)';
+}
 
 class XrefEntry {
   XrefEntry.offset(this.offset)
@@ -28,9 +48,54 @@ class PdfFile {
   final Map<int, List<Object?>> _objStmCache = {};
   Map<String, Object?> trailer = {};
   bool recoveredByScan = false;
+
+  /// True when the trailer carries an /Encrypt dictionary, whether or not the
+  /// file went on to open.
   bool encrypted = false;
 
-  static PdfFile open(Uint8List bytes) {
+  PdfCrypt? _crypt;
+  int? _encryptNumber;
+
+  /// The security handler this file was opened with, or null when it carries
+  /// no encryption. It is what the revision and the cipher are read from.
+  PdfSecurity? get security => _crypt?.security;
+
+  /// True when the file is encrypted and no key was found for it. [open]
+  /// throws rather than returning such a file, so this is false on every
+  /// instance a caller ever holds. It stays here because the fallback ladder
+  /// asks the question and an expression that answers by construction is
+  /// better than one that answers by luck.
+  bool get locked => encrypted && _crypt == null;
+
+  /// Opens [bytes]. Throws [PdfLocked] when the file is encrypted and neither
+  /// the empty password nor [password] opens it.
+  ///
+  /// The empty password is always tried first. Most protected files in the
+  /// wild carry only an owner password, restricting printing or copying, and
+  /// their user password is empty, so a conforming reader opens them with no
+  /// prompt at all. Refusing those would be refusing files we can simply read.
+  static PdfFile open(Uint8List bytes, {String password = ''}) {
+    final doc = _read(bytes);
+    if (doc.encrypted) doc._unlock(password);
+    return doc;
+  }
+
+  /// The security handler of [bytes] without trying any password, or null when
+  /// the file carries no encryption.
+  ///
+  /// A file this reader cannot open still has something true to say about
+  /// itself: which handler locked it, and at which revision. Reading that
+  /// costs the xref chain alone and no object at all.
+  static PdfSecurity? securityOf(Uint8List bytes) {
+    final doc = _read(bytes);
+    if (!doc.encrypted) return null;
+    final dictionary = doc.dict(doc.trailer['Encrypt']);
+    if (dictionary == null) return null;
+    return PdfSecurity.read(dictionary, doc.resolve);
+  }
+
+  /// The xref chain and the trailer, with nothing decrypted yet.
+  static PdfFile _read(Uint8List bytes) {
     final doc = PdfFile._(bytes);
     try {
       doc._readXrefChain();
@@ -43,6 +108,123 @@ class PdfFile {
     }
     doc.encrypted = doc.trailer['Encrypt'] != null;
     return doc;
+  }
+
+  // ------------------------------------------------------------ decryption
+
+  /// Finds the file key, or throws [PdfLocked] saying which of the two things
+  /// went wrong: a cipher we do not implement, or a password we do not have.
+  void _unlock(String password) {
+    final entry = trailer['Encrypt'];
+    if (entry is PdfRef) _encryptNumber = entry.number;
+    final dictionary = dict(entry);
+    if (dictionary == null) {
+      throw const PdfLocked(wrongPassword: false, cipher: 'unknown');
+    }
+
+    final security = PdfSecurity.read(dictionary, resolve);
+    if (security.cipher != kCipherRc4) {
+      // Reporting the cipher by name is the honest answer. Attempting AES with
+      // an RC4 handler would produce a page of noise and call it a document.
+      throw PdfLocked(wrongPassword: false, cipher: security.cipher);
+    }
+
+    final id = _firstId();
+    final crypt =
+        _tryPassword(security, id, '') ??
+        (password.isEmpty ? null : _tryPassword(security, id, password));
+    if (crypt == null) {
+      throw PdfLocked(
+        wrongPassword: password.isNotEmpty,
+        cipher: security.cipher,
+      );
+    }
+
+    _crypt = crypt;
+    // Everything parsed while the key was still unknown was parsed in cipher
+    // text, including whatever the catalogue walk touched, so the caches start
+    // again now that objects can be read.
+    _cache.clear();
+    _objStmCache.clear();
+    _pages = null;
+  }
+
+  PdfCrypt? _tryPassword(PdfSecurity security, Uint8List id, String password) {
+    final bytes = _passwordBytes(password);
+    return PdfCrypt.unlock(security, id, padPassword(bytes)) ??
+        PdfCrypt.unlockAsOwner(security, id, bytes);
+  }
+
+  /// A password is bytes, not text: the handler pads Latin-1 code units, so a
+  /// character past 255 is taken a byte at a time rather than silently
+  /// truncated to something that would never match.
+  static Uint8List _passwordBytes(String password) {
+    final out = Uint8List(password.length);
+    for (var i = 0; i < password.length; i++) {
+      out[i] = password.codeUnitAt(i) & 0xff;
+    }
+    return out;
+  }
+
+  /// The first element of the trailer's /ID array, which Algorithm 2 mixes
+  /// into the key. It is not itself encrypted.
+  Uint8List _firstId() {
+    final id = resolve(trailer['ID']);
+    if (id is List && id.isNotEmpty) {
+      final first = resolve(id.first);
+      if (first is PdfString) return first.bytes;
+    }
+    return Uint8List(0);
+  }
+
+  /// Replaces every string, and a stream's bytes, with their clear text.
+  ///
+  /// Two objects are never decrypted: the /Encrypt dictionary, which is stored
+  /// in clear by definition, and an /XRef stream, which has to be readable
+  /// before a key exists at all. Decrypting either makes a sound file look
+  /// corrupt, which is the worst of the failures because it points nowhere.
+  Object? _decrypt(Object? object, int number, int generation) {
+    final crypt = _crypt;
+    if (crypt == null || number == _encryptNumber) return object;
+
+    if (object is PdfStream) {
+      final dictionary = _decryptStrings(object.dict, crypt, number, generation)
+          as Map<String, Object?>;
+      if (!crypt.security.encryptStreams ||
+          dictionary['Type'] == const PdfName('XRef')) {
+        return PdfStream(dictionary, object.raw);
+      }
+      return PdfStream(
+        dictionary,
+        crypt.decrypt(object.raw, number, generation),
+      );
+    }
+    return _decryptStrings(object, crypt, number, generation);
+  }
+
+  Object? _decryptStrings(
+    Object? value,
+    PdfCrypt crypt,
+    int number,
+    int generation,
+  ) {
+    if (!crypt.security.encryptStrings) return value;
+    if (value is PdfString) {
+      return PdfString(crypt.decrypt(value.bytes, number, generation));
+    }
+    if (value is List) {
+      for (var i = 0; i < value.length; i++) {
+        value[i] = _decryptStrings(value[i], crypt, number, generation);
+      }
+      return value;
+    }
+    if (value is Map<String, Object?>) {
+      for (final key in value.keys.toList()) {
+        value[key] = _decryptStrings(value[key], crypt, number, generation);
+      }
+      return value;
+    }
+    return value;
   }
 
   // ---------------------------------------------------------------- xref
@@ -207,7 +389,7 @@ class PdfFile {
     if (a is! int || b is! int || kw is! PdfKeyword || kw.value != 'obj') {
       return null;
     }
-    return _parseObjectBody(lx);
+    return _decrypt(_parseObjectBody(lx), a, b);
   }
 
   Object? _parseObjectBody(PdfLexer lx) {

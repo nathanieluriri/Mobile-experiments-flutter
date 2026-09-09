@@ -5,6 +5,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
+import '../../format/document_loader.dart';
 import '../../helpers/fold_geometry.dart';
 import '../../services/document_store.dart';
 import '../../services/render_plan.dart';
@@ -17,6 +18,7 @@ import 'corner_peel.dart';
 import 'document_states.dart';
 import 'folio_chip.dart';
 import 'fore_edge.dart';
+import 'password_sheet.dart';
 import 'reader_chrome.dart';
 import 'riffle_sheet.dart';
 import 'sheet_surface.dart';
@@ -96,6 +98,9 @@ class ReaderScreen extends StatefulWidget {
     required this.bodyBuilder,
     this.plan,
     this.damageReason,
+    this.wrongPassword,
+    this.cipher,
+    this.onUnlock,
     this.placement,
     this.overlay,
     this.riffleItems,
@@ -123,6 +128,16 @@ class ReaderScreen extends StatefulWidget {
 
   /// The one honest line a damaged sheet prints.
   final String? damageReason;
+
+  /// Overrides whether the password sheet is showing its second message.
+  final bool? wrongPassword;
+
+  /// Overrides what sealed the file, for the sheet that names it.
+  final String? cipher;
+
+  /// Handed a typed password. It defaults to the store's own retry, which
+  /// reopens the document with it.
+  final ValueChanged<String>? onUnlock;
 
   /// What is being placed on the page, if anything.
   final Widget? placement;
@@ -549,10 +564,15 @@ class _ReaderScreenState extends State<ReaderScreen>
         _fractionOf(mark.pageIndex, unitCount),
     ];
     final position = _fractionOf(_store.position, unitCount);
-    // A locked or damaged document has no position to be in, so it carries
+    // A protected or damaged document has no position to be in, so it carries
     // neither the strip nor the chip: an empty pill floating over a torn sheet
     // would be the app insisting on chrome it cannot fill.
-    final readable = plan != RenderPlan.locked && plan != RenderPlan.damaged;
+    const unreadable = <RenderPlan>{
+      RenderPlan.needsPassword,
+      RenderPlan.unsupportedCipher,
+      RenderPlan.damaged,
+    };
+    final readable = !unreadable.contains(plan);
 
     return PopScope(
       // Pressing back while the riffle is up closes the riffle rather than
@@ -721,8 +741,19 @@ class _ReaderScreenState extends State<ReaderScreen>
   /// The sheet, or the designed state that stands in for it.
   Widget _sheetFor(RenderPlan plan, ReaderBody body, Offset? foldPoint) {
     switch (plan) {
-      case RenderPlan.locked:
-        return LockedSheet(onLeave: _leave);
+      case RenderPlan.needsPassword:
+        return PasswordSheet(
+          rejected: widget.wrongPassword ?? _store.wrongPassword,
+          onSubmit: widget.onUnlock ?? _store.unlock,
+          onLeave: _leave,
+        );
+      case RenderPlan.unsupportedCipher:
+        final cipher = widget.cipher ?? _store.cipher;
+        return UnsupportedCipherSheet(
+          cipher: cipher,
+          office: cipher == kOfficeCipher,
+          onLeave: _leave,
+        );
       case RenderPlan.damaged:
         return DamagedSheet(
           reason: widget.damageReason ?? damageReasonFor(_store.error),

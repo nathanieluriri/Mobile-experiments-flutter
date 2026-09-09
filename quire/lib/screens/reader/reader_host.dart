@@ -116,7 +116,7 @@ class _ReaderHostState extends State<ReaderHost> with TickerProviderStateMixin {
     // engine on the next frame rather than inside the notification that
     // announced it, because opening one writes the page count straight back to
     // the store that is still handing out that notification.
-    if (_pages == null && widget.store.isPdf) {
+    if (_pages == null && widget.store.pdf != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) setState(_openPages);
       });
@@ -126,12 +126,16 @@ class _ReaderHostState extends State<ReaderHost> with TickerProviderStateMixin {
 
   /// Opens the page engine, once, and tells the store how many pages there
   /// are so the folio chip and the fore edge agree before a page has been run.
+  ///
+  /// The file itself comes from the store, already open. Reopening the bytes
+  /// here would parse the document twice, and for one that took a password it
+  /// would need that password again, which is the reason quire never keeps
+  /// what somebody typed.
   void _openPages() {
     final store = widget.store;
-    if (_pages != null || !store.isPdf || store.state != ParseState.ready) {
-      return;
-    }
-    final pages = PdfPages.open(store.bytes, onPageRun: store.recordPageWords);
+    final file = store.pdf;
+    if (_pages != null || file == null) return;
+    final pages = PdfPages(file, onPageRun: store.recordPageWords);
     _pages = pages;
     store.pdfPageCount = pages.pageCount;
   }

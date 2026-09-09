@@ -9,6 +9,36 @@ import 'docx_parser.dart';
 import 'markdown_parser.dart';
 import 'xlsx_parser.dart';
 
+/// The eight bytes an OLE compound file starts with.
+///
+/// A password protected .docx or .xlsx is not a zip at all. Office wraps the
+/// whole package in one of these and puts the ciphertext inside it, so the
+/// magic number is the only honest way to tell a protected workbook from a
+/// broken one before the unzip fails.
+const List<int> kOleMagic = <int>[
+  0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1,
+];
+
+/// The mechanism a protected Office package is sealed with, named so the
+/// reader can say which one it met rather than saying `error`.
+const String kOfficeCipher = 'ECMA-376';
+
+/// A perfectly good Office file this reader cannot open, because it is sealed
+/// rather than broken.
+///
+/// It exists so the loader can stop calling these files damaged. Accusing an
+/// intact document of being corrupt is the worst thing a reader can say about
+/// a file: somebody who believes it deletes the file.
+class ProtectedPackage implements Exception {
+  const ProtectedPackage(this.cipher);
+
+  /// What sealed it, for the sheet that has to name it.
+  final String cipher;
+
+  @override
+  String toString() => 'ProtectedPackage($cipher)';
+}
+
 /// The result of trying to read one file.
 ///
 /// Every load returns one of these, including the failures. A parser that
@@ -43,6 +73,9 @@ class LoadedDocument {
   /// True when nothing readable came back.
   bool get failed => error != null;
 
+  /// True when the file is intact and sealed rather than broken.
+  bool get protected => error is ProtectedPackage;
+
   /// True when this file belongs to the page engine rather than the block
   /// model.
   bool get isPdf => format == 'pdf';
@@ -62,6 +95,17 @@ abstract final class DocumentLoader {
     final title = titleFor(name);
     if (format == 'pdf') {
       return LoadedDocument(name: name, format: format, bytes: bytes);
+    }
+    if (_startsWith(bytes, kOleMagic)) {
+      // Sniffed before the unzip rather than after it, because `archive`
+      // throws on these bytes and the catch below cannot tell that failure
+      // apart from a truncated download.
+      return LoadedDocument(
+        name: name,
+        format: format,
+        bytes: bytes,
+        error: const ProtectedPackage(kOfficeCipher),
+      );
     }
     try {
       final doc = _parse(bytes, format, title);

@@ -27,16 +27,6 @@ void main() {
       expect(find.byType(SheetSurface), findsNothing);
     });
 
-    testWidgets(
-      'a locked file lands on the lock sheet, never on a blank page',
-      (tester) async {
-        final store = await storeFor(kPressLease);
-        await _pumpReader(tester, store, plan: RenderPlan.locked);
-        expect(find.byType(LockedSheet), findsOneWidget);
-        expect(find.text('This file is locked.'), findsOneWidget);
-      },
-    );
-
     test('the reason is stated in the document own terms', () {
       expect(damageReasonFor(null), 'The file ends before its page table.');
       expect(
@@ -69,12 +59,6 @@ void main() {
         onOpenAsText: () {},
       );
       await capture(tester, 'reader__damaged');
-    });
-
-    testWidgets('reader__locked', (tester) async {
-      final store = await storeFor(kPressLease);
-      await _pumpReader(tester, store, plan: RenderPlan.locked);
-      await capture(tester, 'reader__locked');
     });
   });
 }

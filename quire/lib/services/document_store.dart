@@ -59,6 +59,8 @@ class DocumentStore extends ChangeNotifier {
   ParseState _state = ParseState.loading;
   LoadedDocument? _loaded;
   DocSearch? _search;
+  PdfLocked? _locked;
+  PdfFile? _pdf;
   int _position = 0;
   int _pdfPageCount = 0;
   bool _opened = false;
@@ -70,27 +72,60 @@ class DocumentStore extends ChangeNotifier {
   /// Parses [bytes] and moves the store to [ParseState.ready] or
   /// [ParseState.failed]. Every exception the parsers raise is already caught
   /// at the loader boundary, so this never throws.
-  void loadFrom(Uint8List bytes) {
+  ///
+  /// [password] is only ever the one somebody typed into the password sheet.
+  /// The engine tries the empty password on its own first, every time, so a
+  /// file that carries only an owner password opens here with nobody asked
+  /// for anything.
+  void loadFrom(Uint8List bytes, {String password = ''}) {
     _loaded = DocumentLoader.load(bytes, entry.fileName);
     _search = null;
+    _locked = null;
+    _pdf = null;
     _state = _loaded!.failed ? ParseState.failed : ParseState.ready;
-    if (_loaded!.isPdf && !_loaded!.failed) _readPageCount(bytes);
+    if (_loaded!.isPdf && !_loaded!.failed) _openPdf(bytes, password);
     notifyListeners();
   }
 
-  /// Reads a page file's page count from its own page tree.
+  /// Tries [password] against a document that asked for one.
+  ///
+  /// It is a whole reload rather than a patch to the open file, because the
+  /// key decides how every byte in the document is read: an object resolved
+  /// while the file was locked was resolved in cipher text, and keeping it
+  /// would leave a page that opens to noise.
+  void unlock(String password) {
+    final bytes = _loaded?.bytes;
+    if (bytes == null || bytes.isEmpty) return;
+    loadFrom(bytes, password: password);
+  }
+
+  /// Opens a page file and reads its page count from its own page tree.
   ///
   /// It happens here rather than in the reader so a PDF nobody has opened
   /// still prints `6 PAGES` on its card. Only the count is taken: the pages
   /// themselves are not run, because six documents' worth of content streams
   /// is not a price the first frame of the desk should pay.
-  void _readPageCount(Uint8List bytes) {
+  ///
+  /// The open file is kept, and that is what makes the password flow work.
+  /// A password opens a file, not a document, and reopening the bytes later
+  /// would need the password again: keeping the file instead means quire
+  /// never has to hold on to what somebody typed.
+  void _openPdf(Uint8List bytes, String password) {
     try {
-      _pdfPageCount = PdfFile.open(bytes).pageCount;
+      final file = PdfFile.open(bytes, password: password);
+      _pdf = file;
+      _pdfPageCount = file.pageCount;
+    } on PdfLocked catch (locked) {
+      // Not a failure. The file is intact and this reader simply does not hold
+      // the key yet, which is a question rather than an error.
+      _locked = locked;
+      _pdf = null;
+      _pdfPageCount = 0;
     } on Object {
       // A file that opens as bytes but not as a page tree keeps no count, and
       // the card prints its format and its size alone. The reader decides
       // what a page nobody can lay out looks like.
+      _pdf = null;
       _pdfPageCount = 0;
     }
   }
@@ -122,12 +157,39 @@ class DocumentStore extends ChangeNotifier {
   /// True when this document belongs to the page engine.
   bool get isPdf => _loaded?.isPdf ?? entry.format == DocFormat.pdf;
 
+  /// The page file, open and decrypted, or null for anything that is not a
+  /// readable PDF.
+  PdfFile? get pdf => _pdf;
+
+  /// The encryption this document is behind, or null when there is none or
+  /// when a password has already opened it.
+  PdfLocked? get locked => _locked;
+
+  /// True when a password was supplied and turned down, which is the one thing
+  /// that separates the sheet's two messages.
+  bool get wrongPassword => _locked?.wrongPassword ?? false;
+
+  /// What sealed the file, for the sheet that has to name it. Empty when
+  /// nothing did.
+  String get cipher =>
+      _locked?.cipher ??
+      (_loaded?.error is ProtectedPackage
+          ? (_loaded!.error! as ProtectedPackage).cipher
+          : '');
+
   /// The rung this whole document is on, before any single page is looked at.
   ///
   /// A failed parse is [RenderPlan.damaged] here; a PDF's per page rung is
   /// decided later by `planFor` once its display list exists.
-  RenderPlan get plan =>
-      _state == ParseState.failed ? RenderPlan.damaged : RenderPlan.rich;
+  RenderPlan get plan {
+    final locked = _locked;
+    if (locked != null) return planForLocked(locked);
+    // A sealed Office package is intact, so it is never damage. There is no
+    // password field for it either, because this version does not decrypt the
+    // mechanism at all and a field would be an offer the app cannot keep.
+    if (_loaded?.protected ?? false) return RenderPlan.unsupportedCipher;
+    return _state == ParseState.failed ? RenderPlan.damaged : RenderPlan.rich;
+  }
 
   /// The page engine's page count, which only the reader can supply.
   int get pdfPageCount => _pdfPageCount;

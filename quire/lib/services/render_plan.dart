@@ -1,4 +1,6 @@
+import '../pdf/crypt.dart';
 import '../pdf/display_list.dart';
+import '../pdf/document.dart';
 
 /// How a page is going to be presented, decided before a pixel is painted.
 ///
@@ -21,8 +23,14 @@ enum RenderPlan {
   /// not decode. The designed scan card says so.
   scanUnreadable,
 
-  /// The trailer carries an encryption dictionary. The lock sheet says so.
-  locked,
+  /// The file is encrypted and nobody has supplied a password that opens it.
+  /// The password sheet asks for one.
+  needsPassword,
+
+  /// The file is encrypted with a cipher this version does not decrypt. Its
+  /// own sheet names the cipher and says so, and never says `locked`, because
+  /// `locked` implies a password would help and here none would.
+  unsupportedCipher,
 
   /// The parser threw. The torn sheet says so.
   damaged,
@@ -34,17 +42,27 @@ const double kScanCoverage = 0.4;
 /// Image encodings this reader can actually turn into pixels.
 const Set<String> kDecodableImageEncodings = {'jpeg', 'raw-rgb', 'raw-gray'};
 
+/// Which of the two protected rungs a [PdfLocked] belongs on.
+///
+/// The cipher is the whole question. One of these states asks for something
+/// the reader can supply, the other says plainly that nothing they type will
+/// help, and a reader who is offered a field for a file no field can open has
+/// been sent to type a password for nothing.
+RenderPlan planForLocked(PdfLocked locked) => locked.cipher == kCipherRc4
+    ? RenderPlan.needsPassword
+    : RenderPlan.unsupportedCipher;
+
 /// Picks the rung for one page.
 ///
-/// [encrypted] is tested before [threw] on purpose: an encrypted file usually
-/// fails to interpret as well, and telling a reader their file is locked is
-/// true and useful, while telling them it is damaged is neither.
+/// [locked] is tested before [threw] on purpose: a file nobody has the key to
+/// usually fails to interpret as well, and asking for its password is true and
+/// useful, while telling somebody their file is damaged is neither.
 RenderPlan planFor(
   PageDisplayList? list, {
-  required bool encrypted,
+  PdfLocked? locked,
   required bool threw,
 }) {
-  if (encrypted) return RenderPlan.locked;
+  if (locked != null) return planForLocked(locked);
   if (threw || list == null) return RenderPlan.damaged;
 
   final hasText = list.texts.isNotEmpty;

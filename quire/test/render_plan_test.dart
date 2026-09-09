@@ -2,7 +2,9 @@ import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:quire/pdf/crypt.dart';
 import 'package:quire/pdf/display_list.dart';
+import 'package:quire/pdf/document.dart';
 import 'package:quire/services/page_cache.dart';
 import 'package:quire/services/render_plan.dart';
 
@@ -18,7 +20,7 @@ Future<ui.Image> _tinyImage() async {
 void main() {
   group('the fallback ladder', () {
     test('text and paths are the default rung', () {
-      expect(planFor(richPage(), encrypted: false, threw: false),
+      expect(planFor(richPage(), threw: false),
           RenderPlan.rich);
     });
 
@@ -26,7 +28,7 @@ void main() {
       for (final encoding in <String>['jpeg', 'raw-rgb', 'raw-gray']) {
         expect(
           planFor(scanPage(encoding: encoding),
-              encrypted: false, threw: false),
+              threw: false),
           RenderPlan.scan,
           reason: encoding,
         );
@@ -37,7 +39,7 @@ void main() {
       for (final encoding in <String>['ccitt', 'jbig2', 'jpx', 'unsupported']) {
         expect(
           planFor(scanPage(encoding: encoding),
-              encrypted: false, threw: false),
+              threw: false),
           RenderPlan.scanUnreadable,
           reason: encoding,
         );
@@ -47,7 +49,7 @@ void main() {
     test('text plus an image this reader cannot decode is text only', () {
       expect(
         planFor(textWithUndecodableImagePage(),
-            encrypted: false, threw: false),
+            threw: false),
         RenderPlan.textOnly,
       );
     });
@@ -58,7 +60,7 @@ void main() {
       // the reader gets the picture plus a text layer they can search.
       final list = scanPage();
       list.texts.add(textRun('the invisible layer', seq: 0));
-      expect(planFor(list, encrypted: false, threw: false), RenderPlan.rich);
+      expect(planFor(list, threw: false), RenderPlan.rich);
     });
 
     test('coverage must be over the threshold, not merely at it', () {
@@ -70,7 +72,7 @@ void main() {
         bytes: Uint8List.fromList(const <int>[1]),
       ));
       expect(atThreshold.imageCoverage, closeTo(0.4, 1e-9));
-      expect(planFor(atThreshold, encrypted: false, threw: false),
+      expect(planFor(atThreshold, threw: false),
           RenderPlan.rich);
 
       final over =
@@ -80,7 +82,7 @@ void main() {
         encoding: 'jpeg',
         bytes: Uint8List.fromList(const <int>[1]),
       ));
-      expect(planFor(over, encrypted: false, threw: false), RenderPlan.scan);
+      expect(planFor(over, threw: false), RenderPlan.scan);
     });
 
     test('a small undecodable image on a page with no text is not a scan', () {
@@ -91,23 +93,28 @@ void main() {
         encoding: 'jpx',
         bytes: null,
       ));
-      expect(planFor(list, encrypted: false, threw: false), RenderPlan.rich,
+      expect(planFor(list, threw: false), RenderPlan.rich,
           reason: 'no text to show, but nothing claiming to be a page either');
     });
 
-    test('an encryption dictionary is a lock, not damage', () {
-      expect(planFor(richPage(), encrypted: true, threw: false),
-          RenderPlan.locked);
-      expect(planFor(null, encrypted: true, threw: true), RenderPlan.locked,
+    test('a file nobody holds the key to is a question, not damage', () {
+      const rc4 = PdfLocked(wrongPassword: false, cipher: kCipherRc4);
+      const aes = PdfLocked(wrongPassword: false, cipher: 'AESV2');
+      expect(planFor(richPage(), locked: rc4, threw: false),
+          RenderPlan.needsPassword);
+      expect(planFor(null, locked: rc4, threw: true), RenderPlan.needsPassword,
           reason: 'a locked file usually fails to interpret as well, and '
-              'locked is the true answer');
+              'asking for the password is the true answer');
+      expect(planFor(null, locked: aes, threw: true),
+          RenderPlan.unsupportedCipher,
+          reason: 'no field would open it, so no field is offered');
     });
 
     test('a parser that threw, or no list at all, is damage', () {
-      expect(planFor(null, encrypted: false, threw: true), RenderPlan.damaged);
-      expect(planFor(null, encrypted: false, threw: false),
+      expect(planFor(null, threw: true), RenderPlan.damaged);
+      expect(planFor(null, threw: false),
           RenderPlan.damaged);
-      expect(planFor(richPage(), encrypted: false, threw: true),
+      expect(planFor(richPage(), threw: true),
           RenderPlan.damaged);
     });
 
@@ -115,7 +122,7 @@ void main() {
       // A PDF is allowed to hold a genuinely blank leaf. It gets the sheet,
       // its rule and its edge, which is not the same thing as a blank white
       // screen presented as a document.
-      expect(planFor(blankPage(), encrypted: false, threw: false),
+      expect(planFor(blankPage(), threw: false),
           RenderPlan.rich);
     });
 
@@ -123,7 +130,7 @@ void main() {
       final list = textWithUndecodableImagePage();
       final answers = <RenderPlan>[
         for (var i = 0; i < 5; i++)
-          planFor(list, encrypted: false, threw: false),
+          planFor(list, threw: false),
       ];
       expect(answers.toSet().length, 1);
     });
@@ -146,7 +153,7 @@ void main() {
 
       // There is no display list to be had, so the rung is decided without
       // one and the reader sees the torn sheet.
-      expect(planFor(null, encrypted: false, threw: true), RenderPlan.damaged);
+      expect(planFor(null, threw: true), RenderPlan.damaged);
     });
   });
 

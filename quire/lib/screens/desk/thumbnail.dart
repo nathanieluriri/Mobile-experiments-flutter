@@ -2,7 +2,6 @@ import 'package:flutter/widgets.dart';
 
 import '../../model/document.dart';
 import '../../painting/thumbnail_painter.dart';
-import '../../pdf/document.dart';
 import '../../pdf/interpreter.dart';
 import '../../services/document_store.dart';
 import '../../theme/metrics.dart';
@@ -47,8 +46,8 @@ ThumbnailPicture _record(DocumentStore store) {
 /// known about a file nothing could read.
 ThumbnailPicture _firstPage(DocumentStore store) {
   try {
-    final file = PdfFile.open(store.bytes);
-    if (file.pages.isEmpty) return recordEmptyThumbnail();
+    final file = store.pdf;
+    if (file == null || file.pages.isEmpty) return recordEmptyThumbnail();
     return recordPdfThumbnail(ContentInterpreter(file).run(file.pages.first));
   } on Object {
     return recordEmptyThumbnail();

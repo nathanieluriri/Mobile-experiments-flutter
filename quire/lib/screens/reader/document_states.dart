@@ -11,19 +11,19 @@ import '../../theme/metrics.dart';
 import '../../theme/typography.dart';
 import '../../widgets/press_fade.dart';
 
-/// The size of the folded mark on the locked sheet.
-const kLockedMarkWidth = 64.0;
-const kLockedMarkHeight = 82.0;
+/// The size of the folded mark a designed state stands under.
+const kFoldedMarkWidth = 64.0;
+const kFoldedMarkHeight = 82.0;
 
 /// How far in the folded mark's own corner turns, at this size.
-const kLockedMarkFold = 19.0;
+const kFoldedMarkFold = 19.0;
 
-/// The column the locked sheet's explanation is set in.
-const kLockedMeasure = 280.0;
+/// The column a designed state's explanation is set in.
+const kStateMeasure = 280.0;
 
 /// The pill under it.
-const kLockedButtonWidth = 168.0;
-const kLockedButtonHeight = 44.0;
+const kStateButtonWidth = 168.0;
+const kStateButtonHeight = 44.0;
 
 /// How far above the tear the damaged sheet says what happened.
 const kDamageTextAbove = 40.0;
@@ -59,83 +59,22 @@ bool decodesAsText(Uint8List bytes) {
   }
 }
 
-/// The sheet a locked document shows.
+/// The app's own folded mark, drawn as an outline rather than filled, at the
+/// head of every state that is not a page.
 ///
-/// It is not a dialog and not an alert. A file that was saved with a password
-/// is a real, ordinary thing to run into, so it gets a designed sheet that
-/// says so and offers the one move that makes sense.
-class LockedSheet extends StatelessWidget {
-  const LockedSheet({super.key, this.onLeave});
-
-  final VoidCallback? onLeave;
+/// The fold is the app's whole vocabulary, so the places it says something is
+/// not ordinary are the places it is drawn hollow.
+class FoldedMark extends StatelessWidget {
+  const FoldedMark({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: kSheetWidth,
-      height: kSheetHeight,
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: kPeelableCorner,
-        border: AppEdges.all(context),
-      ),
-      child: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const SizedBox(
-              width: kLockedMarkWidth,
-              height: kLockedMarkHeight,
-              child: CustomPaint(painter: _FoldedMarkPainter()),
-            ),
-            const SizedBox(height: kSpace20),
-            Text(
-              'This file is locked.',
-              style: AppText.title.copyWith(color: AppColors.ink),
-            ),
-            const SizedBox(height: kSpace8),
-            SizedBox(
-              width: kLockedMeasure,
-              child: Text(
-                'It was saved with a password. quire cannot open it.',
-                textAlign: TextAlign.center,
-                style: AppText.bodyTight.copyWith(color: AppColors.inkSoft),
-              ),
-            ),
-            const SizedBox(height: kSpace20),
-            PaperPress(
-              onTap: onLeave,
-              semanticLabel: 'Back to the desk',
-              child: Container(
-                width: kLockedButtonWidth,
-                height: kLockedButtonHeight,
-                // The outline is drawn at glyph value, not at rule value.
-                // This is the one move the sheet offers, and a button whose
-                // edge sits a whisper off the sheet it stands on is a button
-                // a reader has to hunt for.
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(kPillRadius),
-                  border: Border.all(color: AppColors.inkFaint),
-                ),
-                child: Center(
-                  child: Text(
-                    'Back to the desk',
-                    style: AppText.label.copyWith(color: AppColors.ink),
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
+  Widget build(BuildContext context) => const SizedBox(
+    width: kFoldedMarkWidth,
+    height: kFoldedMarkHeight,
+    child: CustomPaint(painter: _FoldedMarkPainter()),
+  );
 }
 
-/// The app's own folded mark, drawn as an outline rather than filled.
-///
-/// The fold is the app's whole vocabulary, so the one place it says something
-/// is wrong is also the one place it is drawn hollow.
 class _FoldedMarkPainter extends CustomPainter {
   const _FoldedMarkPainter();
 
@@ -150,16 +89,16 @@ class _FoldedMarkPainter extends CustomPainter {
     final body = Path()
       ..moveTo(0, 0)
       ..lineTo(size.width, 0)
-      ..lineTo(size.width, size.height - kLockedMarkFold)
-      ..lineTo(size.width - kLockedMarkFold, size.height)
+      ..lineTo(size.width, size.height - kFoldedMarkFold)
+      ..lineTo(size.width - kFoldedMarkFold, size.height)
       ..lineTo(0, size.height)
       ..close();
     canvas.drawPath(body, stroke);
     canvas.drawPath(
       Path()
-        ..moveTo(size.width, size.height - kLockedMarkFold)
-        ..lineTo(size.width - kLockedMarkFold, size.height - kLockedMarkFold)
-        ..lineTo(size.width - kLockedMarkFold, size.height),
+        ..moveTo(size.width, size.height - kFoldedMarkFold)
+        ..lineTo(size.width - kFoldedMarkFold, size.height - kFoldedMarkFold)
+        ..lineTo(size.width - kFoldedMarkFold, size.height),
       stroke,
     );
   }
@@ -217,7 +156,7 @@ class DamagedSheet extends StatelessWidget {
                 ),
                 const SizedBox(height: kSpace8),
                 SizedBox(
-                  width: kLockedMeasure,
+                  width: kStateMeasure,
                   child: Text(
                     reason,
                     textAlign: TextAlign.center,

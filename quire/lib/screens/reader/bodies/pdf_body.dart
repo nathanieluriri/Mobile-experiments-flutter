@@ -110,6 +110,10 @@ class PdfPages extends ChangeNotifier {
   /// Opens [bytes] as a page file. The engine never throws here: a file it
   /// cannot make sense of comes back with no pages, and the reader shows the
   /// torn sheet.
+  ///
+  /// A protected file never reaches here. The store meets [PdfLocked] when it
+  /// reads the page count and hands the shell the password sheet instead, so
+  /// the block is only ever built over a document somebody can already read.
   factory PdfPages.open(
     Uint8List bytes, {
     PageCache? cache,
@@ -137,8 +141,6 @@ class PdfPages extends ChangeNotifier {
       return 0;
     }
   }
-
-  bool get encrypted => file.encrypted;
 
   /// Every page the interpreter could not get through, in page order.
   ///
@@ -261,12 +263,12 @@ class PdfPages extends ChangeNotifier {
       final list = ContentInterpreter(file).run(file.pages[page]);
       _cache.put(page, list);
       _runs[page] = mergeRuns(list.texts);
-      _plans[page] = planFor(list, encrypted: encrypted, threw: false);
+      _plans[page] = planFor(list, threw: false);
       onPageRun?.call(page, list);
     } on Object {
       // The rung says damaged, and the page is drawn as a torn leaf inline.
       // One page that will not interpret never takes the document down.
-      _plans[page] = planFor(null, encrypted: encrypted, threw: true);
+      _plans[page] = planFor(null, threw: true);
       _runs.remove(page);
     }
     return true;
