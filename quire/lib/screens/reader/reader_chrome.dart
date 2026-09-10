@@ -32,6 +32,19 @@ const kChromeIcon = 20.0;
 /// keeps it clear of the buttons at both ends.
 const kReaderTitleWidth = 170.0;
 
+/// How wide a line the band is saying may run.
+///
+/// Wider than the title, because a notice is a sentence and a title is a
+/// name, and narrower than the band: the two buttons at the right end and the
+/// one at the left are still there, and a line that ran under them would be a
+/// line half of which cannot be read.
+const kBandLabelWidth =
+    kScreenWidth -
+    (kScreenPadding + kHeaderButtonSize) * 2 -
+    kHeaderButtonSize -
+    kChromeButtonGap -
+    kSpace12 * 2;
+
 /// The head band: the way back, the document's name, and what can be done to
 /// it, on an opaque band floating over the top of the page.
 ///
@@ -283,6 +296,10 @@ class _HeaderButton extends StatelessWidget {
 }
 
 /// What the band says while it is asking rather than naming.
+///
+/// It gets two lines and no more. A notice is the app talking about itself in
+/// the middle of somebody's reading, and anything it cannot say in two lines
+/// of a phone's width it should not be saying here at all.
 class _BandLabel extends StatelessWidget {
   const _BandLabel(this.text);
 
@@ -290,11 +307,17 @@ class _BandLabel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Center(
-        child: Text(
-          text,
-          style: AppText.label.copyWith(color: AppColors.ink),
-        ),
-      );
+    child: ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: kBandLabelWidth),
+      child: Text(
+        text,
+        textAlign: TextAlign.center,
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
+        style: AppText.label.copyWith(color: AppColors.ink),
+      ),
+    ),
+  );
 }
 
 /// The title, centred in the band, with the suffix that names the side of the

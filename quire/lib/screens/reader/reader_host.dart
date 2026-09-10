@@ -311,7 +311,7 @@ class _ReaderHostState extends State<ReaderHost> with TickerProviderStateMixin {
     _say(
       wanted.holdsPage
           ? 'Locked to this page. Tap the page to unlock.'
-          : 'Locked. Tap the padlock to leave.',
+          : 'Locked. Tap the padlock.',
     );
   }
 
