@@ -19,6 +19,7 @@ import 'document_states.dart';
 import 'folio_chip.dart';
 import 'fore_edge.dart';
 import 'password_sheet.dart';
+import 'loupe.dart';
 import 'reader_chrome.dart';
 import 'unlock_chip.dart';
 import 'riffle_sheet.dart';
@@ -614,6 +615,19 @@ class _ReaderScreenState extends State<ReaderScreen>
     Navigator.of(context).maybePop<void>();
   }
 
+  /// Where the finger is while the loupe is out, or null when it is up.
+  Offset? _loupeAt;
+
+  void _magnifierAt(PointerEvent event) {
+    if (!_store.magnifier) return;
+    setState(() => _loupeAt = event.localPosition);
+  }
+
+  void _magnifierGone() {
+    if (_loupeAt == null) return;
+    setState(() => _loupeAt = null);
+  }
+
   /// A tap on a locked page, which is the one thing a locked page answers.
   void _askUnlock() {
     Feel.tap.ring();
@@ -688,146 +702,162 @@ class _ReaderScreenState extends State<ReaderScreen>
         }
         _closeRiffle();
       },
-      child: RawGestureDetector(
-        behavior: HitTestBehavior.opaque,
-        gestures: _gestures(unitCount, hidden, body),
-        child: NotificationListener<ScrollNotification>(
-          onNotification: _onScroll,
-          child: Stack(
-            children: [
-              Positioned.fill(
-                child: IgnorePointer(
-                  child: ColoredBox(
-                    color: AppColors.ground.withValues(
-                      alpha:
-                          kDeskDim * (1 - (slide / kScreenWidth).clamp(0, 1)),
+      child: Listener(
+        // A listener rather than a recogniser: the loupe watches where the
+        // finger is without taking the finger off whatever it was doing, so
+        // the page still scrolls and every control still works underneath it.
+        behavior: HitTestBehavior.deferToChild,
+        onPointerDown: _magnifierAt,
+        onPointerMove: _magnifierAt,
+        onPointerUp: (_) => _magnifierGone(),
+        onPointerCancel: (_) => _magnifierGone(),
+        child: RawGestureDetector(
+          behavior: HitTestBehavior.opaque,
+          gestures: _gestures(unitCount, hidden, body),
+          child: NotificationListener<ScrollNotification>(
+            onNotification: _onScroll,
+            child: Stack(
+              children: [
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: ColoredBox(
+                      color: AppColors.ground.withValues(
+                        alpha:
+                            kDeskDim * (1 - (slide / kScreenWidth).clamp(0, 1)),
+                      ),
                     ),
                   ),
                 ),
-              ),
-              Transform.translate(
-                offset: Offset(slide, 0),
-                child: Stack(
-                  children: [
-                    const Positioned.fill(
-                      child: ColoredBox(color: AppColors.ground),
-                    ),
-                    Positioned.fromRect(
-                      rect: kSheetRect,
-                      child: _sheetFor(plan, body, foldPoint),
-                    ),
-                    if (readable && !lock.holdsPage)
-                      Positioned(
-                        left: kForeEdgeLeft,
-                        top: kForeEdgeTop,
-                        child: IgnorePointer(
-                          child: ForeEdge(
-                            marks: body.foreEdgeMarks,
-                            position: position,
-                            dogEars: dogEars,
-                            damaged: body.damagedMarks,
-                            signatures: signatures,
-                            matches: widget.matches,
-                            liveMatch: widget.liveMatch,
-                            scrubbedMatch: _scrubbedMatch,
-                            matchOpacity: widget.matchOpacity,
-                          ),
-                        ),
+                Transform.translate(
+                  offset: Offset(slide, 0),
+                  child: Stack(
+                    children: [
+                      const Positioned.fill(
+                        child: ColoredBox(color: AppColors.ground),
                       ),
-                    if (_scrubbing)
-                      Positioned(
-                        right:
-                            kScreenWidth - kForeEdgeLeft + kForeEdgeBubbleGap,
-                        top: _scrubY - kForeEdgeBubble / 2,
-                        child: IgnorePointer(
-                          child: ForeEdgeBubble(
-                            label: 'p. ${body.positionLabel}',
-                            matches: _matchesHere,
-                          ),
-                        ),
-                      ),
-                    if (readable && !lock.holdsPage)
-                      Positioned(
-                        left:
-                            kSheetLeft +
-                            kSheetWidth -
-                            kFolioChipInset -
-                            kFolioChipWidth,
-                        top:
-                            kReadableBottom -
-                            kFolioChipInset -
-                            kFolioChipHeight +
-                            kFolioChipHidden * hidden,
-                        child: IgnorePointer(
-                          child: FolioChip(
-                            label: body.positionLabel,
-                            hidden: hidden,
-                            dogEared: _store.dogEared.contains(_store.position),
-                            tint: _folioTint,
-                          ),
-                        ),
-                      ),
-                    Positioned.fill(
-                      child: PlacementSlot(child: widget.placement),
-                    ),
-                    ReaderChrome(
-                      title: _store.entry.title,
-                      hidden: hidden,
-                      showingBack: _side == SheetSide.back,
-                      locked: lock.holdsBack,
-                      onBack: lock.holdsBack ? _unlock : _leave,
-                      onFind: widget.onFind,
-                      onMenu: widget.onMenu,
-                      menuOpen: widget.menuOpen,
-                      notice: widget.notice,
-                      placing: widget.placing,
-                      onConfirm: widget.onConfirmPlacement,
-                      onCancel: widget.onCancelPlacement,
-                    ),
-                    ?widget.menu,
-                    ?widget.overlay,
-                    if (lock.holdsPage)
-                      UnlockChip(
-                        progress: _unlockChip.value,
-                        onUnlock: _unlock,
-                      ),
-                    if (_riffle.value > 0)
-                      Positioned.fill(
-                        child: RiffleSheet(
-                          items: _riffleShowing,
-                          initialIndex: _riffleFrom,
-                          kindLabel: _riffleLabel(_riffleShowing.length),
-                          progress:
-                              _riffle.value *
-                              (1 - easeOutQuad.transform(_riffleCommit.value)),
-                          onSelect: _commitRiffle,
-                          onClose: _closeRiffle,
-                        ),
-                      ),
-                    if (_committing)
                       Positioned.fromRect(
-                        rect: Rect.lerp(
-                          _riffleSlotRect,
-                          kSheetRect,
-                          easeOutCubic.transform(_riffleCommit.value),
-                        )!,
-                        child: IgnorePointer(
-                          // The same leaf and the same hairline the sheet
-                          // itself wears, so the slot growing into the reader
-                          // is one object changing size, not two swapping.
-                          child: DecoratedBox(
-                            decoration: BoxDecoration(
-                              color: AppColors.surface,
-                              borderRadius: kPeelableCorner,
-                              border: AppEdges.all(context),
+                        rect: kSheetRect,
+                        child: _sheetFor(plan, body, foldPoint),
+                      ),
+                      if (readable && !lock.holdsPage)
+                        Positioned(
+                          left: kForeEdgeLeft,
+                          top: kForeEdgeTop,
+                          child: IgnorePointer(
+                            child: ForeEdge(
+                              marks: body.foreEdgeMarks,
+                              position: position,
+                              dogEars: dogEars,
+                              damaged: body.damagedMarks,
+                              signatures: signatures,
+                              matches: widget.matches,
+                              liveMatch: widget.liveMatch,
+                              scrubbedMatch: _scrubbedMatch,
+                              matchOpacity: widget.matchOpacity,
                             ),
                           ),
                         ),
+                      if (_scrubbing)
+                        Positioned(
+                          right:
+                              kScreenWidth - kForeEdgeLeft + kForeEdgeBubbleGap,
+                          top: _scrubY - kForeEdgeBubble / 2,
+                          child: IgnorePointer(
+                            child: ForeEdgeBubble(
+                              label: 'p. ${body.positionLabel}',
+                              matches: _matchesHere,
+                            ),
+                          ),
+                        ),
+                      if (readable && !lock.holdsPage)
+                        Positioned(
+                          left:
+                              kSheetLeft +
+                              kSheetWidth -
+                              kFolioChipInset -
+                              kFolioChipWidth,
+                          top:
+                              kReadableBottom -
+                              kFolioChipInset -
+                              kFolioChipHeight +
+                              kFolioChipHidden * hidden,
+                          child: IgnorePointer(
+                            child: FolioChip(
+                              label: body.positionLabel,
+                              hidden: hidden,
+                              dogEared: _store.dogEared.contains(
+                                _store.position,
+                              ),
+                              tint: _folioTint,
+                            ),
+                          ),
+                        ),
+                      Positioned.fill(
+                        child: PlacementSlot(child: widget.placement),
                       ),
-                  ],
+                      ReaderChrome(
+                        title: _store.entry.title,
+                        hidden: hidden,
+                        showingBack: _side == SheetSide.back,
+                        locked: lock.holdsBack,
+                        onBack: lock.holdsBack ? _unlock : _leave,
+                        onFind: widget.onFind,
+                        onMenu: widget.onMenu,
+                        menuOpen: widget.menuOpen,
+                        notice: widget.notice,
+                        placing: widget.placing,
+                        onConfirm: widget.onConfirmPlacement,
+                        onCancel: widget.onCancelPlacement,
+                      ),
+                      ?widget.menu,
+                      ?widget.overlay,
+                      if (lock.holdsPage)
+                        UnlockChip(
+                          progress: _unlockChip.value,
+                          onUnlock: _unlock,
+                        ),
+                      // Last of all, because a magnifier under something is a
+                      // magnifier of nothing.
+                      if (_store.magnifier) Loupe(at: _loupeAt),
+                      if (_riffle.value > 0)
+                        Positioned.fill(
+                          child: RiffleSheet(
+                            items: _riffleShowing,
+                            initialIndex: _riffleFrom,
+                            kindLabel: _riffleLabel(_riffleShowing.length),
+                            progress:
+                                _riffle.value *
+                                (1 -
+                                    easeOutQuad.transform(_riffleCommit.value)),
+                            onSelect: _commitRiffle,
+                            onClose: _closeRiffle,
+                          ),
+                        ),
+                      if (_committing)
+                        Positioned.fromRect(
+                          rect: Rect.lerp(
+                            _riffleSlotRect,
+                            kSheetRect,
+                            easeOutCubic.transform(_riffleCommit.value),
+                          )!,
+                          child: IgnorePointer(
+                            // The same leaf and the same hairline the sheet
+                            // itself wears, so the slot growing into the reader
+                            // is one object changing size, not two swapping.
+                            child: DecoratedBox(
+                              decoration: BoxDecoration(
+                                color: AppColors.surface,
+                                borderRadius: kPeelableCorner,
+                                border: AppEdges.all(context),
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),

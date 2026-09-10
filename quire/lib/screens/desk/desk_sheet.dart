@@ -1,4 +1,5 @@
 import 'package:flutter/widgets.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../theme/colors.dart';
 import '../../theme/easings.dart';
@@ -18,6 +19,9 @@ const kDeskSheetTitleGap = 4.0;
 const kDeskSheetNoteGap = 14.0;
 const kDeskSheetRowPadY = 11.0;
 const kDeskSheetFactName = 116.0;
+const kDeskSheetStep = 36.0;
+const kDeskSheetStepRadius = 10.0;
+const kDeskSheetStepGap = 8.0;
 const kDeskSheetRise = Duration(milliseconds: 260);
 
 /// The grip at the top of the sheet, which says which edge it came from.
@@ -203,6 +207,102 @@ class DeskSheetRow extends StatelessWidget {
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// A row that changes a number without closing the sheet.
+///
+/// Text size is the one setting you cannot pick blind: you make it bigger,
+/// look at it, and make it bigger again. A row that shut the sheet on every
+/// press would make that four journeys instead of one.
+class DeskSheetStepper extends StatelessWidget {
+  const DeskSheetStepper({
+    super.key,
+    required this.label,
+    required this.value,
+    required this.icon,
+    required this.onLess,
+    required this.onMore,
+  });
+
+  final String label;
+
+  /// Where it stands now, in the reader's terms rather than the machine's.
+  final String value;
+
+  final IconData icon;
+
+  /// Null at the end of the range, which is what draws that side faint.
+  final VoidCallback? onLess;
+  final VoidCallback? onMore;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: kDeskSheetPadX),
+      child: SizedBox(
+        height: kDeskSheetRowHeight,
+        child: Row(
+          children: [
+            Icon(icon, size: kDeskSheetRowGlyph, color: AppColors.ink),
+            const SizedBox(width: kDeskSheetRowGap),
+            Expanded(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    label,
+                    style: AppText.menuRow.copyWith(color: AppColors.ink),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    value,
+                    style: AppText.micro.copyWith(color: AppColors.inkFaint),
+                  ),
+                ],
+              ),
+            ),
+            _Step(icon: LucideIcons.minus, onTap: onLess, label: 'Smaller'),
+            const SizedBox(width: kDeskSheetStepGap),
+            _Step(icon: LucideIcons.plus, onTap: onMore, label: 'Larger'),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// One end of a stepper.
+class _Step extends StatelessWidget {
+  const _Step({required this.icon, required this.onTap, required this.label});
+
+  final IconData icon;
+  final VoidCallback? onTap;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final live = onTap != null;
+    return PaperPress(
+      onTap: onTap,
+      semanticLabel: label,
+      washRadius: kDeskSheetStepRadius,
+      child: Container(
+        width: kDeskSheetStep,
+        height: kDeskSheetStep,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: AppColors.surfaceHigh,
+          borderRadius: BorderRadius.circular(kDeskSheetStepRadius),
+        ),
+        child: Icon(
+          icon,
+          size: kDeskSheetRowGlyph,
+          color: live ? AppColors.ink : AppColors.inkFaint,
         ),
       ),
     );

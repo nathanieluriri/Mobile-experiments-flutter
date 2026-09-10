@@ -919,6 +919,20 @@ class _ProseSheetState extends State<ProseSheet> {
 
   @override
   Widget build(BuildContext context) {
+    // The type is scaled rather than the page, because a document with no
+    // pages of its own has nothing to magnify: what it has is a column of
+    // words, and the right way to make those bigger is to set them bigger and
+    // let the lines fall where they fall. A line you have to scroll sideways
+    // to finish is not a line anybody reads twice.
+    return MediaQuery(
+      data: MediaQuery.of(context).copyWith(
+        textScaler: TextScaler.linear(widget.store.textScale),
+      ),
+      child: _column(context),
+    );
+  }
+
+  Widget _column(BuildContext context) {
     return SingleChildScrollView(
       controller: _controller,
       // Locked to where it is, the same as a page.

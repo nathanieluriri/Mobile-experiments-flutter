@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
+import '../../../theme/feedback.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/widgets.dart';
 
@@ -20,6 +22,13 @@ import '../back_layer.dart';
 import '../page_frames.dart';
 import '../sheet_surface.dart';
 import 'page_states.dart';
+
+/// What separates a tap from a press and from a drag, for the double tap the
+/// page watches for.
+const kTapHold = Duration(milliseconds: 260);
+const kDoubleTapWindow = Duration(milliseconds: 300);
+const kTapSlop = 12.0;
+const kTapReach = 48.0;
 
 /// How far a page's folio sits in from its own bottom right corner, the way a
 /// printed book carries it.
@@ -697,8 +706,62 @@ class _PdfPageBlockState extends State<PdfPageBlock>
     value: kShimmerFirstFrame,
   );
 
-  late PdfLayout _layout = PdfLayout.of(widget.pages, widget.width);
+  late PdfLayout _layout = PdfLayout.of(widget.pages, _drawnWidth);
   bool _scheduled = false;
+
+  /// Sideways, for when the page is drawn wider than the screen.
+  final ScrollController _across = ScrollController();
+
+  /// The width the pages were last laid out at, so the layout is rebuilt when
+  /// and only when that number moves.
+  double _laidOutAt = 0;
+
+  /// The width of the window the pages are read through, which is what a fit
+  /// to the width fits to.
+  ///
+  /// It is the width the block was given rather than the width it is being
+  /// drawn at: those are the same number until somebody zooms, and after that
+  /// the first is the window and the second is the paper behind it.
+  double get _window => widget.width;
+
+  /// How wide a page is actually drawn.
+  ///
+  /// This is the whole of the zoom. The pages are vector drawn from their own
+  /// display lists, so making one wider re-sets the type at the new size
+  /// rather than magnifying the pixels of the old one: a page at four times
+  /// the width is four times as sharp, not four times as blurred. It costs a
+  /// relayout, which is what the cached [PdfLayout] is for.
+  double get _drawnWidth {
+    final store = widget.store;
+    return switch (store.fit) {
+      FitMode.width => _window,
+      FitMode.free => _window * store.zoom,
+      FitMode.page => _window * _pageFit,
+      FitMode.actual => _window * _actualFit,
+    };
+  }
+
+  /// The multiple at which the current page stands entirely on screen.
+  ///
+  /// Both ways. The width already fits at one, so this can only ever take the
+  /// page down: a page shorter than the room it is in is already whole, and
+  /// growing it to fill the height would push its own edges off the sides,
+  /// which is the one thing this fit exists to prevent.
+  double get _pageFit {
+    final page = widget.pages.pageAt(widget.store.position);
+    final tall = page.heightFor(_window);
+    if (tall <= 0) return 1;
+    final room = _viewport - _topInset - _bottomInset;
+    if (room <= 0) return 1;
+    return (room / tall).clamp(kZoomMin, 1.0);
+  }
+
+  /// The multiple at which one point of the page is one point of the screen.
+  double get _actualFit {
+    final size = widget.pages.sizeOf(widget.store.position);
+    if (size.width <= 0 || _window <= 0) return 1;
+    return (size.width / _window).clamp(kZoomMin, kZoomMax);
+  }
 
   @override
   void initState() {
@@ -715,7 +778,7 @@ class _PdfPageBlockState extends State<PdfPageBlock>
     if (old.pages != widget.pages) {
       old.pages.removeListener(_onPages);
       widget.pages.addListener(_onPages);
-      _layout = PdfLayout.of(widget.pages, widget.width);
+      _relayout();
     }
     _schedule();
   }
@@ -724,6 +787,7 @@ class _PdfPageBlockState extends State<PdfPageBlock>
   void dispose() {
     widget.pages.removeListener(_onPages);
     _controller.dispose();
+    _across.dispose();
     _shimmer.dispose();
     super.dispose();
   }
@@ -732,8 +796,37 @@ class _PdfPageBlockState extends State<PdfPageBlock>
 
   void _onPages() {
     if (!mounted) return;
-    setState(() => _layout = PdfLayout.of(widget.pages, widget.width));
+    setState(_relayout);
     _schedule();
+  }
+
+  /// Lays the strip out again at whatever width it is being drawn at now.
+  ///
+  /// It touches the layout and nothing else. Where the reader ends up after a
+  /// width change is decided by whoever changed the width, because only they
+  /// know what to keep: a pinch keeps the paper under the fingers, and a fit
+  /// picked off a menu keeps the page you were on.
+  void _relayout() {
+    _layout = PdfLayout.of(widget.pages, _drawnWidth);
+    _laidOutAt = _drawnWidth;
+  }
+
+  /// True when the change of width being laid out came with its own idea of
+  /// where the reader should end up.
+  bool _anchored = false;
+
+  /// Brings the page the reader is on back to the top of the screen.
+  ///
+  /// What a fit picked off a menu should do: the size changed, the place did
+  /// not, and the page you were reading is the page you are still reading.
+  void _keepPage() {
+    final page = widget.store.position;
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_controller.hasClients) return;
+      _controller.jumpTo(
+        _layout.topOf(page).clamp(0.0, _controller.position.maxScrollExtent),
+      );
+    });
   }
 
   double get _viewport => _controller.hasClients
@@ -849,38 +942,272 @@ class _PdfPageBlockState extends State<PdfPageBlock>
         label: kDocumentUnreadableLabel,
       );
     }
-    return ListView.builder(
-      controller: _controller,
-      // A page lock pins the reading where it is, so the strip stops being a
-      // strip. The list stays rather than being swapped for a single page,
-      // because a swap would lose the offset the lock was put on.
-      physics: widget.store.lock.holdsPage
-          ? const NeverScrollableScrollPhysics()
-          : null,
-      // The paper is the whole screen, so the pages are held clear of the
-      // band at one end and the gesture bar at the other, by whatever the
-      // phone says those are. The inset does not change while the document
-      // is open, which is what lets every offset here still be read against
-      // the pages themselves by taking the same number back off it.
-      padding: EdgeInsets.only(top: _topInset, bottom: _bottomInset),
-      itemCount: _layout.pageCount,
-      itemExtentBuilder: (index, _) => _layout.extentOf(index),
-      itemBuilder: (context, index) => Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          PdfPageView(
-            page: widget.pages.pageAt(index),
-            width: widget.width,
-            shimmer: _shimmer.value,
-            signatures: widget.store.signatures,
-          ),
-          if (index < _layout.pageCount - 1)
-            const SizedBox(
-              height: kPageRule,
-              child: ColoredBox(color: AppColors.hairline),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final drawn = _drawnWidth;
+        if ((drawn - _laidOutAt).abs() > 0.5) {
+          // The strip is a different length at a different width, so it is
+          // laid out again before it is drawn at the new one. A frame drawn
+          // at the new width against the old layout is a frame of pages in
+          // the wrong places.
+          _relayout();
+          if (!_anchored) _keepPage();
+          _anchored = false;
+        }
+        final locked = widget.store.lock.holdsPage;
+        // Sideways only exists when the paper is wider than the window. At
+        // rest there is nothing out there to move to, and a viewport with
+        // nothing outside it is a viewport in the way of everything under it.
+        final wide = drawn > _window + 0.5 && !locked;
+        final strip = ListView.builder(
+            controller: _controller,
+            // A page lock pins the reading where it is, so the strip stops
+            // being a strip. The list stays rather than being swapped for a
+            // single page, because a swap would lose the offset the lock was
+            // put on.
+            physics: locked ? const NeverScrollableScrollPhysics() : null,
+            // The paper is the whole screen, so the pages are held clear of
+            // the band at one end and the gesture bar at the other, by
+            // whatever the phone says those are. The inset does not change
+            // while the document is open, which is what lets every offset
+            // here still be read against the pages themselves by taking the
+            // same number back off it.
+            padding: EdgeInsets.only(top: _topInset, bottom: _bottomInset),
+            itemCount: _layout.pageCount,
+            itemExtentBuilder: (index, _) => _layout.extentOf(index),
+            itemBuilder: (context, index) => Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                PdfPageView(
+                  page: widget.pages.pageAt(index),
+                  width: drawn,
+                  shimmer: _shimmer.value,
+                  signatures: widget.store.signatures,
+                ),
+                if (index < _layout.pageCount - 1)
+                  const SizedBox(
+                    height: kPageRule,
+                    child: ColoredBox(color: AppColors.hairline),
+                  ),
+              ],
             ),
-        ],
-      ),
+        );
+        return Listener(
+          behavior: HitTestBehavior.deferToChild,
+          onPointerDown: _pointerDown,
+          onPointerUp: _pointerUp,
+          child: RawGestureDetector(
+            behavior: HitTestBehavior.deferToChild,
+            gestures: _zoomGestures(),
+            child: wide
+                ? SingleChildScrollView(
+                    controller: _across,
+                    scrollDirection: Axis.horizontal,
+                    physics: const ClampingScrollPhysics(),
+                    child: SizedBox(width: drawn, child: strip),
+                  )
+                : strip,
+          ),
+        );
+      },
     );
+  }
+
+  // -- the zoom --------------------------------------------------------------
+
+  /// The pinch.
+  ///
+  /// It is its own recogniser rather than a [ScaleGestureRecognizer], because
+  /// a scale recogniser competes with the two scroll views under it from the
+  /// first finger down, and wins often enough to make a page you cannot
+  /// scroll. This one refuses the gesture until a second finger has arrived,
+  /// which is a thing no scroll view ever wants.
+  Map<Type, GestureRecognizerFactory> _zoomGestures() {
+    if (widget.store.lock.holdsPage) {
+      return const <Type, GestureRecognizerFactory>{};
+    }
+    return <Type, GestureRecognizerFactory>{
+      _PinchRecognizer: GestureRecognizerFactoryWithHandlers<_PinchRecognizer>(
+        _PinchRecognizer.new,
+        (recognizer) {
+          recognizer.onStart = _pinchStart;
+          recognizer.onUpdate = _pinchTo;
+        },
+      ),
+    };
+  }
+
+  /// The size the pinch began from, so a pinch is measured against the page
+  /// as it was rather than compounding on every frame.
+  double _zoomAtPinch = 1;
+
+  /// Where the fingers closed, so the paper under them stays under them.
+  Offset _pinchAnchor = Offset.zero;
+
+  /// The last tap, for working out whether the next one is a second.
+  ///
+  /// The double tap is watched for rather than recognised, because a
+  /// [DoubleTapGestureRecognizer] keeps a timer running after every single
+  /// tap in the document, waiting to see whether another follows. A page
+  /// nobody is going to tap twice should not be paying for that.
+  Duration? _lastTapAt;
+  Offset _lastTapWhere = Offset.zero;
+
+  /// Where a press went down, and when, so a drag is not read as a tap.
+  Duration? _downAt;
+  Offset _downWhere = Offset.zero;
+
+  void _pointerDown(PointerDownEvent event) {
+    _downAt = event.timeStamp;
+    _downWhere = event.localPosition;
+  }
+
+  void _pointerUp(PointerUpEvent event) {
+    final down = _downAt;
+    _downAt = null;
+    if (down == null) return;
+    final held = event.timeStamp - down;
+    final moved = (event.localPosition - _downWhere).distance;
+    if (held > kTapHold || moved > kTapSlop) return;
+
+    final last = _lastTapAt;
+    final near = (event.localPosition - _lastTapWhere).distance <= kTapReach;
+    if (last != null && event.timeStamp - last <= kDoubleTapWindow && near) {
+      _lastTapAt = null;
+      _doubleTap(event.localPosition);
+      return;
+    }
+    _lastTapAt = event.timeStamp;
+    _lastTapWhere = event.localPosition;
+  }
+
+  double get _zoomNow => _window <= 0 ? 1 : _drawnWidth / _window;
+
+  void _pinchStart(Offset focal) {
+    _zoomAtPinch = _zoomNow;
+    _pinchAnchor = focal;
+  }
+
+  void _pinchTo(double factor) => _zoomFrom(_zoomAtPinch * factor, _pinchAnchor);
+
+  /// Toggles between the page fitting the width and a close reading of the
+  /// spot that was tapped.
+  void _doubleTap(Offset at) {
+    if (widget.store.lock.holdsPage) return;
+    Feel.tap.ring();
+    if (_zoomNow > 1.05) {
+      _anchored = true;
+      widget.store.fit = FitMode.width;
+      SchedulerBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _across.hasClients) _across.jumpTo(0);
+      });
+      return;
+    }
+    _zoomFrom(kZoomDoubleTap, at);
+  }
+
+  /// Takes the page to [wanted], keeping whatever was under [at] under it.
+  ///
+  /// Without the anchor, a pinch grows the page from its top left corner and
+  /// the words being read leave the screen, which feels like the page running
+  /// away from the fingers holding it.
+  void _zoomFrom(double wanted, Offset at) {
+    final was = _drawnWidth;
+    _anchored = true;
+    widget.store.zoomTo(wanted);
+    final now = _drawnWidth;
+    if (was <= 0 || now <= 0) return;
+    final growth = now / was;
+    final acrossWas = _across.hasClients ? _across.offset : 0.0;
+    final downWas = _controller.hasClients ? _controller.offset : 0.0;
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (_across.hasClients) {
+        final wantedAcross = (acrossWas + at.dx) * growth - at.dx;
+        _across.jumpTo(
+          wantedAcross.clamp(0.0, _across.position.maxScrollExtent),
+        );
+      }
+      if (_controller.hasClients) {
+        final wantedDown =
+            (downWas - _topInset + at.dy) * growth - at.dy + _topInset;
+        _controller.jumpTo(
+          wantedDown.clamp(0.0, _controller.position.maxScrollExtent),
+        );
+      }
+    });
+  }
+}
+
+/// A pinch, and nothing else.
+///
+/// It never claims a single finger, so the scroll views under it keep every
+/// drag they would have had. The moment a second finger lands it takes the
+/// gesture outright, because two fingers on a page mean one thing.
+class _PinchRecognizer extends OneSequenceGestureRecognizer {
+  void Function(Offset focal)? onStart;
+  void Function(double factor)? onUpdate;
+
+  final Map<int, Offset> _points = <int, Offset>{};
+  double _openedAt = 0;
+  bool _running = false;
+
+  @override
+  String get debugDescription => 'pinch';
+
+  @override
+  void addAllowedPointer(PointerDownEvent event) {
+    startTrackingPointer(event.pointer, event.transform);
+    _points[event.pointer] = event.localPosition;
+    if (_points.length >= 2 && !_running) {
+      _running = true;
+      _openedAt = _spread;
+      onStart?.call(_focal);
+      resolve(GestureDisposition.accepted);
+    }
+  }
+
+  @override
+  void handleEvent(PointerEvent event) {
+    if (event is PointerMoveEvent) {
+      _points[event.pointer] = event.localPosition;
+      if (_running && _openedAt > 0) onUpdate?.call(_spread / _openedAt);
+      return;
+    }
+    if (event is PointerUpEvent || event is PointerCancelEvent) {
+      _points.remove(event.pointer);
+      stopTrackingPointer(event.pointer);
+      if (_points.length < 2) _running = false;
+    }
+  }
+
+  /// How far apart the two fingers are.
+  double get _spread {
+    if (_points.length < 2) return 0;
+    final held = _points.values.toList();
+    return (held[0] - held[1]).distance;
+  }
+
+  /// The point between them, which is what the page is grown from.
+  Offset get _focal {
+    if (_points.isEmpty) return Offset.zero;
+    var sum = Offset.zero;
+    for (final point in _points.values) {
+      sum += point;
+    }
+    return sum / _points.length.toDouble();
+  }
+
+  @override
+  void didStopTrackingLastPointer(int pointer) {
+    _points.clear();
+    _running = false;
+  }
+
+  @override
+  void rejectGesture(int pointer) {
+    stopTrackingPointer(pointer);
+    _points.remove(pointer);
+    if (_points.length < 2) _running = false;
   }
 }

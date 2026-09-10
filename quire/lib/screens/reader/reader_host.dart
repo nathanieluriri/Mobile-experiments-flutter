@@ -28,6 +28,7 @@ import 'page_frames.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../desk/desk_sheet.dart';
 import 'reader_menu.dart';
+import 'view_sheet.dart';
 import 'reader_screen.dart';
 import 'sheet_surface.dart';
 
@@ -216,6 +217,7 @@ class _ReaderHostState extends State<ReaderHost> with TickerProviderStateMixin {
             ? ReaderAction.undogEar
             : ReaderAction.dogEar,
         ReaderAction.find,
+        ReaderAction.view,
         ReaderAction.lock,
       ];
 
@@ -231,6 +233,11 @@ class _ReaderHostState extends State<ReaderHost> with TickerProviderStateMixin {
         _shareSigned();
       case ReaderAction.find:
         _openFind();
+      case ReaderAction.view:
+        showDeskSheet<void>(
+          context,
+          (context) => ViewSheet(store: widget.store),
+        );
       case ReaderAction.lock:
         _lock();
     }

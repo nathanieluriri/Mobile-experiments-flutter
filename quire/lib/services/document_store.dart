@@ -158,6 +158,50 @@ enum ReaderLock {
   bool get holdsPage => this == ReaderLock.page;
 }
 
+/// How big the page is drawn, said as an intention rather than a number.
+///
+/// A named fit survives a page of a different size, which a number does not:
+/// a document whose pages change shape halfway through still fits its width
+/// on every one of them.
+enum FitMode {
+  /// The page fills the width it is given. The reading default, because a
+  /// line of type you have to scroll sideways to finish is not a line you can
+  /// read.
+  width,
+
+  /// The whole page on screen at once, however small that makes it. What you
+  /// want when the shape of the page is the thing you are looking at.
+  page,
+
+  /// One point of the page to one point of the screen, which is the size the
+  /// page was drawn to be printed at.
+  actual,
+
+  /// Whatever the last pinch left it at.
+  free;
+
+  /// True when the reader set the size by hand and no rule should take it
+  /// back off them.
+  bool get byHand => this == FitMode.free;
+}
+
+/// The smallest and largest a page may be drawn, as a multiple of its fit to
+/// the width.
+///
+/// The floor is a whole page still being worth looking at. The ceiling is set
+/// by what a phone can hold: past about six times, a line of type is a few
+/// words long and the reading is all thumb.
+const kZoomMin = 0.5;
+const kZoomMax = 6.0;
+
+/// What a double tap takes the page to, and back from.
+const kZoomDoubleTap = 2.4;
+
+/// The range the type may be scaled over for a document with no pages.
+const kTextScaleMin = 0.8;
+const kTextScaleMax = 2.2;
+const kTextScaleStep = 0.1;
+
 class DocumentStore extends ChangeNotifier {
   DocumentStore(this.entry);
 
@@ -173,6 +217,17 @@ class DocumentStore extends ChangeNotifier {
   /// A document that opened locked, with nothing on screen saying why and no
   /// memory of having done it, would be a document that looked broken.
   ReaderLock _lock = ReaderLock.none;
+
+  /// How the page is sized, and the number behind it when the reader set it
+  /// by hand.
+  FitMode _fit = FitMode.width;
+  double _zoom = 1;
+
+  /// How large the type is set for a document with no pages of its own.
+  double _textScale = 1;
+
+  /// True while the loupe is following the finger.
+  bool _magnifier = false;
 
   ParseState _state = ParseState.loading;
   LoadedDocument? _loaded;
@@ -275,6 +330,43 @@ class DocumentStore extends ChangeNotifier {
   set lock(ReaderLock value) {
     if (value == _lock) return;
     _lock = value;
+    notifyListeners();
+  }
+
+  FitMode get fit => _fit;
+
+  /// The size the page is drawn at as a multiple of its fit to the width,
+  /// which only means anything while the reader is holding the size by hand.
+  double get zoom => _zoom;
+
+  /// Puts the page at a named size, and forgets whatever number was there.
+  set fit(FitMode value) {
+    if (value == _fit) return;
+    _fit = value;
+    notifyListeners();
+  }
+
+  /// Puts the page at a size the reader chose, which is what a pinch does.
+  void zoomTo(double value) {
+    final wanted = value.clamp(kZoomMin, kZoomMax);
+    if (wanted == _zoom && _fit == FitMode.free) return;
+    _zoom = wanted;
+    _fit = FitMode.free;
+    notifyListeners();
+  }
+
+  double get textScale => _textScale;
+  set textScale(double value) {
+    final wanted = value.clamp(kTextScaleMin, kTextScaleMax);
+    if ((wanted - _textScale).abs() < 0.001) return;
+    _textScale = wanted;
+    notifyListeners();
+  }
+
+  bool get magnifier => _magnifier;
+  set magnifier(bool value) {
+    if (value == _magnifier) return;
+    _magnifier = value;
     notifyListeners();
   }
 

@@ -15,6 +15,7 @@ enum ReaderAction {
   dogEar(label: 'Dog ear this page', icon: LucideIcons.bookmark),
   undogEar(label: 'Remove the dog ear', icon: LucideIcons.bookmark),
   find(label: 'Find in document', icon: LucideIcons.search),
+  view(label: 'View', icon: LucideIcons.scanEye),
   lock(label: 'Lock the reading', icon: LucideIcons.lockKeyhole);
 
   const ReaderAction({required this.label, required this.icon});
