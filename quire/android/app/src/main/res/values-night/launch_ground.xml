@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- AppColors.ground, which is what the app draws behind everything. -->
+    <color name="launch_ground">#FF131316</color>
+</resources>
