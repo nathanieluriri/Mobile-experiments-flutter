@@ -21,6 +21,7 @@ import 'fore_edge.dart';
 import 'password_sheet.dart';
 import 'loupe.dart';
 import 'reader_chrome.dart';
+import 'reader_route.dart';
 import 'unlock_chip.dart';
 import 'riffle_sheet.dart';
 import 'sheet_surface.dart';
@@ -705,6 +706,14 @@ class _ReaderScreenState extends State<ReaderScreen>
     final foldPoint = track != null ? track.value : _foldPoint;
     final slide = _slideTrack?.value ?? _slideX;
     final lock = _store.lock;
+    // How far the paper still is from home because the document is arriving,
+    // which is the route's own animation read through the arrival curve. Zero
+    // for a reader nothing pushed, which is a test.
+    final opening = _opening;
+    final arrival = opening == null
+        ? 0.0
+        : kScreenWidth *
+              (1 - kDocumentArrival.transform(opening.value.clamp(0.0, 1.0)));
     // A page lock takes the band with it, so the chrome is gone outright
     // rather than merely scrolled away: there is nothing to bring it back
     // while the lock is on.
@@ -762,8 +771,13 @@ class _ReaderScreenState extends State<ReaderScreen>
                   child: IgnorePointer(
                     child: ColoredBox(
                       color: AppColors.ground.withValues(
+                        // However far off home the paper is, by arriving or by
+                        // being dragged away, is how much of the desk is
+                        // showing and how little of it should be dark.
                         alpha:
-                            kDeskDim * (1 - (slide / kScreenWidth).clamp(0, 1)),
+                            kDeskDim *
+                            (1 -
+                                ((slide + arrival) / kScreenWidth).clamp(0, 1)),
                       ),
                     ),
                   ),
@@ -772,75 +786,94 @@ class _ReaderScreenState extends State<ReaderScreen>
                   offset: Offset(slide, 0),
                   child: Stack(
                     children: [
-                      const Positioned.fill(
-                        child: ColoredBox(color: AppColors.ground),
-                      ),
-                      Positioned.fromRect(
-                        rect: kSheetRect,
-                        child: _sheetFor(plan, body, foldPoint),
-                      ),
-                      if (readable && !lock.holdsPage)
-                        Positioned(
-                          left: kForeEdgeLeft,
-                          top: kForeEdgeTop,
-                          child: IgnorePointer(
-                            child: ForeEdge(
-                              marks: body.foreEdgeMarks,
-                              position: position,
-                              dogEars: dogEars,
-                              damaged: body.damagedMarks,
-                              signatures: signatures,
-                              matches: widget.matches,
-                              liveMatch: widget.liveMatch,
-                              scrubbedMatch: _scrubbedMatch,
-                              matchOpacity: widget.matchOpacity,
-                            ),
-                          ),
-                        ),
-                      if (_scrubbing)
-                        Positioned(
-                          right:
-                              kScreenWidth - kForeEdgeLeft + kForeEdgeBubbleGap,
-                          top: _scrubY - kForeEdgeBubble / 2,
-                          child: IgnorePointer(
-                            child: ForeEdgeBubble(
-                              label: 'p. ${body.positionLabel}',
-                              matches: _matchesHere,
-                            ),
-                          ),
-                        ),
-                      if (readable && !lock.holdsPage)
-                        Positioned(
-                          left:
-                              kSheetLeft +
-                              kSheetWidth -
-                              kFolioChipInset -
-                              kFolioChipWidth,
-                          top:
-                              kReadableBottom -
-                              kFolioChipInset -
-                              kFolioChipHeight +
-                              kFolioChipHidden * hidden,
-                          child: IgnorePointer(
-                            child: FolioChip(
-                              label: body.positionLabel,
-                              hidden: hidden,
-                              dogEared: _store.dogEared.contains(
-                                _store.position,
-                              ),
-                              tint: _folioTint,
-                            ),
-                          ),
-                        ),
+                      // The paper, and everything drawn on the paper. This is
+                      // what travels when a document arrives; the band above
+                      // it does not, because the band is where the desk's own
+                      // corner button is turning into the way back.
                       Positioned.fill(
-                        child: PlacementSlot(child: widget.placement),
+                        child: Transform.translate(
+                          offset: Offset(arrival, 0),
+                          child: Stack(
+                            children: [
+                              const Positioned.fill(
+                                child: ColoredBox(color: AppColors.ground),
+                              ),
+                              Positioned.fromRect(
+                                rect: kSheetRect,
+                                child: _sheetFor(plan, body, foldPoint),
+                              ),
+                              if (readable && !lock.holdsPage)
+                                Positioned(
+                                  left: kForeEdgeLeft,
+                                  top: kForeEdgeTop,
+                                  child: IgnorePointer(
+                                    child: ForeEdge(
+                                      marks: body.foreEdgeMarks,
+                                      position: position,
+                                      dogEars: dogEars,
+                                      damaged: body.damagedMarks,
+                                      signatures: signatures,
+                                      matches: widget.matches,
+                                      liveMatch: widget.liveMatch,
+                                      scrubbedMatch: _scrubbedMatch,
+                                      matchOpacity: widget.matchOpacity,
+                                    ),
+                                  ),
+                                ),
+                              if (_scrubbing)
+                                Positioned(
+                                  right:
+                                      kScreenWidth -
+                                      kForeEdgeLeft +
+                                      kForeEdgeBubbleGap,
+                                  top: _scrubY - kForeEdgeBubble / 2,
+                                  child: IgnorePointer(
+                                    child: ForeEdgeBubble(
+                                      label: 'p. ${body.positionLabel}',
+                                      matches: _matchesHere,
+                                    ),
+                                  ),
+                                ),
+                              if (readable && !lock.holdsPage)
+                                Positioned(
+                                  left:
+                                      kSheetLeft +
+                                      kSheetWidth -
+                                      kFolioChipInset -
+                                      kFolioChipWidth,
+                                  top:
+                                      kReadableBottom -
+                                      kFolioChipInset -
+                                      kFolioChipHeight +
+                                      kFolioChipHidden * hidden,
+                                  child: IgnorePointer(
+                                    child: FolioChip(
+                                      label: body.positionLabel,
+                                      hidden: hidden,
+                                      dogEared: _store.dogEared.contains(
+                                        _store.position,
+                                      ),
+                                      tint: _folioTint,
+                                    ),
+                                  ),
+                                ),
+                              Positioned.fill(
+                                child: PlacementSlot(child: widget.placement),
+                              ),
+                            ],
+                          ),
+                        ),
                       ),
                       ReaderChrome(
                         title: _store.entry.title,
                         hidden: hidden,
                         showingBack: _side == SheetSide.back,
                         locked: lock.holdsBack,
-                        backMorph: _opening?.value ?? 1,
+                        backMorph: opening == null
+                            ? 1
+                            : kDocumentArrival.transform(
+                                opening.value.clamp(0.0, 1.0),
+                              ),
                         onBack: lock.holdsBack ? _unlock : _leave,
                         onFind: widget.onFind,
                         onMenu: widget.onMenu,

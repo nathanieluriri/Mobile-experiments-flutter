@@ -2,7 +2,7 @@ import 'package:flutter/widgets.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../painting/overflow_dots_painter.dart';
-import '../desk/desk_top_bar.dart' show HamburgerGlyph;
+import '../desk/desk_top_bar.dart' show HamburgerGlyph, kMenuButtonTop;
 import '../../theme/colors.dart';
 import '../../theme/metrics.dart';
 import '../../theme/typography.dart';
@@ -161,12 +161,19 @@ class ReaderChrome extends StatelessWidget {
               ),
             ),
           ),
+          // The corner button sits exactly where the desk's own does, at the
+          // desk's own size, because it is the desk's own button: it arrives
+          // as the three lines the desk had and turns into the arrow in place.
+          // A button eight points to the side of the one it is continuing is
+          // two buttons, and the turn reads as one of them appearing over the
+          // other rather than as either of them becoming anything.
           Positioned(
-            left: kScreenPadding,
-            top: rowTop + shift,
+            left: kTopBarPaddingX,
+            top: safeTop + kMenuButtonTop + shift,
             child: Opacity(
               opacity: fade,
               child: _HeaderButton(
+                size: kBurgerTarget,
                 icon: switch ((placing, locked)) {
                   (true, _) => LucideIcons.x,
                   (_, true) => LucideIcons.lockKeyhole,
@@ -268,7 +275,12 @@ class _HeaderButton extends StatelessWidget {
     this.onTap,
     this.semanticLabel,
     this.accent = false,
+    this.size = kHeaderButtonSize,
   }) : assert(icon != null || child != null, 'a button needs a face');
+
+  /// How big the button is. The corner one is the desk's size rather than the
+  /// band's, so it can be the same object the desk was showing.
+  final double size;
 
   final IconData? icon;
 
@@ -296,8 +308,8 @@ class _HeaderButton extends StatelessWidget {
       // The one exception is a button that finishes something rather than
       // opening it, which stays in the accent so it cannot be missed.
       child: Container(
-        width: kHeaderButtonSize,
-        height: kHeaderButtonSize,
+        width: size,
+        height: size,
         decoration: BoxDecoration(
           color: accent ? AppColors.accent : null,
           borderRadius: BorderRadius.circular(kHeaderButtonRadius),

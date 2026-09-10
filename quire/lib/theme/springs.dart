@@ -1,5 +1,9 @@
+import 'dart:math' as math;
+
 import 'package:flutter/physics.dart';
 import 'package:flutter/widgets.dart';
+
+import 'metrics.dart';
 
 /// Every spring in the app. There is no `Curves.elasticOut` anywhere: bounce
 /// reads as toy, and these do the work.
@@ -31,6 +35,37 @@ abstract final class AppSprings {
   /// finish at about the same moment.
   static const drawer =
       SpringDescription(mass: 1, stiffness: 210, damping: 24);
+
+  /// The drawer's damping, as a share of what would stop it dead.
+  ///
+  /// Taken off the spring rather than written down beside it, so anything
+  /// built to move like the drawer keeps moving like the drawer if the drawer
+  /// is ever retuned.
+  static final drawerRatio =
+      drawer.damping / (2 * math.sqrt(drawer.stiffness * drawer.mass));
+
+  /// A document arriving from the edge of the screen: the drawer's shape, at a
+  /// page's size.
+  ///
+  /// The panel crosses its own width and a page crosses the whole screen, so
+  /// the same spring carries the page a good deal faster than it carries the
+  /// panel, and a page that arrives that fast reads as a cut rather than as
+  /// something being brought in.
+  ///
+  /// How fast a spring moves goes with the square root of its stiffness, so
+  /// bringing the stiffness down by the square of the ratio between the two
+  /// distances leaves the page travelling at the panel's speed instead of in
+  /// the panel's time. The damping ratio is the panel's own, so the curve has
+  /// exactly the panel's shape: a quarter of the way at a fifth of the time,
+  /// six tenths at two fifths, and easing into place from there.
+  static final documentArrival = SpringDescription.withDampingRatio(
+    mass: drawer.mass,
+    stiffness:
+        drawer.stiffness *
+        (drawerWidth(kScreenWidth) / kScreenWidth) *
+        (drawerWidth(kScreenWidth) / kScreenWidth),
+    ratio: drawerRatio,
+  );
 }
 
 /// Runs a [SpringDescription] from 0 to 1 as a [Curve] over [duration], so a
