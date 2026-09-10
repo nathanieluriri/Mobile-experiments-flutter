@@ -310,7 +310,15 @@ class _ListBodyState extends State<ListBody>
       for (final entry in rows)
         entry.path: shown.contains(entry.path) ? 1.0 : 0.0,
     };
-    if (_sameTargets(next) && _sameRows(rows)) return;
+    if (_sameTargets(next) && _sameRows(rows)) {
+      // The same documents, in the same order, with nothing arriving or
+      // leaving: the spring has no work. They are still taken, because the
+      // same document is not the same object. A rename hands the desk a new
+      // entry under the old path, and a body that kept the old one would go
+      // on printing the old name until something else disturbed the list.
+      _rows = rows;
+      return;
+    }
     final from = <String, double>{
       for (final path in next.keys) path: _factorOf(path),
     };
