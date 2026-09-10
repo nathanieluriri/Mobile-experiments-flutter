@@ -2,8 +2,8 @@ import 'package:flutter/widgets.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../painting/overflow_dots_painter.dart';
+import '../desk/desk_top_bar.dart' show HamburgerGlyph;
 import '../../theme/colors.dart';
-import '../../theme/edges.dart';
 import '../../theme/metrics.dart';
 import '../../theme/typography.dart';
 import '../../widgets/press_fade.dart';
@@ -70,6 +70,7 @@ class ReaderChrome extends StatelessWidget {
     this.menuOpen = 0,
     this.notice,
     this.locked = false,
+    this.backMorph = 1,
   });
 
   /// The document's title, as the desk prints it.
@@ -99,6 +100,14 @@ class ReaderChrome extends StatelessWidget {
   /// 0 with the menu shut, 1 with it open, which is what draws the three dots
   /// together into the one dot the goo comes out of.
   final double menuOpen;
+
+  /// How far the way back has turned from the menu it came out of: 0 the
+  /// desk's three lines, 1 the arrow.
+  ///
+  /// The document arrives over the desk, and the button in the corner is the
+  /// same button the desk had. So it turns rather than being swapped, which is
+  /// what the drawer's own button does when the drawer comes over the desk.
+  final double backMorph;
 
   /// True when the way out is fastened, which turns the arrow into the
   /// padlock that undoes it.
@@ -161,7 +170,7 @@ class ReaderChrome extends StatelessWidget {
                 icon: switch ((placing, locked)) {
                   (true, _) => LucideIcons.x,
                   (_, true) => LucideIcons.lockKeyhole,
-                  _ => LucideIcons.cornerUpLeft,
+                  _ => null,
                 },
                 accent: locked && !placing,
                 onTap: placing ? onCancel : onBack,
@@ -170,6 +179,10 @@ class ReaderChrome extends StatelessWidget {
                   (_, true) => 'Unlock the reading',
                   _ => 'Back to the desk',
                 },
+                // Not a glyph but the desk's own, part way through its turn.
+                child: placing || locked
+                    ? null
+                    : HamburgerGlyph(progress: backMorph),
               ),
             ),
           ),
@@ -274,13 +287,20 @@ class _HeaderButton extends StatelessWidget {
       onTap: onTap,
       semanticLabel: semanticLabel,
       washRadius: kHeaderButtonRadius,
+      // At rest a button in the band is the band: no plate, no rule, just the
+      // glyph on the same ground the title is on. The plate a button used to
+      // wear all the time was three light shapes on a dark band competing with
+      // the document for the eye, and the only moment it is worth having is
+      // the moment the finger is on it. That moment is what the wash is.
+      //
+      // The one exception is a button that finishes something rather than
+      // opening it, which stays in the accent so it cannot be missed.
       child: Container(
         width: kHeaderButtonSize,
         height: kHeaderButtonSize,
         decoration: BoxDecoration(
-          color: accent ? AppColors.accent : AppColors.surfaceHigh,
+          color: accent ? AppColors.accent : null,
           borderRadius: BorderRadius.circular(kHeaderButtonRadius),
-          border: accent ? null : AppEdges.all(context),
         ),
         child: child ??
             Center(

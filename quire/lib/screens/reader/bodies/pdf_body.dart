@@ -1175,6 +1175,13 @@ class _PinchRecognizer extends OneSequenceGestureRecognizer {
       return;
     }
     if (event is PointerUpEvent || event is PointerCancelEvent) {
+      // A finger that lifts without a second one ever arriving was never a
+      // pinch, and this steps out of the way rather than waiting to be swept.
+      // Tracking a pointer puts a recogniser in the arena, and an arena
+      // member that neither accepts nor rejects wins the sweep by being the
+      // deepest thing under the finger, which would make this quietly eat
+      // every tap on the page.
+      if (!_running) resolve(GestureDisposition.rejected);
       _points.remove(event.pointer);
       stopTrackingPointer(event.pointer);
       if (_points.length < 2) _running = false;

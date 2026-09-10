@@ -176,4 +176,45 @@ void main() {
       expect(store.lock, ReaderLock.none);
     });
   });
+
+  group('the band a tap puts away', () {
+    testWidgets('a tap on the page hides it, and another brings it back', (
+      tester,
+    ) async {
+      final store = await storeFor(kFieldGuide);
+      await pumpScreen(tester, _host(store));
+      await settle(tester);
+
+      // It opens showing, at the very top, where there is nothing above the
+      // first line to scroll towards.
+      expect(tester.widget<ReaderChrome>(find.byType(ReaderChrome)).hidden, 0);
+
+      await tester.tapAt(const Offset(200, 500));
+      await settle(tester);
+      expect(tester.widget<ReaderChrome>(find.byType(ReaderChrome)).hidden, 1);
+
+      await tester.tapAt(const Offset(200, 500));
+      await settle(tester);
+      expect(tester.widget<ReaderChrome>(find.byType(ReaderChrome)).hidden, 0);
+    });
+
+    testWidgets('a locked page answers a tap with the chip and not the band', (
+      tester,
+    ) async {
+      final store = await storeFor(kFieldGuide);
+      await pumpScreen(tester, _host(store));
+      await settle(tester);
+      store.lock = ReaderLock.page;
+      await tester.pump();
+      await settle(tester);
+
+      await tester.tapAt(const Offset(200, 500));
+      await tester.pump(kUnlockChipFade);
+      expect(tester.widget<ReaderChrome>(find.byType(ReaderChrome)).hidden, 1);
+      expect(
+        tester.widget<UnlockChip>(find.byType(UnlockChip)).progress,
+        1,
+      );
+    });
+  });
 }

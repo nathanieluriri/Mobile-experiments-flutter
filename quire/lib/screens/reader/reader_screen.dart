@@ -295,6 +295,7 @@ class _ReaderScreenState extends State<ReaderScreen>
   @override
   void dispose() {
     widget.store.removeListener(_repaint);
+    _opening?.removeListener(_repaint);
     _still?.cancel();
     _chipGone?.cancel();
     _chrome.dispose();
@@ -309,6 +310,30 @@ class _ReaderScreenState extends State<ReaderScreen>
   /// What was fastened last time the store spoke, so a lock going on can be
   /// noticed rather than merely drawn.
   ReaderLock _lockWas = ReaderLock.none;
+
+  /// The route bringing this document in, which is what the corner button's
+  /// turn is measured against.
+  ///
+  /// The desk's three lines turn into an arrow as the drawer arrives, and the
+  /// same three lines turn into the same arrow as a document arrives, because
+  /// it is the same button making the same journey away from the desk.
+  /// Reading the route rather than running a second animation is what keeps
+  /// the glyph from ever disagreeing with the thing it describes, and it
+  /// turns the arrow back into the menu on the way out for nothing.
+  ///
+  /// Null when nothing pushed this screen, which is a test, and then the
+  /// arrow is simply an arrow.
+  Animation<double>? _opening;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final route = ModalRoute.of(context)?.animation;
+    if (identical(route, _opening)) return;
+    _opening?.removeListener(_repaint);
+    _opening = route;
+    _opening?.addListener(_repaint);
+  }
 
   void _repaint() {
     if (!mounted) return;
@@ -342,6 +367,21 @@ class _ReaderScreenState extends State<ReaderScreen>
   void _showChrome() {
     if (_chrome.value == 0) return;
     _chrome.reverse();
+  }
+
+  /// A tap on the page puts the band away, or brings it back.
+  ///
+  /// Scrolling down was the only way to be rid of it, which meant that at the
+  /// top of a document there was no way at all: there is nothing above the
+  /// first line to scroll towards. A tap is the whole gesture, and it is the
+  /// one every reader already tries.
+  void _tapChrome() {
+    Feel.tap.ring();
+    if (_chrome.value > 0) {
+      _chrome.reverse();
+    } else {
+      _chrome.forward();
+    }
   }
 
   /// Reading takes the band away and looking for something brings it back.
@@ -800,6 +840,7 @@ class _ReaderScreenState extends State<ReaderScreen>
                         hidden: hidden,
                         showingBack: _side == SheetSide.back,
                         locked: lock.holdsBack,
+                        backMorph: _opening?.value ?? 1,
                         onBack: lock.holdsBack ? _unlock : _leave,
                         onFind: widget.onFind,
                         onMenu: widget.onMenu,
@@ -995,12 +1036,12 @@ class _ReaderScreenState extends State<ReaderScreen>
                 recognizer.onTap = _askUnlock;
               },
             )
-      else if (reading && hidden > 0)
+      else if (reading)
         TapGestureRecognizer:
             GestureRecognizerFactoryWithHandlers<TapGestureRecognizer>(
               TapGestureRecognizer.new,
               (recognizer) {
-                recognizer.onTap = _showChrome;
+                recognizer.onTap = _tapChrome;
               },
             ),
     };
