@@ -1,10 +1,12 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:quire/format/csv_parser.dart';
 import 'package:quire/format/docx_parser.dart';
 import 'package:quire/format/xlsx_parser.dart';
 import 'package:quire/model/document.dart';
+import 'package:quire/pdf/document.dart';
 import 'package:quire/services/convert.dart';
 import 'package:quire/services/office_writer.dart';
 
@@ -253,12 +255,25 @@ void main() {
       expect(result, isNull);
     });
 
-    test('a PDF is not written yet, and says so rather than pretending', () {
+    test('a PDF needs the faces it will be set in', () {
       final result = runConvert(
         ConvertSource(title: 'Style', document: _prose()),
         ConvertTarget.pdf,
       );
       expect(result, isNull);
+    });
+
+    test('given the faces, it composes a page file that opens', () {
+      final result = runConvert(
+        ConvertSource(title: 'Style', document: _prose()),
+        ConvertTarget.pdf,
+        faces: ConvertFaces(
+          regular: File('assets/fonts/Inter-Regular.ttf').readAsBytesSync(),
+          bold: File('assets/fonts/Inter-Bold.ttf').readAsBytesSync(),
+        ),
+      );
+      expect(result, isNotNull);
+      expect(PdfFile.open(result!.bytes).pageCount, greaterThanOrEqualTo(1));
     });
   });
 

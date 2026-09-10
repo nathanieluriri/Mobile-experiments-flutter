@@ -2,10 +2,12 @@ import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'dart:io' show File;
+import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart' show clampDouble;
 import 'package:flutter/physics.dart';
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter/widgets.dart';
 import 'package:share_plus/share_plus.dart';
 
@@ -598,7 +600,7 @@ class _DeskScreenState extends State<DeskScreen> with TickerProviderStateMixin {
     );
     if (picked == null || !mounted) return;
 
-    final result = runConvert(source, picked);
+    final result = runConvert(source, picked, faces: await _faces());
     if (result == null) {
       _notify('quire cannot write a ${picked.label} file yet.');
       return;
@@ -629,9 +631,28 @@ class _DeskScreenState extends State<DeskScreen> with TickerProviderStateMixin {
   ///
   /// Stated here rather than left off the list, so a reader looking for one
   /// finds out it is coming instead of wondering whether they missed it.
-  static const Set<ConvertTarget> _unbuiltTargets = <ConvertTarget>{
-    ConvertTarget.pdf,
-  };
+  static const Set<ConvertTarget> _unbuiltTargets = <ConvertTarget>{};
+
+  /// The two faces a composed page is set in, read once and kept.
+  ///
+  /// They are the app's own typeface, which is what a page composed here is
+  /// set in and what gets embedded in it, cut down to the letters the document
+  /// actually uses.
+  static ConvertFaces? _held;
+
+  Future<ConvertFaces> _faces() async {
+    final held = _held;
+    if (held != null) return held;
+    Future<Uint8List> read(String weight) async {
+      final data = await rootBundle.load('assets/fonts/Inter-$weight.ttf');
+      return data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes);
+    }
+
+    return _held = ConvertFaces(
+      regular: await read('Regular'),
+      bold: await read('Bold'),
+    );
+  }
 
   /// A title with the characters a file name cannot carry taken out.
   String _fileSafe(String title) {

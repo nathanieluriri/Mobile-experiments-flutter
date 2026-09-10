@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import '../model/document.dart';
 import '../pdf/display_list.dart';
+import '../pdf/compose.dart';
 import '../pdf/document.dart';
 import '../pdf/interpreter.dart';
 import 'office_writer.dart';
@@ -436,7 +437,11 @@ class ConvertSource {
 /// can go wrong comes back as a [ConvertResult] with a warning on it, because
 /// a conversion that dropped something and finished is still a file the reader
 /// wanted, and a conversion that dropped something quietly is a lie.
-ConvertResult? runConvert(ConvertSource source, ConvertTarget target) {
+ConvertResult? runConvert(
+  ConvertSource source,
+  ConvertTarget target, {
+  ConvertFaces? faces,
+}) {
   final document = source.document;
   final pdf = source.pdf;
   final warnings = <ConvertWarning>[];
@@ -519,6 +524,24 @@ ConvertResult? runConvert(ConvertSource source, ConvertTarget target) {
       }
       return ConvertResult(bytes: writeDocx(made), warnings: warnings);
     case ConvertTarget.pdf:
-      return null;
+      final made = document;
+      if (made == null || faces == null) return null;
+      final composer = PdfComposer.of(faces.regular, faces.bold);
+      final bytes = composer.compose(made);
+      for (final line in composer.warnings.toSet()) {
+        warnings.add(ConvertWarning(line));
+      }
+      return ConvertResult(bytes: bytes, warnings: warnings);
   }
+}
+
+/// The two faces a composed page is set in.
+///
+/// They are handed in rather than read here, because the parsing side of this
+/// app never touches the bundle: a converter that loaded its own fonts would
+/// be a converter that could only run inside a running app.
+class ConvertFaces {
+  const ConvertFaces({required this.regular, required this.bold});
+  final Uint8List regular;
+  final Uint8List bold;
 }
