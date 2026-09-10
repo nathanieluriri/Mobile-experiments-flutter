@@ -4,7 +4,10 @@ import '../../painting/signature_painter.dart';
 import '../../theme/colors.dart';
 
 /// The scale handle's side, at the stamp's bottom right corner.
-const kStampHandle = 24.0;
+const kStampHandle = 34.0;
+
+/// The knob drawn inside that target.
+const kStampKnob = 15.0;
 
 /// The dashed outline around a mark that has not landed yet: 3 on, 3 off.
 const kStampDashOn = 3.0;
@@ -28,6 +31,8 @@ class SignatureStamp extends StatelessWidget {
     this.outline = 1,
     this.onDrag,
     this.onScale,
+    this.onPinchStart,
+    this.onPinch,
   });
 
   final SignatureMark mark;
@@ -48,11 +53,26 @@ class SignatureStamp extends StatelessWidget {
   /// Grows and shrinks it from the corner.
   final ValueChanged<Offset>? onScale;
 
+  /// A second finger has landed, so whatever comes next is measured from the
+  /// size the mark is now.
+  final VoidCallback? onPinchStart;
+
+  /// Two fingers, spread or pinched, as a factor of the size at the start of
+  /// the gesture.
+  final ValueChanged<double>? onPinch;
+
   @override
   Widget build(BuildContext context) {
+    // One recogniser for both, because a drag and a pinch are the same
+    // gesture with a different number of fingers, and two recognisers would
+    // spend the whole placement arguing about which of them had the touch.
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
-      onPanUpdate: (details) => onDrag?.call(details.delta),
+      onScaleStart: (_) => onPinchStart?.call(),
+      onScaleUpdate: (details) {
+        onDrag?.call(details.focalPointDelta);
+        if (details.pointerCount > 1) onPinch?.call(details.scale);
+      },
       child: Stack(
         children: <Widget>[
           Positioned.fill(
@@ -101,12 +121,10 @@ class _StampInkPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     if (mark.isEmpty || opacity <= 0) return;
-    canvas.drawPath(
-      mark.pathIn(Offset.zero & size),
-      Paint()
-        ..color = AppColors.pageInk.withValues(
-          alpha: kPlacedInkAlpha * opacity,
-        ),
+    mark.paintInto(
+      canvas,
+      Offset.zero & size,
+      alpha: kPlacedInkAlpha * opacity,
     );
   }
 
@@ -152,18 +170,34 @@ class _StampOutlinePainter extends CustomPainter {
 }
 
 /// The corner you take hold of to make the mark bigger or smaller.
+/// The knob that resizes the mark: a filled corner with the two arms of the
+/// bracket cut out of it.
+///
+/// It was a pair of hairlines, which is a mark on a page and not a thing to
+/// take hold of. A reader who cannot see a handle drags the whole signature
+/// around instead and concludes it cannot be resized at all.
 class _StampHandlePainter extends CustomPainter {
   const _StampHandlePainter();
 
   @override
   void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.5
-      ..color = AppColors.accent;
     final corner = Offset(size.width, size.height);
-    canvas.drawLine(corner - const Offset(kStampHandleArm, 0), corner, paint);
-    canvas.drawLine(corner - const Offset(0, kStampHandleArm), corner, paint);
+    final centre = corner - const Offset(kStampKnob / 2, kStampKnob / 2);
+    canvas.drawCircle(
+      centre,
+      kStampKnob / 2,
+      Paint()..color = AppColors.accent,
+    );
+    final arms = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.6
+      ..strokeCap = StrokeCap.round
+      ..color = AppColors.onAccent;
+    // A corner bracket inside the knob, pointing the way it grows.
+    const reach = kStampHandleArm / 3;
+    final elbow = centre + const Offset(reach, reach);
+    canvas.drawLine(elbow - const Offset(reach * 2, 0), elbow, arms);
+    canvas.drawLine(elbow - const Offset(0, reach * 2), elbow, arms);
   }
 
   @override

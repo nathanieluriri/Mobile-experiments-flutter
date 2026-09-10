@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import 'data/library.dart';
@@ -8,7 +10,9 @@ import 'screens/reader/reader_route.dart';
 import 'screens/reader/sheet_surface.dart';
 import 'screens/sign/sign_screen.dart';
 import 'services/document_store.dart';
+import 'services/library_catalogue.dart';
 import 'theme/colors.dart';
+import 'theme/metrics.dart';
 import 'theme/typography.dart';
 import 'widgets/dissolve/dissolve_scope.dart';
 import 'widgets/quire_spinner.dart';
@@ -67,13 +71,14 @@ class _AppState extends State<App> {
   void initState() {
     super.initState();
     if (widget.routes.containsKey(kDeskRoute)) return;
-    final library = LibraryStore();
+    final library = LibraryStore(catalogue: LibraryCatalogue());
     _library = library;
-    // The desk's first frame is drawn from the manifest alone, so the six
-    // files are read after it rather than before it. The cards are already on
-    // the ground when their real page, row and word counts land on them.
+    // The desk's first frame is drawn from the manifest alone, so the files
+    // are read after it rather than before it. The cards are already on the
+    // ground when their real page, row and word counts land on them, and any
+    // document opened in an earlier run arrives at the top in the same beat.
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) library.hydrate();
+      if (mounted) library.boot();
     });
   }
 
@@ -156,8 +161,9 @@ class _AppState extends State<App> {
       // The loop, not the ground, for the one frame the navigator has yet to
       // hand anything over: an app with nothing on screen is loading, and a
       // bare ground would say it had nothing to show.
-      builder: (context, child) =>
-          DissolveScope(child: child ?? const QuireLoading()),
+      builder: (context, child) => _Fitted(
+        child: DissolveScope(child: child ?? const QuireLoading()),
+      ),
     );
   }
 
@@ -196,6 +202,7 @@ class _AppState extends State<App> {
   /// The reader, holding [store] and whatever is waiting to be set into it.
   Widget _reader(DocumentStore store) => ReaderHost(
     store: store,
+    library: _library,
     placing: identical(store, _signing) ? _mark : null,
     onPlaced: () {
       _mark = null;
@@ -265,6 +272,72 @@ class _Ground extends StatelessWidget {
     return const ColoredBox(
       color: AppColors.ground,
       child: SizedBox.expand(),
+    );
+  }
+}
+
+/// Maps the design's fixed [kScreenWidth] by [kScreenHeight] space onto
+/// whatever screen the app is actually running on.
+///
+/// Every metric in this app is a constant in a 402 by 874 space, which is what
+/// lets the fore edge, the folio chip and the sheet be laid out as constants
+/// rather than measured. A phone narrower than 402 would otherwise push the
+/// sheet's right edge, and with it the corner you turn a page by, off the
+/// screen entirely.
+///
+/// The scale is uniform, so a sheet keeps the proportions it was drawn with.
+/// Whatever the shorter axis leaves over becomes ground coloured margin, which
+/// reads as the desk the page is lying on rather than as a bar.
+class _Fitted extends StatelessWidget {
+  const _Fitted({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final query = MediaQuery.of(context);
+    final size = query.size;
+    if (size.isEmpty) return child;
+    final scale = math.min(
+      size.width / kScreenWidth,
+      size.height / kScreenHeight,
+    );
+    // The device's own insets are in device points, so they have to be taken
+    // back into design points before anything laid out in design space reads
+    // them, or a notch would be measured against the wrong ruler.
+    final padding = EdgeInsets.fromLTRB(
+      query.padding.left / scale,
+      query.padding.top / scale,
+      query.padding.right / scale,
+      query.padding.bottom / scale,
+    );
+    return ColoredBox(
+      color: AppColors.ground,
+      child: Center(
+        child: SizedBox(
+          width: kScreenWidth * scale,
+          height: kScreenHeight * scale,
+          child: FittedBox(
+            fit: BoxFit.contain,
+            child: SizedBox(
+              width: kScreenWidth,
+              height: kScreenHeight,
+              child: MediaQuery(
+                // The ratio is multiplied rather than left alone so a snapshot
+                // the dissolve takes is rasterised at the pixels it will
+                // actually occupy, not the smaller count design space implies.
+                data: query.copyWith(
+                  size: const Size(kScreenWidth, kScreenHeight),
+                  padding: padding,
+                  viewPadding: padding,
+                  devicePixelRatio: query.devicePixelRatio * scale,
+                ),
+                child: child,
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

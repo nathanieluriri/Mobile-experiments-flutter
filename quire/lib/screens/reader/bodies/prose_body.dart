@@ -921,7 +921,13 @@ class _ProseSheetState extends State<ProseSheet> {
   Widget build(BuildContext context) {
     return SingleChildScrollView(
       controller: _controller,
-      padding: const EdgeInsets.symmetric(vertical: kSheetPadding),
+      // The prose keeps its own breathing room and is held clear of the band
+      // and the gesture bar on top of it, the same as a page is.
+      padding: EdgeInsets.only(
+        top: readerContentTop(MediaQuery.paddingOf(context)) + kSheetPadding,
+        bottom:
+            readerContentBottom(MediaQuery.paddingOf(context)) + kSheetPadding,
+      ),
       child: Center(
         child: ProseColumn(
           blocks: widget.blocks,

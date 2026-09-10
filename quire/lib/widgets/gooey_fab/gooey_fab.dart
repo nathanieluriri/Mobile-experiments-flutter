@@ -7,6 +7,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../constants/gooey_fab.dart';
 import '../../painting/goo_circles_painter.dart';
 import '../../theme/colors.dart';
+import '../../theme/feedback.dart';
 import '../press_fade.dart';
 import 'fab_action_pill.dart';
 import 'gooey_fab_controller.dart';
@@ -74,7 +75,10 @@ class _GooeyFabState extends State<GooeyFab> with TickerProviderStateMixin {
               ),
               child: GestureDetector(
                 behavior: HitTestBehavior.opaque,
-                onTap: _toggle,
+                onTap: () {
+                  Feel.tap.ring();
+                  _toggle();
+                },
                 child: const SizedBox.expand(),
               ),
             ),

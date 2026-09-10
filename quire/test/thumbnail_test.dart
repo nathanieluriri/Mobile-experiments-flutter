@@ -46,7 +46,7 @@ void main() {
   test('a file nothing can read records an empty page, not a placeholder', () {
     final store = DocumentStore(
       const LibraryEntry(
-        assetPath: 'assets/documents/torn.pdf',
+        path: 'assets/documents/torn.pdf',
         title: 'Torn',
         format: DocFormat.pdf,
         bytes: 0,

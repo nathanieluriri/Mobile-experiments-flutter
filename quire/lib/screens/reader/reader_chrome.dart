@@ -1,6 +1,7 @@
 import 'package:flutter/widgets.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
+import '../../painting/overflow_dots_painter.dart';
 import '../../theme/colors.dart';
 import '../../theme/edges.dart';
 import '../../theme/metrics.dart';
@@ -20,23 +21,27 @@ import '../../widgets/press_fade.dart';
 /// button in either of those values reads as a hole punched through the page
 /// rather than as a control resting on it.
 
-/// Where the head band goes when it leaves: its top edge at y -52, which is
-/// exactly its own height above the screen.
-const kHeadBandHidden = -52.0;
-
-/// What the back pill drops to when the rest of the chrome has gone, so
-/// leaving is never more than one tap.
-const kBackPillFaded = 0.4;
+/// Where the head band goes when it leaves: far enough up that the whole band,
+/// the part behind the status bar included, is off the screen.
+const kHeadBandHidden = -kHeadBandHeight;
 
 /// The size of the glyph inside a 38.5 header button.
 const kChromeIcon = 20.0;
 
-/// The head band: a back pill, the document title, and a search pill floating
-/// over the top of the reader.
+/// How wide the title is allowed to run before it ellipses, which is what
+/// keeps it clear of the buttons at both ends.
+const kReaderTitleWidth = 170.0;
+
+/// The head band: the way back, the document's name, and what can be done to
+/// it, on an opaque band floating over the top of the page.
 ///
-/// There is no back chevron anywhere else in the app and no other button in
-/// the reading chrome. Everything else a reader can do here is a gesture,
-/// which is what keeps 714 points of the screen for the document.
+/// The band is opaque and covers the status bar, because the sheet underneath
+/// it is the whole screen now: a title in the app's ink over a white page
+/// would be unreadable, and a page that stopped short of the top to make room
+/// would be the chrome taking a tenth of the screen for the whole reading.
+///
+/// It leaves entirely when the reader scrolls down and comes back the moment
+/// they scroll up, which is the bargain that lets it cover anything at all.
 class ReaderChrome extends StatelessWidget {
   const ReaderChrome({
     super.key,
@@ -45,6 +50,12 @@ class ReaderChrome extends StatelessWidget {
     this.showingBack = false,
     this.onBack,
     this.onFind,
+    this.onMenu,
+    this.placing = false,
+    this.onConfirm,
+    this.onCancel,
+    this.menuOpen = 0,
+    this.notice,
   });
 
   /// The document's title, as the desk prints it.
@@ -59,87 +70,214 @@ class ReaderChrome extends StatelessWidget {
 
   final VoidCallback? onBack;
   final VoidCallback? onFind;
+  final VoidCallback? onMenu;
+
+  /// True while a signature is loose over the page, which is the one state
+  /// where the band answers a question instead of naming a document.
+  final bool placing;
+
+  /// Sets the loose signature into the page.
+  final VoidCallback? onConfirm;
+
+  /// Takes it away again.
+  final VoidCallback? onCancel;
+
+  /// 0 with the menu shut, 1 with it open, which is what draws the three dots
+  /// together into the one dot the goo comes out of.
+  final double menuOpen;
+
+  /// A line the band says instead of the document's name, for as long as it
+  /// has something to say.
+  ///
+  /// The reader has one place for words about itself and this is it. A dialog
+  /// would stop the reading to say something the reading does not depend on,
+  /// and a second floating pill would be a second answer to a question the
+  /// band already answers.
+  final String? notice;
 
   @override
   Widget build(BuildContext context) {
-    final shift = (kHeadBandHidden - kHeadBandTop) * hidden;
-    final fade = 1 - hidden;
+    // A band that could leave while a signature is loose would take the only
+    // way of setting it down with it.
+    final gone = placing || notice != null ? 0.0 : hidden;
+    // Where the phone says its own chrome ends, rather than where the design
+    // guessed it would.
+    final safeTop = MediaQuery.paddingOf(context).top;
+    final bandHeight = safeTop + kHeadBandHeight;
+    final rowTop = safeTop + (kHeadBandHeight - kHeaderButtonSize) / 2;
+    final shift = -bandHeight * gone;
+    final fade = 1 - gone;
     return SizedBox(
       width: kScreenWidth,
       height: kScreenHeight,
       child: Stack(
         children: [
           Positioned(
-            left: kScreenPadding,
-            top: kHeadBandTop + (kHeadBandHeight - kHeaderButtonSize) / 2,
+            left: 0,
+            right: 0,
+            top: shift,
+            height: bandHeight,
             child: Opacity(
-              opacity: kBackPillFaded + (1 - kBackPillFaded) * fade,
+              opacity: fade,
+              child: const DecoratedBox(
+                decoration: BoxDecoration(
+                  color: AppColors.ground,
+                  border: Border(
+                    bottom: BorderSide(color: AppColors.hairline, width: 1),
+                  ),
+                ),
+                child: SizedBox.expand(),
+              ),
+            ),
+          ),
+          Positioned(
+            left: kScreenPadding,
+            top: rowTop + shift,
+            child: Opacity(
+              opacity: fade,
               child: _HeaderButton(
-                icon: LucideIcons.cornerUpLeft,
-                onTap: onBack,
-                semanticLabel: 'Back to the desk',
+                icon: placing ? LucideIcons.x : LucideIcons.cornerUpLeft,
+                onTap: placing ? onCancel : onBack,
+                semanticLabel:
+                    placing ? 'Put the signature away' : 'Back to the desk',
               ),
             ),
           ),
           Positioned(
             left: 0,
             right: 0,
-            top: kHeadBandTop + shift,
+            top: safeTop + shift,
             height: kHeadBandHeight,
             child: Opacity(
               opacity: fade,
-              child: IgnorePointer(child: _Title(title, back: showingBack)),
-            ),
-          ),
-          Positioned(
-            left: kScreenWidth - kScreenPadding - kHeaderButtonSize,
-            top:
-                kHeadBandTop +
-                (kHeadBandHeight - kHeaderButtonSize) / 2 +
-                shift,
-            child: Opacity(
-              opacity: fade,
-              child: _HeaderButton(
-                icon: LucideIcons.search,
-                onTap: hidden >= 1 ? null : onFind,
-                semanticLabel: 'Find in document',
+              child: IgnorePointer(
+                child: switch ((placing, notice)) {
+                  (true, _) => const _BandLabel('Place your signature'),
+                  (_, final String said) => _BandLabel(said),
+                  _ => _Title(title, back: showingBack),
+                },
               ),
             ),
           ),
+          if (placing)
+            Positioned(
+              left: kScreenWidth - kScreenPadding - kHeaderButtonSize,
+              top: rowTop,
+              child: _HeaderButton(
+                icon: LucideIcons.check,
+                accent: true,
+                onTap: onConfirm,
+                semanticLabel: 'Set the signature into the page',
+              ),
+            )
+          else ...[
+            Positioned(
+              left: kScreenWidth -
+                  kScreenPadding -
+                  kHeaderButtonSize * 2 -
+                  kChromeButtonGap,
+              top: rowTop + shift,
+              child: Opacity(
+                opacity: fade,
+                child: _HeaderButton(
+                  icon: LucideIcons.search,
+                  onTap: gone >= 1 ? null : onFind,
+                  semanticLabel: 'Find in document',
+                ),
+              ),
+            ),
+            Positioned(
+              left: kScreenWidth - kScreenPadding - kHeaderButtonSize,
+              top: rowTop + shift,
+              child: Opacity(
+                opacity: fade,
+                child: _HeaderButton(
+                  onTap: gone >= 1 ? null : onMenu,
+                  semanticLabel: 'What can be done with this document',
+                  // The dots are drawn rather than set, because they are not
+                  // a glyph here: they draw together into the one dot the
+                  // menu's goo is pulled out of, the way the desk's do.
+                  child: CustomPaint(
+                    painter: OverflowDotsPainter(
+                      t: menuOpen,
+                      colour: AppColors.ink,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
         ],
       ),
     );
   }
 }
 
+/// The air between the two buttons at the right end of the band.
+const kChromeButtonGap = 10.0;
+
 /// One 38.5 point floating button: the only shape a control takes in the
 /// reader.
 class _HeaderButton extends StatelessWidget {
-  const _HeaderButton({required this.icon, this.onTap, this.semanticLabel});
+  const _HeaderButton({
+    this.icon,
+    this.child,
+    this.onTap,
+    this.semanticLabel,
+    this.accent = false,
+  }) : assert(icon != null || child != null, 'a button needs a face');
 
-  final IconData icon;
+  final IconData? icon;
+
+  /// What the button holds when a glyph is not enough, which is the one
+  /// button whose face is an animation.
+  final Widget? child;
   final VoidCallback? onTap;
   final String? semanticLabel;
+
+  /// True for the one button that finishes something rather than opening it.
+  final bool accent;
 
   @override
   Widget build(BuildContext context) {
     return PaperPress(
       onTap: onTap,
       semanticLabel: semanticLabel,
+      washRadius: kHeaderButtonRadius,
       child: Container(
         width: kHeaderButtonSize,
         height: kHeaderButtonSize,
         decoration: BoxDecoration(
-          color: AppColors.surfaceHigh,
+          color: accent ? AppColors.accent : AppColors.surfaceHigh,
           borderRadius: BorderRadius.circular(kHeaderButtonRadius),
-          border: AppEdges.all(context),
+          border: accent ? null : AppEdges.all(context),
         ),
-        child: Center(
-          child: Icon(icon, size: kChromeIcon, color: AppColors.ink),
-        ),
+        child: child ??
+            Center(
+              child: Icon(
+                icon,
+                size: kChromeIcon,
+                color: accent ? AppColors.onAccent : AppColors.ink,
+              ),
+            ),
       ),
     );
   }
+}
+
+/// What the band says while it is asking rather than naming.
+class _BandLabel extends StatelessWidget {
+  const _BandLabel(this.text);
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) => Center(
+        child: Text(
+          text,
+          style: AppText.label.copyWith(color: AppColors.ink),
+        ),
+      );
 }
 
 /// The title, centred in the band, with the suffix that names the side of the
@@ -182,7 +320,3 @@ class _Title extends StatelessWidget {
     );
   }
 }
-
-/// How wide the title is allowed to run before it ellipses, which is what
-/// keeps it clear of both pills.
-const kReaderTitleWidth = 200.0;

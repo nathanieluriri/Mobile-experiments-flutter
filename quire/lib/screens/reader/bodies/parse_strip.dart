@@ -4,6 +4,7 @@ import '../../../format/csv_parser.dart';
 import '../../../theme/colors.dart';
 import '../../../theme/metrics.dart';
 import '../../../theme/typography.dart';
+import '../../../widgets/press_fade.dart';
 
 /// What the CSV reader had to decide before it could show you anything.
 ///
@@ -118,9 +119,9 @@ class ParseStrip extends StatelessWidget {
                 ),
               ),
               if (ragged != null)
-                GestureDetector(
-                  behavior: HitTestBehavior.opaque,
+                PaperPress(
                   onTap: onJumpToRagged,
+                  enabled: onJumpToRagged != null,
                   child: Text(
                     ragged,
                     style: AppText.micro.copyWith(color: AppColors.damage),

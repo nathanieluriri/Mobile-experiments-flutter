@@ -56,8 +56,9 @@ class DocumentRow extends StatelessWidget {
 
   final VoidCallback? onOpen;
 
-  /// The three dots. The menu behind them belongs to the shell.
-  final VoidCallback? onOverflow;
+  /// The three dots. The menu behind them belongs to the shell, which is
+  /// handed the dots' rect so it can hang the menu off them.
+  final void Function(Rect target)? onOverflow;
 
   @override
   Widget build(BuildContext context) {
@@ -66,6 +67,10 @@ class DocumentRow extends StatelessWidget {
     return PaperPress(
       onTap: onOpen,
       semanticLabel: entry.title,
+      // A row is drawn square, but its wash is not: it fills the row's own
+      // padding and stops short of the hairline, so it reads as light on the
+      // row rather than as a selection band across the list.
+      washRadius: kListRowWashRadius,
       child: SizedBox(
         height: kListRowHeight,
         child: Stack(
@@ -180,17 +185,41 @@ class _Progress extends StatelessWidget {
 /// in a row, 32 in a card header, and the dots themselves are the same size in
 /// both, because the dots are the mark and the target is only the room round
 /// it.
-class OverflowTarget extends StatelessWidget {
+class OverflowTarget extends StatefulWidget {
   const OverflowTarget({super.key, required this.size, this.onTap});
 
   final double size;
-  final VoidCallback? onTap;
+
+  /// Handed the dots' own rectangle on screen, because a menu belongs under
+  /// the thing that opened it. A card is tall enough that its bottom edge is
+  /// most of a screen away from the dots printed at its head.
+  final void Function(Rect target)? onTap;
+
+  @override
+  State<OverflowTarget> createState() => _OverflowTargetState();
+}
+
+class _OverflowTargetState extends State<OverflowTarget> {
+  final GlobalKey _dots = GlobalKey();
+
+  /// Where the dots are, in the coordinates the shell lays its menu out in.
+  ///
+  /// [Rect.zero] when the box has not been laid out, which the shell already
+  /// treats as no anchor rather than as the top left corner.
+  Rect get _rect {
+    final box = _dots.currentContext?.findRenderObject();
+    if (box is! RenderBox || !box.hasSize) return Rect.zero;
+    return box.localToGlobal(Offset.zero) & box.size;
+  }
 
   @override
   Widget build(BuildContext context) {
+    final tap = widget.onTap;
+    final size = widget.size;
     return GestureDetector(
+      key: _dots,
       behavior: HitTestBehavior.opaque,
-      onTap: onTap,
+      onTap: tap == null ? null : () => tap(_rect),
       child: SizedBox(
         width: size,
         height: size,

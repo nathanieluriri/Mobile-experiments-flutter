@@ -1,4 +1,6 @@
 import 'dart:math' as math;
+import 'dart:typed_data';
+import 'dart:ui' as ui;
 import 'dart:ui' show lerpDouble;
 
 import 'package:flutter/rendering.dart';
@@ -241,7 +243,22 @@ List<double> _spreadOver(
 /// put on a page at any size and reread later with no record of the gesture
 /// that drew it. The shape is the signature; the hand is not kept.
 class SignatureMark {
-  const SignatureMark(this.outlines, this.bounds);
+  const SignatureMark(this.outlines, this.bounds, {this.picture, this.encoded});
+
+  /// A mark the reader brought in rather than drew.
+  ///
+  /// A photograph of a signature on paper is a signature, and asking somebody
+  /// to draw theirs again with a fingertip when they already have a good one
+  /// is asking them for a worse one. It is held as both: the decoded picture
+  /// to draw, and the bytes it came in as, which are what get written down
+  /// and what go into the PDF.
+  factory SignatureMark.picture(ui.Image picture, Uint8List encoded) =>
+      SignatureMark(
+        const <List<Offset>>[],
+        Rect.fromLTWH(0, 0, picture.width.toDouble(), picture.height.toDouble()),
+        picture: picture,
+        encoded: encoded,
+      );
 
   /// Builds the mark [strokes] make together.
   factory SignatureMark.of(List<InkStroke> strokes) {
@@ -270,7 +287,13 @@ class SignatureMark {
   /// The box the mark was drawn in, which is what the unit square stands for.
   final Rect bounds;
 
-  bool get isEmpty => outlines.isEmpty;
+  /// The picture, for a mark that is one, ready to be drawn.
+  final ui.Image? picture;
+
+  /// The file that picture came in as, for writing down and for the PDF.
+  final Uint8List? encoded;
+
+  bool get isEmpty => picture == null && outlines.isEmpty;
 
   /// Height over width, so a stamp of a given width knows how tall it is.
   double get aspect =>
@@ -278,6 +301,30 @@ class SignatureMark {
 
   /// The mark drawn to fill [box].
   Path pathIn(Rect box) => pathOf(outlines, box);
+
+  /// Draws whichever kind of mark this is into [box] at [alpha].
+  ///
+  /// A drawn mark is filled in the page's own ink and multiplied into the
+  /// print under it. A picture is drawn as it is: it carries its own colour,
+  /// and a photograph of blue biro should stay blue biro.
+  void paintInto(Canvas canvas, Rect box, {double alpha = 1}) {
+    final image = picture;
+    if (image != null) {
+      canvas.drawImageRect(
+        image,
+        Rect.fromLTWH(0, 0, image.width.toDouble(), image.height.toDouble()),
+        box,
+        Paint()
+          ..filterQuality = FilterQuality.medium
+          ..color = const Color(0xFFFFFFFF).withValues(alpha: alpha),
+      );
+      return;
+    }
+    canvas.drawPath(
+      pathIn(box),
+      Paint()..color = AppColors.pageInk.withValues(alpha: alpha),
+    );
+  }
 
   /// The same, for outlines that have already been stored on a page.
   static Path pathOf(List<List<Offset>> outlines, Rect box) {
@@ -375,9 +422,6 @@ class PlacedInkPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     if (pageSize.width <= 0) return;
     final scale = size.width / pageSize.width;
-    final paint = Paint()
-      ..color = AppColors.pageInk.withValues(alpha: kPlacedInkAlpha)
-      ..blendMode = BlendMode.multiply;
     for (final mark in signatures) {
       if (mark.pageIndex != pageIndex) continue;
       final box = Rect.fromLTWH(
@@ -386,7 +430,29 @@ class PlacedInkPainter extends CustomPainter {
         mark.rect.width * scale,
         mark.rect.height * scale,
       );
-      canvas.drawPath(SignatureMark.pathOf(mark.strokes, box), paint);
+      final picture = mark.picture;
+      if (picture != null) {
+        canvas.drawImageRect(
+          picture,
+          Rect.fromLTWH(
+            0,
+            0,
+            picture.width.toDouble(),
+            picture.height.toDouble(),
+          ),
+          box,
+          Paint()
+            ..filterQuality = FilterQuality.medium
+            ..blendMode = BlendMode.multiply,
+        );
+        continue;
+      }
+      canvas.drawPath(
+        SignatureMark.pathOf(mark.strokes, box),
+        Paint()
+          ..color = AppColors.pageInk.withValues(alpha: kPlacedInkAlpha)
+          ..blendMode = BlendMode.multiply,
+      );
     }
   }
 

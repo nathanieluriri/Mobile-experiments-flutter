@@ -100,41 +100,85 @@ double rangeProgress(double value, (double, double) range) {
 }
 
 // Section 6.3, the reader. The reading sheet is one rectangle, the same in
-// every format and every golden.
-const kSheetLeft = 12.0;
+// every format and every golden, and that rectangle is the screen.
+//
+// A reader is on this screen to read the document, so the document gets the
+// glass. The head band floats over the top of the sheet and leaves as soon as
+// the reading starts, rather than holding a tenth of the screen for the whole
+// of it, and the fore edge lies along the sheet's right margin instead of
+// beside it.
+const kSheetLeft = 0.0;
 
-/// Clears the head band.
-const kSheetTop = 118.0;
-const kSheetWidth = 372.0;
+/// The paper starts at the very top of the glass and runs to the very bottom.
+///
+/// The band and the gesture bar are things lying over the page, not things
+/// the page stops short of: a strip of ground above a document is the app
+/// insisting on being seen while somebody is trying to read.
+const kSheetTop = 0.0;
+const kSheetWidth = kScreenWidth;
+const kSheetHeight = kScreenHeight;
 
-/// Bottom edge at y 832, 8 above the safe area.
-const kSheetHeight = 714.0;
+/// The band's height, which is what the reader's content is held clear of so
+/// the first line of a document is not born underneath it.
+///
+/// It does not change when the band leaves. Content scrolls up under the band
+/// and is uncovered when the band goes, which is the whole bargain; a gap
+/// that opened and closed as the band came and went would move the words
+/// under the reader's eye every time they changed direction.
+///
+/// The design reserves [kSafeTop] for a status bar, which is right for the
+/// phone it was drawn on and too much for most others: a fixed reserve leaves
+/// a band of dead ground between the clock and the buttons, which on this
+/// screen is worth about seventy pixels of reading. Where a widget can ask
+/// the phone what its own inset is, it should.
+double readerBandHeight(EdgeInsets safeArea) =>
+    safeArea.top + kHeadBandHeight;
+
+double readerContentTop(EdgeInsets safeArea) => readerBandHeight(safeArea);
+
+/// The same at the other end, for the gesture bar.
+double readerContentBottom(EdgeInsets safeArea) => safeArea.bottom + 8;
+
+/// What those come to when nobody has asked, which is a test with no phone
+/// to ask and the constants the fore edge is laid out from.
+const kReaderContentTop = kHeadBandTop + kHeadBandHeight;
+const kReaderContentBottom = kSafeBottom + 8;
+
+/// The band of the sheet a reader can actually reach past the system's own
+/// chrome, which is where the fore edge and the folio chip live.
+const kReadableTop = kSafeTop;
+const kReadableBottom = kScreenHeight - kSafeBottom;
 
 /// Prose only.
 const kSheetPadding = 26.0;
 
-/// 372 - 2 x 26.
-const kProseMeasure = 320.0;
+/// The sheet less its own margins.
+const kProseMeasure = kSheetWidth - 2 * kSheetPadding;
 const kHeadBandTop = 62.0;
 
 /// y 62 to 114.
 const kHeadBandHeight = 52.0;
 
-/// Abuts the sheet's right edge.
-const kForeEdgeLeft = 384.0;
+/// Lies along the sheet's right margin, 2 in from the screen's edge.
+const kForeEdgeLeft = kScreenWidth - kForeEdgeWidth - 2;
 
-/// Drawn x 384 to 400, with 2 of ground to the screen edge.
+/// 16 wide, drawn over the page rather than beside it.
 const kForeEdgeWidth = 16.0;
-const kForeEdgeTop = 118.0;
 
-/// Exactly the sheet's height, so a tick maps 1:1.
-const kForeEdgeHeight = 714.0;
+/// Starts below the band, not under it. The band's own buttons sit at the top
+/// right, which is exactly where the fore edge would otherwise be taking the
+/// touch, and a control that cannot be pressed is worse than one that is not
+/// there.
+const kForeEdgeTop = kReaderContentTop;
+
+/// The reachable band, so a tick maps 1:1 onto what a thumb can cover.
+const kForeEdgeHeight = kReadableBottom - kReaderContentTop;
 
 /// A 42pt wide hit region.
-const kForeEdgeHitLeft = 360.0;
+const kForeEdgeHitLeft = kForeEdgeLeft - 26;
 
-/// Stops 72 above the sheet bottom so the corner wins.
-const kForeEdgeHitBottom = 760.0;
+/// Stops a corner's width above the bottom so the corner wins.
+const kForeEdgeHitBottom = kReadableBottom - kCornerHandle;
 
 /// x 312 to 384, y 760 to 832.
 const kCornerHandle = 72.0;
@@ -241,9 +285,17 @@ const kPadTop = 150.0;
 const kPadWidth = 362.0;
 const kPadHeight = 240.0;
 const kPadBaselineFraction = 0.70;
+
+/// The pad's own corner, which a picture laid on it keeps.
+const kPadRadius = 14.0;
 const kStampInitialWidth = 200.0;
-const kStampScaleMin = 0.5;
-const kStampScaleMax = 1.8;
+/// How far a mark can be taken down and up from [kStampInitialWidth].
+///
+/// A quarter of it is an initial on a form; twice it is the full width of the
+/// page, which is as large as a signature on a page can mean anything. The
+/// range is wider than it was because the sheet is now the whole screen.
+const kStampScaleMin = 0.25;
+const kStampScaleMax = 2.0;
 const kBaselineSnapDistance = 4.0;
 const kChromeDimAmount = 0.78;
 const kDimmedCardOpacity = 0.25;
@@ -288,6 +340,37 @@ const kMarkRadius = 2.0;
 
 /// Every tappable object's press and release.
 const kPress = Duration(milliseconds: 90);
+
+// The wash a press leaves inside a control.
+
+/// The corner radius the wash is clipped to unless the control says
+/// otherwise. Most things on the desk are this round or rounder.
+const kWashRadius = 12.0;
+
+/// How long the blob takes to well up under a held finger, and how long it
+/// takes to sink back if the finger leaves without tapping.
+const kWashRise = Duration(milliseconds: 220);
+const kWashSink = Duration(milliseconds: 160);
+
+/// How long the flood takes to fill the control and drain, after a tap.
+const kWashFlood = Duration(milliseconds: 380);
+
+/// How much of the wash's colour reaches the screen. It is a light on the
+/// surface the finger touched, not a coat of paint over it.
+const kWashOpacity = 0.22;
+
+/// Softer than the menus' goo, because a wash is small and drawn inside a
+/// shape a few dozen points across, and a wide blur would soften the shape's
+/// own edge along with the blob's.
+const kWashBlurSigma = 5.0;
+
+/// How long the selected tab's fill takes to travel from one chip to the
+/// next.
+const kTabTravel = Duration(milliseconds: 340);
+
+/// A list row's wash, rounder than the row so it never meets the hairline.
+const kListRowWashRadius = 14.0;
+
 
 /// Arms the corner peel.
 const kPeelLongPress = Duration(milliseconds: 140);
@@ -502,6 +585,19 @@ const kSortMenuGutter = 40.0;
 const kSortMenuCheck = 18.0;
 const kSortMenuIn = Duration(milliseconds: 160);
 
+/// How long the signature pad takes to come up over the page.
+const kPadArrival = Duration(milliseconds: 260);
+
+/// How long the band says a thing before going back to the title.
+const kReaderNotice = Duration(seconds: 4);
+
+/// The overflow menu's own arrival, which is slower than the sort menu's.
+///
+/// A panel that only fades and scales can afford 160: there is nothing in it
+/// to watch. A body of goo growing into that panel has something to say, and
+/// at 160 it has said it before the eye has found it.
+const kOverflowOozeIn = Duration(milliseconds: 300);
+
 /// The menu grows from this about its top left corner.
 const kSortMenuScaleFrom = 0.94;
 
@@ -535,6 +631,15 @@ const kOverflowDotGap = 3.0;
 const kOverflowMenuGutter = 32.0;
 const kOverflowMenuGlyph = 17.0;
 const kOverflowMenuOffset = 4.0;
+
+/// How close the overflow menu is allowed to come to the edges of the
+/// screen before it is pushed back or turned over to the other side of the
+/// dots that opened it.
+const kOverflowMenuMargin = 12.0;
+
+/// How far in from the panel's right edge the goo's spine runs, so the
+/// blobs sit under the dots rather than under the panel's corner.
+const kOverflowOriginInset = 22.0;
 
 /// A row's reading progress, inset to the title's left edge.
 const kListProgressWidth = 140.0;

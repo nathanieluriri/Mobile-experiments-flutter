@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/gestures.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
 import '../../format/document_loader.dart';
@@ -10,6 +9,7 @@ import '../../helpers/fold_geometry.dart';
 import '../../services/document_store.dart';
 import '../../services/render_plan.dart';
 import '../../theme/colors.dart';
+import '../../theme/feedback.dart';
 import '../../theme/easings.dart';
 import '../../theme/edges.dart';
 import '../../theme/metrics.dart';
@@ -109,6 +109,13 @@ class ReaderScreen extends StatefulWidget {
     this.matchOpacity = 1,
     this.matchCounts = const <int>[],
     this.onFind,
+    this.onMenu,
+    this.menu,
+    this.menuOpen = 0,
+    this.notice,
+    this.placing = false,
+    this.onConfirmPlacement,
+    this.onCancelPlacement,
     this.onOpenAsText,
     this.onLeave,
   });
@@ -144,6 +151,27 @@ class ReaderScreen extends StatefulWidget {
 
   /// The find layer, when it is open.
   final Widget? overlay;
+
+  /// Opens the menu behind the band's three dots.
+  final VoidCallback? onMenu;
+
+  /// That menu, when it is open. It is drawn over the chrome, since the band
+  /// is what it belongs to.
+  final Widget? menu;
+
+  /// 0 with the menu shut and 1 with it open, which the band's dots read to
+  /// draw themselves together.
+  final double menuOpen;
+
+  /// A line for the band to say in place of the title.
+  final String? notice;
+
+  /// True while a signature is loose over the page, which holds the band in
+  /// place and turns it into the two answers that state has.
+  final bool placing;
+
+  final VoidCallback? onConfirmPlacement;
+  final VoidCallback? onCancelPlacement;
 
   /// Overrides what the riffle holds, for a format that knows better than the
   /// document model does.
@@ -289,10 +317,20 @@ class _ReaderScreenState extends State<ReaderScreen>
     _chrome.reverse();
   }
 
+  /// Reading takes the band away and looking for something brings it back.
+  ///
+  /// Down is reading on, so the band goes and the page has the screen. Up is
+  /// somebody going back for something, and what they are most likely going
+  /// back for is the way out or the search, so the band returns at the first
+  /// hint of it.
   bool _onScroll(ScrollNotification notification) {
     if (notification is ScrollUpdateNotification) {
       final delta = notification.scrollDelta ?? 0;
-      if (delta.abs() > kChromeHideDelta) _hideChrome();
+      if (delta > kChromeHideDelta) {
+        _hideChrome();
+      } else if (delta < -kChromeHideDelta) {
+        _showChrome();
+      }
     }
     return false;
   }
@@ -326,7 +364,7 @@ class _ReaderScreenState extends State<ReaderScreen>
   void _catchDogEar() {
     if (!mounted || _foldPoint == null) return;
     _catching = true;
-    HapticFeedback.selectionClick();
+    Feel.turn.ring();
     _store.toggleDogEar(_store.position);
     _runFold(
       to: foldRestPoint(_corner, _sheet, kDogEarInset),
@@ -345,6 +383,7 @@ class _ReaderScreenState extends State<ReaderScreen>
     }
     final travelled = (point - foldCornerOf(_corner, _sheet)).distance;
     if (completed && travelled > flipCommitDistance(_sheet)) {
+      Feel.turn.ring();
       _runFold(
         to: foldOppositeOf(_corner, _sheet),
         duration: kFlipCommit,
@@ -416,7 +455,7 @@ class _ReaderScreenState extends State<ReaderScreen>
           kForeEdgeTop +
           _fractionOf(page, unitCount) * (kForeEdgeHeight - kPageRule);
       if ((at.dy - y).abs() <= kNubSnapDistance) {
-        if (landed != page) HapticFeedback.selectionClick();
+        if (landed != page) Feel.tap.ring();
         landed = page;
         _tintFrom = y;
         break;
@@ -487,6 +526,7 @@ class _ReaderScreenState extends State<ReaderScreen>
 
   void _commitRiffle(int index) {
     if (_committing) return;
+    Feel.turn.ring();
     setState(() => _committing = true);
     _riffleCommit.forward(from: 0).whenCompleteOrCancel(() {
       if (!mounted) return;
@@ -514,6 +554,7 @@ class _ReaderScreenState extends State<ReaderScreen>
   void _backDragEnd(DragEndDetails details) {
     final velocity = details.velocity.pixelsPerSecond.dx;
     if (_slideX > kBackDragCommit || velocity > kBackDragVelocity) {
+      Feel.tap.ring();
       _slideTo(kScreenWidth, then: _leave);
     } else {
       _slideTo(0);
@@ -648,8 +689,7 @@ class _ReaderScreenState extends State<ReaderScreen>
                             kFolioChipInset -
                             kFolioChipWidth,
                         top:
-                            kSheetTop +
-                            kSheetHeight -
+                            kReadableBottom -
                             kFolioChipInset -
                             kFolioChipHeight +
                             kFolioChipHidden * hidden,
@@ -671,7 +711,14 @@ class _ReaderScreenState extends State<ReaderScreen>
                       showingBack: _side == SheetSide.back,
                       onBack: _leave,
                       onFind: widget.onFind,
+                      onMenu: widget.onMenu,
+                      menuOpen: widget.menuOpen,
+                      notice: widget.notice,
+                      placing: widget.placing,
+                      onConfirm: widget.onConfirmPlacement,
+                      onCancel: widget.onCancelPlacement,
                     ),
+                    ?widget.menu,
                     ?widget.overlay,
                     if (_riffle.value > 0)
                       Positioned.fill(

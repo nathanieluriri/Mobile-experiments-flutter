@@ -49,6 +49,33 @@ class PdfFile {
   Map<String, Object?> trailer = {};
   bool recoveredByScan = false;
 
+  /// Where the file's own last cross reference section starts, or 0 when it
+  /// was never found, which is what an update has to point back at.
+  int startxref = 0;
+
+  /// True when that section is a cross reference stream rather than a table,
+  /// which decides what kind of section an update may add after it.
+  bool xrefIsStream = false;
+
+  /// The reference each entry of [pages] was reached through, or null for a
+  /// page found by scanning that has no reference the writer can trust.
+  List<PdfRef?> get pageRefs {
+    pages;
+    return _pageRefs;
+  }
+
+  final List<PdfRef?> _pageRefs = <PdfRef?>[];
+
+  /// [data] as it has to be written into object [number], which is to say
+  /// encrypted under that object's key when the file is encrypted and left
+  /// alone when it is not. RC4 is its own inverse, so the one routine that
+  /// reads a string is the one that writes it.
+  Uint8List encryptForObject(Uint8List data, int number, int generation) {
+    final crypt = _crypt;
+    if (crypt == null) return data;
+    return crypt.decrypt(data, number, generation);
+  }
+
   /// True when the trailer carries an /Encrypt dictionary, whether or not the
   /// file went on to open.
   bool encrypted = false;
@@ -237,6 +264,12 @@ class PdfFile {
     final m = RegExp(r'startxref\s+(\d+)').firstMatch(tail.substring(i));
     if (m == null) throw const FormatException('bad startxref');
     var offset = int.parse(m.group(1)!);
+    startxref = offset;
+    if (offset > 0 && offset < bytes.length) {
+      final probe = PdfLexer(bytes, offset)..skipWhitespace();
+      final word = PdfLexer(bytes, probe.pos).parseObject();
+      xrefIsStream = !(word is PdfKeyword && word.value == 'xref');
+    }
     final seen = <int>{};
     while (offset > 0 && offset < bytes.length && seen.add(offset)) {
       final next = _readXrefSection(offset);
@@ -605,16 +638,19 @@ class PdfFile {
 
   List<Map<String, Object?>> _buildPages() {
     final out = <Map<String, Object?>>[];
+    _pageRefs.clear();
     final root = _rootDict();
     final tree = dict(root?['Pages']);
     if (tree != null) {
-      _walkPages(tree, out, <Object>{}, {});
+      _walkPages(tree, null, out, <Object>{}, {});
     }
     if (out.isEmpty) {
+      _pageRefs.clear();
       for (final n in xref.keys.toList()..sort()) {
         final o = resolve(PdfRef(n, 0));
         if (o is Map<String, Object?> && o['Type'] == const PdfName('Page')) {
           out.add(o);
+          _pageRefs.add(PdfRef(n, 0));
         }
       }
     }
@@ -623,8 +659,9 @@ class PdfFile {
 
   static const _inherited = ['Resources', 'MediaBox', 'CropBox', 'Rotate'];
 
-  void _walkPages(Map<String, Object?> node, List<Map<String, Object?>> out,
-      Set<Object> seen, Map<String, Object?> inherited) {
+  void _walkPages(Map<String, Object?> node, PdfRef? ref,
+      List<Map<String, Object?>> out, Set<Object> seen,
+      Map<String, Object?> inherited) {
     if (!seen.add(node)) return;
     final merged = Map<String, Object?>.from(inherited);
     for (final k in _inherited) {
@@ -634,7 +671,7 @@ class PdfFile {
     if (kids is List) {
       for (final k in kids) {
         final kd = dict(k);
-        if (kd != null) _walkPages(kd, out, seen, merged);
+        if (kd != null) _walkPages(kd, k is PdfRef ? k : null, out, seen, merged);
       }
       return;
     }
@@ -644,6 +681,7 @@ class PdfFile {
         page.putIfAbsent(k, () => merged[k]);
       }
       out.add(page);
+      _pageRefs.add(ref);
     }
   }
 

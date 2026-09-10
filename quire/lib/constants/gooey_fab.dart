@@ -68,6 +68,26 @@ const kGooActionDiameter = 50.0;
 const kGooButtonRestDiameter = 56.0;
 const kGooButtonOpenDiameter = 52.0;
 
+/// The circles strung between the button and each action while the two are
+/// still one body.
+///
+/// One circle per action is enough for the nearest, which never travels far
+/// enough to leave the button. The furthest travels 222 and would otherwise
+/// separate within a few frames and fly up on its own, and three circles
+/// drifting apart is not goo, it is three circles. These fill the gap so the
+/// body stretches into a neck instead.
+const kGooNeckCircles = 3;
+
+/// How far an action can get before its neck has thinned away to nothing.
+///
+/// Goo stretches and then it lets go. Past this the action is its own body,
+/// which is why the pills arrive as three separate things and not as a comb.
+const kGooNeckBreak = 132.0;
+
+/// How thin the neck is at its waist, against the circles it runs between. A
+/// neck as fat as its ends is a sausage.
+const kGooNeckWaist = 0.62;
+
 /// Blur then threshold: the alpha row multiplies by 32 and subtracts 14, in a
 /// colour space where 1.0 is opaque. Flutter states the translation column in
 /// 0..255, so -14 is written as -14 * 255.

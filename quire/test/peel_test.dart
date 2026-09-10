@@ -243,7 +243,7 @@ Future<DocumentStore> _pumpReader(
 }) async {
   final store = DocumentStore(
     LibraryEntry(
-      assetPath: 'assets/documents/field-guide-to-paper.pdf',
+      path: 'assets/documents/field-guide-to-paper.pdf',
       title: title,
       format: DocFormat.pdf,
       bytes: 313458,

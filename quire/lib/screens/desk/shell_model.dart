@@ -86,6 +86,7 @@ enum DrawerDestination {
   starred(
     label: 'Starred',
     icon: LucideIcons.star,
+    library: true,
     headline: 'Nothing starred',
     body: 'A document you star is kept at the top of this list, ahead of '
         'whatever you read last.',
@@ -93,6 +94,7 @@ enum DrawerDestination {
   signed(
     label: 'Signed',
     icon: LucideIcons.penTool,
+    library: true,
     headline: 'Nothing signed',
     body: 'Draw a signature on a PDF and it is listed here, with the page you '
         'set the mark into.',
@@ -100,16 +102,17 @@ enum DrawerDestination {
   offline(
     label: 'Offline',
     icon: LucideIcons.circleCheck,
-    headline: 'All six are offline',
-    body: 'quire ships its library inside the app, so every document you have '
-        'is already on this device. Nothing here waits on a network.',
+    headline: 'Everything is offline',
+    body: 'quire keeps every document on this device, the ones it ships with '
+        'and the ones you bring in. Nothing here waits on a network.',
   ),
   bin(
     label: 'Bin',
     icon: LucideIcons.trash2,
+    library: true,
     headline: 'The bin is empty',
-    body: 'A document you remove is offered back for four seconds, then it is '
-        'gone. Nothing is kept to be emptied later.',
+    body: 'A document you remove waits here. Put it back on the desk, or '
+        'delete it for good.',
   ),
   activity(
     label: 'Activity',
@@ -131,7 +134,7 @@ enum DrawerDestination {
     headline: 'quire',
     body: 'A reader for PDF, Word, spreadsheet, CSV and Markdown files. It '
         'renders them, searches inside them, and signs a PDF with a mark you '
-        'draw yourself.',
+        'draw yourself.\n\nVersion 1.0.0',
   );
 
   const DrawerDestination({
@@ -145,11 +148,12 @@ enum DrawerDestination {
   final String label;
   final IconData icon;
 
-  /// True for the two rows that reach the documents themselves.
+  /// True for the rows that reach the documents themselves, whether all of
+  /// them or a part of them.
   final bool library;
 
   /// What the destination says when it has nothing to show. Empty for the two
-  /// rows that show the library instead.
+  /// rows that can never be empty while the desk holds anything.
   final String headline;
   final String body;
 }

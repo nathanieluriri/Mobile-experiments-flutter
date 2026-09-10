@@ -7,6 +7,7 @@ import '../../../painting/spine_glyph_painter.dart';
 import '../../../theme/colors.dart';
 import '../../../theme/metrics.dart';
 import '../../../theme/typography.dart';
+import '../../../theme/feedback.dart';
 
 /// One cell's address inside a sheet, as the file numbers it.
 ///
@@ -402,9 +403,15 @@ class SpineTable extends StatelessWidget {
               : rawValueOf(cell));
     final open = GestureDetector(
       behavior: HitTestBehavior.opaque,
+      // A cell rings but does not press: this table draws hundreds of them,
+      // and PaperPress is a controller each. The ring round a chosen cell is
+      // what shows the choice.
       onTap: onCellTap == null
           ? null
-          : () => onCellTap!(SheetCell(row, column)),
+          : () {
+              Feel.tap.ring();
+              onCellTap!(SheetCell(row, column));
+            },
       child: DecoratedBox(
         decoration: BoxDecoration(
           color: ringed ? AppColors.accentWash : null,
@@ -434,7 +441,12 @@ class SpineTable extends StatelessWidget {
     );
     final folded = GestureDetector(
       behavior: HitTestBehavior.opaque,
-      onTap: onSpineTap == null ? null : () => onSpineTap!(column),
+      onTap: onSpineTap == null
+          ? null
+          : () {
+              Feel.tap.ring();
+              onSpineTap!(column);
+            },
       child: CustomPaint(
         painter: SpineGlyphPainter(_markFor(row, column)),
         size: Size.infinite,

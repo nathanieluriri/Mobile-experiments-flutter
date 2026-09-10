@@ -6,6 +6,7 @@ import 'marquee_arc_item.dart';
 import 'marquee_bottom_fade.dart';
 import 'marquee_constants.dart';
 import 'marquee_snap_physics.dart';
+import '../press_fade.dart';
 
 /// How many times an endless list is repeated before the slot it opens on.
 /// Scrolling up runs out of items only after this many loops, which no one
@@ -161,8 +162,7 @@ class _CardMarqueeState extends State<CardMarquee> {
                           : 0,
                       child: widget.onItemTap == null
                           ? widget.itemBuilder(context, item)
-                          : GestureDetector(
-                              behavior: HitTestBehavior.opaque,
+                          : PaperPress(
                               onTap: () => widget.onItemTap!(item),
                               child: widget.itemBuilder(context, item),
                             ),

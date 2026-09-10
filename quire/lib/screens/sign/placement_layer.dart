@@ -74,6 +74,7 @@ class PlacementLayer extends StatefulWidget {
     required this.page,
     required this.pageIndex,
     this.sheet = kSheetRect,
+    this.paper,
     this.onPlace,
   });
 
@@ -86,8 +87,20 @@ class PlacementLayer extends StatefulWidget {
   /// Which page that is, zero based.
   final int pageIndex;
 
-  /// The leaf the page is drawn on.
+  /// The leaf the page is drawn on, which is what the mark is dimmed and
+  /// clamped against.
   final Rect sheet;
+
+  /// Where that page has actually been drawn, when something knows.
+  ///
+  /// The body scrolls its pages, so the page the reader is signing is almost
+  /// never at the top of the sheet. Working the paper out from the sheet is
+  /// only right at the very top of the very first page, and everywhere else
+  /// it is out by however far the reader has scrolled: the mark was recorded
+  /// that far down the page from where the finger let it go, and once that ran
+  /// past the last line of the page it was recorded off the paper altogether
+  /// and drawn nowhere at all.
+  final Rect? paper;
 
   /// Called once the mark has finished sinking in, with the mark stated in the
   /// page's own coordinates. The host drops this layer when it fires.
@@ -103,8 +116,12 @@ class PlacementLayer extends StatefulWidget {
 class PlacementLayerState extends State<PlacementLayer>
     with TickerProviderStateMixin {
   /// Where the finger has put the mark, before any snap.
-  late Offset _centre = widget.sheet.center;
+  Offset _centre = Offset.zero;
   double _scale = 1;
+
+  /// The scale a two finger gesture started from, so a pinch is measured
+  /// against the size the mark was rather than compounding every frame.
+  double _scaleAtPinch = 1;
   double? _snappedTo;
   bool _committed = false;
 
@@ -123,12 +140,53 @@ class PlacementLayerState extends State<PlacementLayer>
     duration: kStampSettle,
   );
 
-  late final List<double> _baselines = <double>[
-    for (final y in pageBaselines(widget.page))
-      baselineOnScreen(y, _pageRect, widget.page),
-  ];
+  List<double> _baselines = const <double>[];
 
-  Rect get _pageRect => pageRectIn(widget.sheet, widget.page);
+  @override
+  void initState() {
+    super.initState();
+    _measure();
+    _centre = _paper.center;
+  }
+
+  @override
+  void didUpdateWidget(PlacementLayer oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.page == widget.page &&
+        oldWidget.sheet == widget.sheet &&
+        oldWidget.paper == widget.paper) {
+      return;
+    }
+    // The paper moved under the mark, so the mark goes with it: what the
+    // finger is holding is a place on the page, not a place on the glass.
+    final was = _pageRect;
+    _measure();
+    _centre += _pageRect.topLeft - was.topLeft;
+    _clampToSheet();
+    _resnap();
+  }
+
+  void _measure() {
+    _baselines = <double>[
+      for (final y in pageBaselines(widget.page))
+        baselineOnScreen(y, _pageRect, widget.page),
+    ];
+  }
+
+  Rect get _pageRect => widget.paper ?? pageRectIn(widget.sheet, widget.page);
+
+  /// The paper a mark may actually be set into: the page, as far as it is on
+  /// screen.
+  ///
+  /// A page is not the screen. At full width a letter page is shorter than
+  /// the room the reader has, so there is screen below the paper, and a mark
+  /// let go down there was being recorded at a place on the page that is past
+  /// its bottom edge. It dissolved into nothing, because nothing is what is
+  /// there. A signature belongs on the paper or nowhere.
+  Rect get _paper {
+    final paper = _pageRect.intersect(widget.sheet);
+    return paper.isEmpty ? widget.sheet : paper;
+  }
 
   /// How wide and tall the mark is at the current scale.
   Size get _stampSize {
@@ -177,17 +235,18 @@ class PlacementLayerState extends State<PlacementLayer>
 
   /// Keeps the whole mark on the paper.
   ///
-  /// A signature half off the leaf is not a signature on the document, and
-  /// there is nowhere else on this screen for it to be.
+  /// A signature half off the leaf is not a signature on the document, and a
+  /// signature below the leaf is not anywhere at all.
   void _clampToSheet() {
     final size = _stampSize;
-    final left = widget.sheet.left + size.width / 2;
-    final right = widget.sheet.right - size.width / 2;
-    final top = widget.sheet.top + size.height / 2;
-    final bottom = widget.sheet.bottom - size.height / 2;
+    final paper = _paper;
+    final left = paper.left + size.width / 2;
+    final right = paper.right - size.width / 2;
+    final top = paper.top + size.height / 2;
+    final bottom = paper.bottom - size.height / 2;
     _centre = Offset(
-      left <= right ? _centre.dx.clamp(left, right) : widget.sheet.center.dx,
-      top <= bottom ? _centre.dy.clamp(top, bottom) : widget.sheet.center.dy,
+      left <= right ? _centre.dx.clamp(left, right) : paper.center.dx,
+      top <= bottom ? _centre.dy.clamp(top, bottom) : paper.center.dy,
     );
   }
 
@@ -200,6 +259,21 @@ class PlacementLayerState extends State<PlacementLayer>
         kStampInitialWidth * kStampScaleMax,
       );
       _scale = width / kStampInitialWidth;
+      _clampToSheet();
+      _resnap();
+    });
+  }
+
+  /// Takes the size the mark is now as the one a pinch will be measured from.
+  void _pinchStart() => _scaleAtPinch = _scale;
+
+  /// Sets the size to [factor] of what it was when the pinch began.
+  void _pinchTo(double factor) {
+    setState(() {
+      _scale = (_scaleAtPinch * factor).clamp(
+        kStampScaleMin,
+        kStampScaleMax,
+      );
       _clampToSheet();
       _resnap();
     });
@@ -245,6 +319,8 @@ class PlacementLayerState extends State<PlacementLayer>
         landed.height * scale,
       ),
       strokes: widget.mark.outlines,
+      encoded: widget.mark.encoded,
+      picture: widget.mark.picture,
     );
   }
 
@@ -319,6 +395,8 @@ class PlacementLayerState extends State<PlacementLayer>
                   outline: _committed ? 1 - outlineGone : 1,
                   onDrag: _drag,
                   onScale: _scaleBy,
+                  onPinchStart: _pinchStart,
+                  onPinch: _pinchTo,
                 ),
               ),
             ),

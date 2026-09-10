@@ -247,7 +247,7 @@ void main() {
       expect(libraryEntries[1].sizeLabel, '20 KB');
       expect(
         const LibraryEntry(
-          assetPath: 'a/b.md',
+          path: 'a/b.md',
           title: 'B',
           format: DocFormat.md,
           bytes: 512,

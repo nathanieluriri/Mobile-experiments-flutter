@@ -131,7 +131,7 @@ Future<void> _pumpReader(WidgetTester tester) async {
 }
 
 const _entry = LibraryEntry(
-  assetPath: 'assets/documents/field-guide-to-paper.pdf',
+  path: 'assets/documents/field-guide-to-paper.pdf',
   title: 'Field Guide To Paper',
   format: DocFormat.pdf,
   bytes: 313458,

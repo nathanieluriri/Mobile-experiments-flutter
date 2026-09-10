@@ -1,18 +1,31 @@
+import 'dart:async';
 import 'dart:convert';
+import 'dart:io' show File;
 
 import 'package:flutter/widgets.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../../painting/signature_painter.dart';
+import '../../painting/overflow_dots_painter.dart';
 import '../../pdf/pdf_search.dart';
+import '../../pdf/writer.dart' show PdfWriteError;
 import '../../services/document_store.dart';
+import '../../theme/colors.dart';
+import '../../theme/feedback.dart';
+import '../../theme/easings.dart';
 import '../../theme/metrics.dart';
 import '../sign/placement_layer.dart';
+import '../sign/sign_screen.dart';
 import 'bodies/page_states.dart';
 import 'bodies/pdf_body.dart';
 import 'bodies/prose_body.dart';
 import 'bodies/sheet_body.dart';
 import 'bodies/spine_table.dart';
 import 'find/find_layer.dart';
+import '../../widgets/goo_menu.dart';
+import '../../widgets/gooey_fab/gooey_fab_controller.dart';
+import 'page_frames.dart';
+import 'reader_menu.dart';
 import 'reader_screen.dart';
 import 'sheet_surface.dart';
 
@@ -27,6 +40,7 @@ class ReaderHost extends StatefulWidget {
   const ReaderHost({
     super.key,
     required this.store,
+    this.library,
     this.placing,
     this.onPlaced,
     this.onLeave,
@@ -34,6 +48,10 @@ class ReaderHost extends StatefulWidget {
 
   /// The open document.
   final DocumentStore store;
+
+  /// The desk this document is on, for the one thing the reader asks of it:
+  /// writing the signed copy out to a file the phone can pass along.
+  final LibraryStore? library;
 
   /// A signature waiting to be set into the page, straight from the pad.
   final SignatureMark? placing;
@@ -50,6 +68,36 @@ class ReaderHost extends StatefulWidget {
 }
 
 class _ReaderHostState extends State<ReaderHost> with TickerProviderStateMixin {
+  /// A signature drawn from inside this document, as opposed to one carried
+  /// in from the desk. Either way there is only ever one loose at a time.
+  SignatureMark? _drawn;
+
+  /// The mark waiting to be set into the page, whichever door it came in by.
+  SignatureMark? get _loose => _drawn ?? widget.placing;
+
+  /// The layer holding that mark, so the band's tick can set it down. The
+  /// placement owns the animation and the snapping; the band only asks it to
+  /// finish.
+  final GlobalKey<PlacementLayerState> _placementKey =
+      GlobalKey<PlacementLayerState>();
+
+  /// Where the body says it has drawn the page the reader is on.
+  final PageFrames _frames = PageFrames();
+
+  /// The menu behind the band's three dots, on the action button's own
+  /// springs, so every menu in the app moves the same way.
+  late final GooeyFabController _menu = GooeyFabController(
+    vsync: this,
+    actionCount: ReaderAction.values.length,
+  );
+
+  bool _menuOpen = false;
+
+  /// What the band is saying instead of the title, and the clock taking it
+  /// back off again.
+  String? _notice;
+  Timer? _noticeGone;
+
   /// The page engine, held for the life of the route rather than rebuilt with
   /// the body, so a page interpreted once stays interpreted and the fore edge,
   /// the folio chip and the block all count the same pages.
@@ -83,6 +131,8 @@ class _ReaderHostState extends State<ReaderHost> with TickerProviderStateMixin {
   void initState() {
     super.initState();
     widget.store.addListener(_onStore);
+    _menu.animations.addListener(_onMenuMoved);
+    _frames.addListener(_onFramesMoved);
     _openPages();
   }
 
@@ -107,7 +157,155 @@ class _ReaderHostState extends State<ReaderHost> with TickerProviderStateMixin {
     widget.store.removeListener(_onStore);
     _pages?.dispose();
     _find?.dispose();
+    _menu.animations.removeListener(_onMenuMoved);
+    _menu.dispose();
+    _frames.removeListener(_onFramesMoved);
+    _frames.dispose();
+    _noticeGone?.cancel();
     super.dispose();
+  }
+
+  // The menu, and what is on it.
+
+  /// Rebuilds when the paper moves, but only while there is a mark loose over
+  /// it: the rest of the time nothing on this screen is measured against the
+  /// page's own edges.
+  void _onFramesMoved() {
+    if (!mounted || _loose == null || _placed) return;
+    setState(() {});
+  }
+
+  /// Repaints while the pills move, and takes the menu down once the last of
+  /// them has settled back on the dots.
+  void _onMenuMoved() {
+    if (!mounted) return;
+    setState(() {});
+    if (_menuOpen && !_menu.isOpen && !_menuMoving) {
+      _menuOpen = false;
+    }
+  }
+
+  bool get _menuMoving {
+    bool moving(Animation<double> a) =>
+        a.status == AnimationStatus.forward ||
+        a.status == AnimationStatus.reverse;
+    if (moving(_menu.progress)) return true;
+    for (var i = 0; i < _menu.actionCount; i++) {
+      if (moving(_menu.actionDrive(i))) return true;
+    }
+    return false;
+  }
+
+  void _openMenu() {
+    setState(() => _menuOpen = true);
+    if (!_menu.isOpen) _menu.toggle();
+  }
+
+  void _closeMenu() {
+    if (_menu.isOpen) _menu.toggle();
+  }
+
+  /// What this document can have done to it from inside itself.
+  List<ReaderAction> get _actions => <ReaderAction>[
+        if (widget.store.isPdf) ReaderAction.sign,
+        if (widget.store.isPdf && widget.store.signed)
+          ReaderAction.shareSigned,
+        widget.store.dogEared.contains(widget.store.position)
+            ? ReaderAction.undogEar
+            : ReaderAction.dogEar,
+        ReaderAction.find,
+      ];
+
+  void _act(ReaderAction action) {
+    _closeMenu();
+    switch (action) {
+      case ReaderAction.sign:
+        _sign();
+      case ReaderAction.dogEar:
+      case ReaderAction.undogEar:
+        widget.store.toggleDogEar(widget.store.position);
+      case ReaderAction.shareSigned:
+        _shareSigned();
+      case ReaderAction.find:
+        _openFind();
+    }
+  }
+
+  /// Takes a signature on the pad and comes back to this page holding it.
+  ///
+  /// The pad is a route over the reader rather than a screen the reader is
+  /// replaced by, because the document is the thing being signed and it
+  /// should still be underneath while somebody signs it.
+  Future<void> _sign() async {
+    final mark = await Navigator.of(context).push<SignatureMark>(
+      PageRouteBuilder<SignatureMark>(
+        transitionDuration: kPadArrival,
+        reverseTransitionDuration: kPadArrival,
+        pageBuilder: (context, animation, secondary) => SignScreen(
+          onBack: () => Navigator.of(context).pop(),
+          onCommit: (mark) => Navigator.of(context).pop(mark),
+        ),
+        // Up from the bottom edge, the way a pad is put down over a page.
+        transitionsBuilder: (context, animation, secondary, child) =>
+            SlideTransition(
+          position: Tween<Offset>(
+            begin: const Offset(0, 1),
+            end: Offset.zero,
+          ).animate(
+            CurvedAnimation(parent: animation, curve: easeOutCubic),
+          ),
+          child: child,
+        ),
+      ),
+    );
+    if (mark == null || mark.isEmpty || !mounted) return;
+    setState(() {
+      _drawn = mark;
+      _placed = false;
+    });
+  }
+
+  /// Writes the signed PDF and hands it to the phone's share sheet.
+  Future<void> _shareSigned() async {
+    File? file;
+    try {
+      file = await widget.library?.exportSigned(widget.store.entry);
+    } on PdfWriteError catch (error) {
+      _say(error.message);
+      return;
+    } on Object {
+      _say('The signed file could not be written.');
+      return;
+    }
+    if (!mounted) return;
+    if (file == null) {
+      _say('There is nothing signed to share yet.');
+      return;
+    }
+    await SharePlus.instance.share(
+      ShareParams(
+        title: '${widget.store.entry.title}, signed',
+        files: <XFile>[XFile(file.path, mimeType: 'application/pdf')],
+      ),
+    );
+  }
+
+  /// Has the band say [text] for a moment, then go back to the title.
+  void _say(String text) {
+    _noticeGone?.cancel();
+    setState(() => _notice = text);
+    _noticeGone = Timer(kReaderNotice, () {
+      if (mounted) setState(() => _notice = null);
+    });
+  }
+
+  /// Puts a loose signature away without setting it into the page.
+  void _cancelPlacement() {
+    setState(() {
+      _drawn = null;
+      _placed = true;
+    });
+    widget.onPlaced?.call();
   }
 
   void _onStore() {
@@ -229,7 +427,7 @@ class _ReaderHostState extends State<ReaderHost> with TickerProviderStateMixin {
     final pages = _pages;
     if (store.isPdf) {
       if (pages == null) return _NoBody(store: store);
-      return PdfBody(store: store, pages: pages);
+      return PdfBody(store: store, pages: pages, frames: _frames);
     }
     final document = store.document;
     if (document == null) return _NoBody(store: store);
@@ -261,7 +459,7 @@ class _ReaderHostState extends State<ReaderHost> with TickerProviderStateMixin {
   /// is run here rather than waited for, because the mark arrived from the pad
   /// and there is nothing else for this frame to be.
   Widget? _placement() {
-    final mark = widget.placing;
+    final mark = _loose;
     final pages = _pages;
     if (_placed || mark == null || pages == null || pages.pageCount == 0) {
       return null;
@@ -275,31 +473,109 @@ class _ReaderHostState extends State<ReaderHost> with TickerProviderStateMixin {
     }
     final list = pages.pageAt(index).list;
     if (list == null) return null;
+    final safeArea = MediaQuery.paddingOf(context);
+    final frame = _frames.value;
     return PlacementLayer(
+      key: _placementKey,
       mark: mark,
       page: list,
       pageIndex: index,
+      // Where the paper is, as the body last drew it. Without this the layer
+      // works the page out from the sheet, which is only ever right at the top
+      // of the first page: everywhere else the mark is recorded as far down
+      // the page as the reader had scrolled, and far enough down it is
+      // recorded past the last line and drawn nowhere at all.
+      paper: frame != null && frame.index == index ? frame.rect : null,
+      // The readable part of the screen, which is what the mark is dimmed and
+      // held inside.
+      sheet: Rect.fromLTRB(
+        kSheetLeft,
+        kSheetTop + readerContentTop(safeArea),
+        kSheetLeft + kSheetWidth,
+        kSheetTop +
+            MediaQuery.sizeOf(context).height -
+            readerContentBottom(safeArea),
+      ),
       onPlace: (signature) {
-        setState(() => _placed = true);
+        setState(() {
+          _placed = true;
+          _drawn = null;
+        });
         widget.store.placeSignature(signature);
         widget.onPlaced?.call();
       },
     );
   }
 
+  /// The scrim, and the pills coming out of the dots.
+  Widget _menuLayer() {
+    final actions = _actions;
+    final safeArea = MediaQuery.paddingOf(context);
+    return Stack(
+      children: <Widget>[
+        Positioned.fill(
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () {
+              Feel.tap.ring();
+              _closeMenu();
+            },
+            child: ColoredBox(
+              color: AppColors.scrim.withValues(
+                alpha: AppColors.scrim.a * _menu.scrim.value,
+              ),
+            ),
+          ),
+        ),
+        GooMenu(
+          drives: <double>[
+            for (var i = 0; i < _menu.actionCount; i++)
+              _menu.actionDrive(i).value,
+          ],
+          items: <GooMenuItem>[for (final a in actions) gooItemOf(a)],
+          onPick: (i) => _act(actions[i]),
+          anchor: readerMenuAnchor(safeArea),
+          bounds: readerMenuBounds(safeArea, MediaQuery.sizeOf(context).height),
+        ),
+        // The dots again, over the goo. The band draws them under it, and a
+        // body that swallowed the control it came out of leaves nothing to
+        // read and nothing to aim at.
+        Positioned.fromRect(
+          rect: readerMenuAnchor(safeArea),
+          child: IgnorePointer(
+            child: CustomPaint(
+              painter: OverflowDotsPainter(
+                t: _menu.progress.value.clamp(0.0, 1.0),
+                colour: AppColors.ink,
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final find = _find;
+    final placement = _placement();
     return ReaderScreen(
       store: widget.store,
       bodyBuilder: _body,
-      placement: _placement(),
+      placement: placement,
       overlay: find == null || !find.isOpen ? null : FindLayer(controller: find),
       matches: find?.positions ?? const <double>[],
       liveMatch: find?.livePosition,
       matchOpacity: find?.railOpacity ?? 1,
       matchCounts: find?.unitCounts ?? const <int>[],
       onFind: _openFind,
+      onMenu: _openMenu,
+      menu: !_menuOpen ? null : _menuLayer(),
+      menuOpen: _menu.progress.value.clamp(0.0, 1.0),
+      notice: _notice,
+      placing: placement != null,
+      onConfirmPlacement: () => _placementKey.currentState?.commit(),
+      onCancelPlacement: _cancelPlacement,
       onLeave: widget.onLeave,
     );
   }

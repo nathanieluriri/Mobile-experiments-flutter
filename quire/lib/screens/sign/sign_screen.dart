@@ -1,7 +1,9 @@
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/widgets.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../painting/signature_painter.dart';
+import '../../services/picture.dart';
 import '../../theme/colors.dart';
 import '../../theme/easings.dart';
 import '../../theme/edges.dart';
@@ -30,6 +32,9 @@ const kCommitPillDead = 0.35;
 /// Where the hint sits under the pad.
 const kSignHintTop = 404.0;
 
+/// The picture the reader chose, laid out on the pad in place of ink.
+const kPicturePadInset = 16.0;
+
 /// The glyph inside the back pill.
 const kSignBackIcon = 20.0;
 
@@ -57,6 +62,13 @@ class _SignScreenState extends State<SignScreen>
     with SingleTickerProviderStateMixin {
   SignPadController? _own;
   SignPadController get _pad => widget.pad ?? (_own ??= SignPadController());
+
+  /// A picture the reader brought in instead of drawing one, if they did.
+  SignatureMark? _picture;
+
+  /// True while the phone's picker is up, so a second tap does not open a
+  /// second one over it.
+  bool _picking = false;
 
   /// The pill waking up. It runs on the first stroke and never runs back, so
   /// undoing to nothing leaves the pill lit but dead rather than blinking.
@@ -94,13 +106,50 @@ class _SignScreenState extends State<SignScreen>
   }
 
   void _commit() {
+    final picture = _picture;
+    if (picture != null) {
+      widget.onCommit?.call(picture);
+      return;
+    }
     if (_pad.isEmpty) return;
     widget.onCommit?.call(_pad.mark);
   }
 
+  /// Takes a picture of a signature off the phone in place of a drawn one.
+  ///
+  /// A photograph of a signature on paper is a signature, and it is usually a
+  /// better one than a fingertip can make. What comes back is decoded once,
+  /// no wider than a page needs, and shown on the pad where the ink would
+  /// have been, so the same button places it.
+  Future<void> _choosePicture() async {
+    if (_picking) return;
+    setState(() => _picking = true);
+    try {
+      final picked = await FilePicker.pickFile(type: FileType.image);
+      if (picked == null || !mounted) return;
+      final bytes = await picked.readAsBytes();
+      final image = await decodePicture(bytes);
+      if (!mounted) return;
+      _pad.clear();
+      setState(() => _picture = SignatureMark.picture(image, bytes));
+      if (_live.status == AnimationStatus.dismissed) _live.forward();
+    } on Object {
+      // A file the phone offered and the engine cannot read. There is nothing
+      // to say about it that is more use than the pad staying as it was.
+    } finally {
+      if (mounted) setState(() => _picking = false);
+    }
+  }
+
+  /// Puts the picture away, which puts the pad back.
+  void _clearPicture() {
+    setState(() => _picture = null);
+  }
+
   @override
   Widget build(BuildContext context) {
-    final hasInk = !_pad.isEmpty;
+    final picture = _picture;
+    final hasInk = picture != null || !_pad.isEmpty;
     return ColoredBox(
       color: AppColors.ground,
       child: Stack(
@@ -125,7 +174,9 @@ class _SignScreenState extends State<SignScreen>
           Positioned(
             left: kPadLeft,
             top: kPadTop,
-            child: SignPad(controller: _pad),
+            child: picture == null
+                ? SignPad(controller: _pad)
+                : _PicturePad(mark: picture),
           ),
           Positioned(
             left: 0,
@@ -133,7 +184,9 @@ class _SignScreenState extends State<SignScreen>
             top: kSignHintTop,
             child: Center(
               child: Text(
-                'Sign above the line.',
+                picture == null
+                    ? 'Sign above the line, or bring a picture of your mark.'
+                    : 'This picture will be set into the page.',
                 style: AppText.hint.copyWith(color: AppColors.inkFaint),
               ),
             ),
@@ -144,7 +197,7 @@ class _SignScreenState extends State<SignScreen>
             child: _Tool(
               icon: LucideIcons.undo2,
               label: 'Undo the last stroke',
-              enabled: hasInk,
+              enabled: picture == null && !_pad.isEmpty,
               onTap: _pad.undo,
             ),
           ),
@@ -153,9 +206,19 @@ class _SignScreenState extends State<SignScreen>
             top: kSignToolTop,
             child: _Tool(
               icon: LucideIcons.trash2,
-              label: 'Clear the pad',
+              label: picture == null ? 'Clear the pad' : 'Put the picture away',
               enabled: hasInk,
-              onTap: _pad.clear,
+              onTap: picture == null ? _pad.clear : _clearPicture,
+            ),
+          ),
+          Positioned(
+            left: kSignToolLeft + kSignToolGap * 2,
+            top: kSignToolTop,
+            child: _Tool(
+              icon: LucideIcons.image,
+              label: 'Use a picture of your signature',
+              enabled: !_picking,
+              onTap: _choosePicture,
             ),
           ),
           Positioned(
@@ -264,4 +327,61 @@ class _Tool extends StatelessWidget {
       ),
     );
   }
+}
+
+/// The pad with a picture on it instead of ink.
+///
+/// The same rectangle, the same paper, so the screen does not rearrange
+/// itself around which kind of mark somebody chose. The picture sits inside
+/// it whole, at its own proportions, because a signature stretched to fit a
+/// box is not that person's signature any more.
+class _PicturePad extends StatelessWidget {
+  const _PicturePad({required this.mark});
+
+  final SignatureMark mark;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: kPadWidth,
+      height: kPadHeight,
+      decoration: BoxDecoration(
+        color: AppColors.page,
+        borderRadius: BorderRadius.circular(kPadRadius),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Padding(
+        padding: const EdgeInsets.all(kPicturePadInset),
+        child: CustomPaint(painter: _PicturePainter(mark)),
+      ),
+    );
+  }
+}
+
+class _PicturePainter extends CustomPainter {
+  const _PicturePainter(this.mark);
+
+  final SignatureMark mark;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final aspect = mark.aspect;
+    var width = size.width;
+    var height = width * aspect;
+    if (height > size.height) {
+      height = size.height;
+      width = aspect == 0 ? size.width : height / aspect;
+    }
+    mark.paintInto(
+      canvas,
+      Rect.fromCenter(
+        center: size.center(Offset.zero),
+        width: width,
+        height: height,
+      ),
+    );
+  }
+
+  @override
+  bool shouldRepaint(_PicturePainter old) => old.mark != mark;
 }

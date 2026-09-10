@@ -41,7 +41,8 @@ class GridBody extends StatefulWidget {
   final void Function(LibraryEntry entry, Rect cardRect)? onOpen;
 
   /// A card's three dots. The menu behind them belongs to the shell.
-  final void Function(LibraryEntry entry, Rect cardRect)? onOverflow;
+  final void Function(LibraryEntry entry, Rect cardRect, Rect target)?
+      onOverflow;
 
   final ScrollController? controller;
 
@@ -62,10 +63,10 @@ class _GridBodyState extends State<GridBody> {
   final Map<String, GlobalKey> _keys = <String, GlobalKey>{};
 
   GlobalKey _keyFor(LibraryEntry entry) =>
-      _keys.putIfAbsent(entry.assetPath, GlobalKey.new);
+      _keys.putIfAbsent(entry.path, GlobalKey.new);
 
   Rect _rectOf(LibraryEntry entry) {
-    final box = _keys[entry.assetPath]?.currentContext?.findRenderObject();
+    final box = _keys[entry.path]?.currentContext?.findRenderObject();
     if (box is! RenderBox || !box.hasSize) return Rect.zero;
     return box.localToGlobal(Offset.zero) & box.size;
   }
@@ -101,7 +102,8 @@ class _GridBodyState extends State<GridBody> {
                             : () => widget.onOpen!(entry, _rectOf(entry)),
                         onOverflow: widget.onOverflow == null
                             ? null
-                            : () => widget.onOverflow!(entry, _rectOf(entry)),
+                            : (target) => widget.onOverflow!(
+                                entry, _rectOf(entry), target),
                       ),
                     ),
                 ],

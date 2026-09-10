@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
@@ -9,6 +12,9 @@ import '../model/document.dart';
 import '../model/search.dart';
 import '../pdf/display_list.dart';
 import '../pdf/document.dart';
+import '../pdf/writer.dart';
+import 'library_catalogue.dart';
+import 'picture.dart';
 import 'reading_time.dart';
 import 'render_plan.dart';
 
@@ -28,6 +34,8 @@ class PlacedSignature {
     required this.pageIndex,
     required this.rect,
     required this.strokes,
+    this.encoded,
+    this.picture,
   });
 
   /// The page the mark belongs to, zero based.
@@ -36,8 +44,87 @@ class PlacedSignature {
   /// Where the mark sits in page space, in logical points.
   final ui.Rect rect;
 
-  /// Each stroke as points in the unit square of [rect].
+  /// Each stroke as points in the unit square of [rect]. Empty for a mark
+  /// that is a picture.
   final List<List<ui.Offset>> strokes;
+
+  /// The picture's own file, for a mark that is one.
+  final Uint8List? encoded;
+
+  /// That picture decoded, once somebody has decoded it. A mark read back
+  /// from an earlier run arrives without one and gets it a moment later,
+  /// which is a moment the page spends drawing everything else.
+  final ui.Image? picture;
+
+  /// The same mark, now that its picture has been decoded.
+  PlacedSignature withPicture(ui.Image decoded) => PlacedSignature(
+        pageIndex: pageIndex,
+        rect: rect,
+        strokes: strokes,
+        encoded: encoded,
+        picture: decoded,
+      );
+
+  /// The mark as plain numbers, for the desk to write down.
+  Map<String, Object?> toJson() => <String, Object?>{
+        'page': pageIndex,
+        'rect': <double>[rect.left, rect.top, rect.width, rect.height],
+        'strokes': <Object?>[
+          for (final stroke in strokes)
+            <Object?>[
+              for (final point in stroke) <double>[point.dx, point.dy],
+            ],
+        ],
+        if (encoded != null) 'picture': base64Encode(encoded!),
+      };
+
+  /// The mark read back, or null for numbers that do not make one.
+  static PlacedSignature? fromJson(Object? json) {
+    if (json is! Map<String, Object?>) return null;
+    final page = json['page'];
+    final rect = json['rect'];
+    final strokes = json['strokes'];
+    if (page is! int || rect is! List<Object?> || strokes is! List<Object?>) {
+      return null;
+    }
+    final box = _doubles(rect);
+    if (box == null || box.length != 4) return null;
+    final picture = json['picture'];
+    Uint8List? bytes;
+    if (picture is String && picture.isNotEmpty) {
+      try {
+        bytes = base64Decode(picture);
+      } on FormatException {
+        return null;
+      }
+    }
+    final marks = <List<ui.Offset>>[];
+    for (final stroke in strokes) {
+      if (stroke is! List<Object?>) return null;
+      final points = <ui.Offset>[];
+      for (final point in stroke) {
+        final pair = point is List<Object?> ? _doubles(point) : null;
+        if (pair == null || pair.length != 2) return null;
+        points.add(ui.Offset(pair[0], pair[1]));
+      }
+      marks.add(points);
+    }
+    return PlacedSignature(
+      pageIndex: page,
+      rect: ui.Rect.fromLTWH(box[0], box[1], box[2], box[3]),
+      strokes: marks,
+      encoded: bytes,
+    );
+  }
+
+  static List<double>? _doubles(List<Object?> raw) {
+    final out = <double>[];
+    for (final value in raw) {
+      if (value is! num) return null;
+      out.add(value.toDouble());
+    }
+    return out;
+  }
 }
 
 /// One open document: what was parsed, where the reader is in it, and what
@@ -65,6 +152,7 @@ class DocumentStore extends ChangeNotifier {
   int _pdfPageCount = 0;
   bool _opened = false;
   int _opens = 0;
+  int _lastOpened = 0;
   final Map<int, int> _pageWords = <int, int>{};
   final Set<int> _dogEared = <int>{};
   final List<PlacedSignature> _signatures = <PlacedSignature>[];
@@ -84,7 +172,16 @@ class DocumentStore extends ChangeNotifier {
     _pdf = null;
     _state = _loaded!.failed ? ParseState.failed : ParseState.ready;
     if (_loaded!.isPdf && !_loaded!.failed) _openPdf(bytes, password);
+    // A place remembered from an earlier run was remembered against a
+    // document that could be laid out. If this one has fewer units now, the
+    // place is pulled back inside it; if it cannot be laid out at all, which
+    // is a locked file waiting for its password, the place is kept for when
+    // it can.
+    if (_state == ParseState.ready && _locked == null && unitCount > 0) {
+      _position = _position.clamp(0, unitCount - 1);
+    }
     notifyListeners();
+    unawaited(decodePictures());
   }
 
   /// Tries [password] against a document that asked for one.
@@ -253,10 +350,58 @@ class DocumentStore extends ChangeNotifier {
   /// another opening, so only an arrival counts.
   int get opens => _opens;
 
+  /// When the document was last opened, in milliseconds since the epoch, or
+  /// 0 for one that never has been. Nothing draws it; the desk orders by it.
+  int get lastOpened => _lastOpened;
+
   /// Marks the document as opened without moving the reader.
   void markOpened() {
     _opens++;
     _opened = true;
+    _lastOpened = DateTime.now().millisecondsSinceEpoch;
+    notifyListeners();
+  }
+
+  /// Everything the reader has done with this document, as plain numbers.
+  Map<String, Object?> toJson() => <String, Object?>{
+        'position': _position,
+        'opens': _opens,
+        'opened': _opened,
+        'lastOpened': _lastOpened,
+        'dogEared': _dogEared.toList()..sort(),
+        'signatures': <Object?>[
+          for (final mark in _signatures) mark.toJson(),
+        ],
+      };
+
+  /// Takes back what [toJson] wrote, before or after the document has been
+  /// read: a place beyond the end is pulled inside it once the file is known.
+  void restore(Map<String, Object?> json) {
+    final position = json['position'];
+    final opens = json['opens'];
+    final opened = json['opened'];
+    final lastOpened = json['lastOpened'];
+    final dogEared = json['dogEared'];
+    final signatures = json['signatures'];
+    if (position is int) _position = position < 0 ? 0 : position;
+    if (opens is int) _opens = opens;
+    if (opened is bool) _opened = opened;
+    if (lastOpened is int) _lastOpened = lastOpened;
+    if (dogEared is List<Object?>) {
+      _dogEared
+        ..clear()
+        ..addAll(dogEared.whereType<int>());
+    }
+    if (signatures is List<Object?>) {
+      _signatures.clear();
+      for (final item in signatures) {
+        final mark = PlacedSignature.fromJson(item);
+        if (mark != null) _signatures.add(mark);
+      }
+    }
+    if (_state == ParseState.ready && _locked == null && unitCount > 0) {
+      _position = _position.clamp(0, unitCount - 1);
+    }
     notifyListeners();
   }
 
@@ -296,6 +441,75 @@ class DocumentStore extends ChangeNotifier {
   void placeSignature(PlacedSignature signature) {
     _signatures.add(signature);
     notifyListeners();
+  }
+
+  /// Decodes the pictures of any marks that arrived as bytes alone.
+  ///
+  /// Restoring a document reads its signatures back as numbers and files;
+  /// a picture has to be turned into something drawable before the page can
+  /// show it, and that is the one part of a restore that cannot be done in
+  /// the same breath as the rest.
+  Future<void> decodePictures() async {
+    var changed = false;
+    for (var i = 0; i < _signatures.length; i++) {
+      final mark = _signatures[i];
+      final bytes = mark.encoded;
+      if (bytes == null || mark.picture != null) continue;
+      try {
+        _signatures[i] = mark.withPicture(await decodePicture(bytes));
+        changed = true;
+      } on Object {
+        // A picture that will not decode is a mark that cannot be drawn.
+        // Dropping the bytes stops the app trying again on every restore.
+        _signatures[i] = PlacedSignature(
+          pageIndex: mark.pageIndex,
+          rect: mark.rect,
+          strokes: mark.strokes,
+        );
+        changed = true;
+      }
+    }
+    if (changed) notifyListeners();
+  }
+
+  /// The whole PDF with every signature written into its pages, or null when
+  /// there is no open PDF or nothing has been signed.
+  ///
+  /// Throws [PdfWriteError] for a file the writer cannot add to, with the
+  /// reason in words.
+  Uint8List? signedPdf({Map<int, PdfImage> pictures = const <int, PdfImage>{}}) {
+    final file = _pdf;
+    if (file == null || _signatures.isEmpty) return null;
+    return PdfSignatureWriter.signed(file, <PlacedInk>[
+      for (var i = 0; i < _signatures.length; i++)
+        PlacedInk(
+          pageIndex: _signatures[i].pageIndex,
+          rect: _signatures[i].rect,
+          outlines: _signatures[i].strokes,
+          image: pictures[i],
+        ),
+    ]);
+  }
+
+  /// Every picture among the signatures, read into the planes a PDF wants.
+  ///
+  /// It is done here rather than in the writer because reading pixels off a
+  /// decoded picture is asynchronous and writing a PDF is not.
+  Future<Map<int, PdfImage>> signaturePictures() async {
+    final out = <int, PdfImage>{};
+    for (var i = 0; i < _signatures.length; i++) {
+      final picture = _signatures[i].picture;
+      if (picture == null) continue;
+      final planes = await picturePlanes(picture);
+      if (planes == null) continue;
+      out[i] = PdfImage(
+        width: planes.width,
+        height: planes.height,
+        rgb: planes.rgb,
+        alpha: planes.opaque ? null : planes.alpha,
+      );
+    }
+    return out;
   }
 
   /// Removes the most recent signature, if there is one.
@@ -353,22 +567,109 @@ class DocumentStore extends ChangeNotifier {
 /// The desk: the six bundled documents, the shelf, the query, and whatever has
 /// been removed but not yet forgotten.
 class LibraryStore extends ChangeNotifier {
-  LibraryStore({List<LibraryEntry> entries = libraryEntries})
-      : _entries = List<LibraryEntry>.unmodifiable(entries);
+  LibraryStore({
+    List<LibraryEntry> entries = libraryEntries,
+    this._catalogue,
+  }) : _entries = List<LibraryEntry>.of(entries);
 
+  /// The desk in order, shipped documents and brought in ones together.
   final List<LibraryEntry> _entries;
+
+  /// Where brought in documents are kept between runs, or null for a desk
+  /// that only ever holds the shipped six, which is what a test builds.
+  final LibraryCatalogue? _catalogue;
+
+  /// Documents the reader has starred.
+  final Set<String> _starred = <String>{};
+
+  /// Documents taken off the desk and waiting in the bin.
+  final Set<String> _binned = <String>{};
+
+  /// Documents deleted for good. A brought in one is gone from the list as
+  /// well; a shipped one cannot be, since it is part of the app, so it is
+  /// hidden here instead and stays hidden.
+  final Set<String> _gone = <String>{};
+
+  /// A write of the desk's state that is waiting to happen.
+  ///
+  /// Writes are gathered rather than made on every change, because a reader
+  /// scrolling a page moves the position on every unit and a file written
+  /// at every unit would be the app spending its time on the wrong thing.
+  Timer? _pendingSave;
+
+  static const _saveAfter = Duration(milliseconds: 500);
   final Map<String, DocumentStore> _stores = <String, DocumentStore>{};
   final Set<String> _removed = <String>{};
   Shelf _shelf = Shelf.all;
   String _query = '';
   LibraryEntry? _lastRemoved;
 
-  /// Everything on the desk, removals included.
-  List<LibraryEntry> get allEntries => _entries;
+  /// Everything on the desk, removals included, except what is gone for good.
+  List<LibraryEntry> get allEntries => List<LibraryEntry>.unmodifiable(
+        _entries.where((e) => !_gone.contains(e.path)).toList(),
+      );
+
+  /// True when the desk can take a file in from the phone.
+  bool get canImport => _catalogue != null;
 
   /// Everything still on the desk, in shelf order.
-  List<LibraryEntry> get entries =>
-      _entries.where((e) => !_removed.contains(e.assetPath)).toList();
+  List<LibraryEntry> get entries => _entries
+      .where(
+        (e) =>
+            !_removed.contains(e.path) &&
+            !_binned.contains(e.path) &&
+            !_gone.contains(e.path),
+      )
+      .toList();
+
+  /// What is waiting in the bin, in desk order.
+  List<LibraryEntry> get binned => _entries
+      .where((e) => _binned.contains(e.path) && !_gone.contains(e.path))
+      .toList();
+
+  bool isBinned(LibraryEntry entry) => _binned.contains(entry.path);
+
+  bool isStarred(LibraryEntry entry) => _starred.contains(entry.path);
+
+  /// Stars [entry], or takes the star off it.
+  void toggleStar(LibraryEntry entry) {
+    if (!_starred.remove(entry.path)) _starred.add(entry.path);
+    _scheduleSave();
+    notifyListeners();
+  }
+
+  /// Puts a binned [entry] back on the desk.
+  void restore(LibraryEntry entry) {
+    if (!_binned.remove(entry.path)) return;
+    _scheduleSave();
+    notifyListeners();
+  }
+
+  /// Deletes [entry] for good.
+  ///
+  /// A brought in document loses its copy and its place in the index. A
+  /// shipped one cannot lose anything, being part of the app, so it is hidden
+  /// from every list from now on, which from the desk is the same thing.
+  void deleteForever(LibraryEntry entry) {
+    _binned.remove(entry.path);
+    _removed.remove(entry.path);
+    _starred.remove(entry.path);
+    _gone.add(entry.path);
+    _stores.remove(entry.path)
+      ?..removeListener(_onDocumentChanged)
+      ..dispose();
+    final catalogue = _catalogue;
+    if (entry.source == DocSource.file) {
+      _entries.remove(entry);
+      _gone.remove(entry.path);
+      if (catalogue != null) {
+        catalogue.save(_entries);
+        catalogue.forget(entry);
+      }
+    }
+    _scheduleSave();
+    notifyListeners();
+  }
 
   /// The selected shelf.
   Shelf get shelf => _shelf;
@@ -387,9 +688,12 @@ class LibraryStore extends ChangeNotifier {
   }
 
   /// The cards the desk actually draws.
-  List<LibraryEntry> get visible {
+  List<LibraryEntry> get visible => visibleOf(entries);
+
+  /// Those of [pool] the shelf and the query let through.
+  List<LibraryEntry> visibleOf(Iterable<LibraryEntry> pool) {
     final needle = _query.trim().toLowerCase();
-    return entries.where((e) {
+    return pool.where((e) {
       if (!_onShelf(e, _shelf)) return false;
       if (needle.isEmpty) return true;
       return e.title.toLowerCase().contains(needle) ||
@@ -410,10 +714,10 @@ class LibraryStore extends ChangeNotifier {
       case Shelf.all:
         return true;
       case Shelf.reading:
-        final store = _stores[entry.assetPath];
+        final store = _stores[entry.path];
         return store != null && store.opened;
       case Shelf.signed:
-        final store = _stores[entry.assetPath];
+        final store = _stores[entry.path];
         return store != null && store.signed;
     }
   }
@@ -423,14 +727,61 @@ class LibraryStore extends ChangeNotifier {
   /// Stores are kept rather than rebuilt so a document remembers its place,
   /// its dog ears and its search index for as long as the app is running.
   DocumentStore storeFor(LibraryEntry entry) =>
-      _stores.putIfAbsent(entry.assetPath, () {
+      _stores.putIfAbsent(entry.path, () {
         final store = DocumentStore(entry);
-        store.addListener(notifyListeners);
+        store.addListener(_onDocumentChanged);
         return store;
       });
 
+  /// A document changed, so the desk repaints and, in a moment, writes.
+  void _onDocumentChanged() {
+    notifyListeners();
+    _scheduleSave();
+  }
+
+  /// Writes the desk's state after a short quiet, unless the desk has nowhere
+  /// to write it, which is a desk built by a test.
+  void _scheduleSave() {
+    final catalogue = _catalogue;
+    if (catalogue == null) return;
+    _pendingSave?.cancel();
+    _pendingSave = Timer(_saveAfter, () {
+      _pendingSave = null;
+      catalogue.saveState(_stateJson());
+    });
+  }
+
+  /// Everything the desk remembers, as plain data.
+  Map<String, Object?> _stateJson() => <String, Object?>{
+        'starred': _starred.toList(),
+        'binned': _binned.toList(),
+        'gone': _gone.toList(),
+        'documents': <String, Object?>{
+          for (final entry in _stores.entries) entry.key: entry.value.toJson(),
+        },
+      };
+
+  /// Takes back what [_stateJson] wrote, for the documents now on the desk.
+  void _applyState(Map<String, Object?> state) {
+    final known = <String>{for (final entry in _entries) entry.path};
+    void fill(Set<String> into, Object? list) {
+      if (list is! List<Object?>) return;
+      into.addAll(list.whereType<String>().where(known.contains));
+    }
+
+    fill(_starred, state['starred']);
+    fill(_binned, state['binned']);
+    fill(_gone, state['gone']);
+    final documents = state['documents'];
+    if (documents is! Map<String, Object?>) return;
+    for (final entry in _entries) {
+      final saved = documents[entry.path];
+      if (saved is Map<String, Object?>) storeFor(entry).restore(saved);
+    }
+  }
+
   /// The store for [entry] if one has been made, without making one.
-  DocumentStore? peek(LibraryEntry entry) => _stores[entry.assetPath];
+  DocumentStore? peek(LibraryEntry entry) => _stores[entry.path];
 
   /// Reads every bundled document and parses it.
   ///
@@ -440,18 +791,79 @@ class LibraryStore extends ChangeNotifier {
   /// each file comes back. A file the bundle cannot hand over fails on its own
   /// store and leaves the other five alone.
   Future<void> hydrate() async {
-    for (final entry in _entries) {
-      final store = storeFor(entry);
-      if (store.state != ParseState.loading) continue;
-      try {
-        final data = await rootBundle.load(entry.assetPath);
-        store.loadFrom(
-          data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes),
-        );
-      } on Object catch (error) {
-        store.fail(error);
-      }
+    for (final entry in List<LibraryEntry>.of(_entries)) {
+      await _hydrateOne(entry);
     }
+  }
+
+  Future<void> _hydrateOne(LibraryEntry entry) async {
+    final store = storeFor(entry);
+    if (store.state != ParseState.loading) return;
+    try {
+      store.loadFrom(await _read(entry));
+    } on Object catch (error) {
+      store.fail(error);
+    }
+  }
+
+  /// The bytes behind [entry], from the bundle or from the phone.
+  Future<Uint8List> _read(LibraryEntry entry) async {
+    switch (entry.source) {
+      case DocSource.asset:
+        final data = await rootBundle.load(entry.path);
+        return data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes);
+      case DocSource.file:
+        return File(entry.path).readAsBytes();
+    }
+  }
+
+  /// Brings back the documents the reader opened in earlier runs, ahead of
+  /// the shipped ones, then reads everything.
+  ///
+  /// The shipped six are on the desk from the first frame; these arrive a
+  /// moment later, once the index has been read, which is a moment the desk
+  /// already knows how to spend: it is the same moment the page counts land.
+  Future<void> boot() async {
+    final catalogue = _catalogue;
+    if (catalogue != null) {
+      final imported = await catalogue.load();
+      if (imported.isNotEmpty) _entries.insertAll(0, imported);
+      _applyState(await catalogue.loadState());
+      notifyListeners();
+    }
+    await hydrate();
+  }
+
+  /// Writes [entry]'s signed PDF to a file the phone can hand to another app,
+  /// or returns null when there is nothing to write or nowhere to write it.
+  ///
+  /// Throws [PdfWriteError] when the file cannot be added to.
+  Future<File?> exportSigned(LibraryEntry entry) async {
+    final catalogue = _catalogue;
+    final store = _stores[entry.path];
+    if (catalogue == null || store == null) return null;
+    final bytes = store.signedPdf(pictures: await store.signaturePictures());
+    if (bytes == null) return null;
+    final title = entry.title.replaceAll(RegExp(r'[^A-Za-z0-9 ._-]+'), '');
+    return catalogue.writeExport('$title signed.pdf', bytes);
+  }
+
+  /// Puts a file called [name] holding [bytes] onto the desk and opens it for
+  /// reading.
+  ///
+  /// Returns the new entry, or null when there is nowhere to keep it or the
+  /// file is a kind quire does not read. The card goes on the desk before the
+  /// file has been parsed, at the top, because it is the newest thing there.
+  Future<LibraryEntry?> importFile(String name, Uint8List bytes) async {
+    final catalogue = _catalogue;
+    if (catalogue == null) return null;
+    final entry = await catalogue.import(name, bytes);
+    if (entry == null) return null;
+    _entries.insert(0, entry);
+    notifyListeners();
+    await catalogue.save(_entries);
+    await _hydrateOne(entry);
+    return entry;
   }
 
   /// Takes [entry] off the desk.
@@ -461,7 +873,7 @@ class LibraryStore extends ChangeNotifier {
   /// into belong to whatever drew the row, and a model that held an image
   /// would be a model that could not be tested without a rasteriser.
   void remove(LibraryEntry entry) {
-    if (!_removed.add(entry.assetPath)) return;
+    if (!_removed.add(entry.path)) return;
     _lastRemoved = entry;
     notifyListeners();
   }
@@ -473,7 +885,7 @@ class LibraryStore extends ChangeNotifier {
   void undoRemove() {
     final entry = _lastRemoved;
     if (entry == null) return;
-    _removed.remove(entry.assetPath);
+    _removed.remove(entry.path);
     _lastRemoved = null;
     notifyListeners();
   }
@@ -483,8 +895,15 @@ class LibraryStore extends ChangeNotifier {
   /// Whatever is still holding that document's pixels watches this: once the
   /// offer is withdrawn there is nothing left to gather back together.
   void commitRemoval() {
-    if (_lastRemoved == null) return;
+    final entry = _lastRemoved;
+    if (entry == null) return;
     _lastRemoved = null;
+    // Once the offer to undo has run out the document goes to the bin, where
+    // it waits to be put back or deleted for good. Nothing is lost by
+    // letting the pill drain, which is what lets the pill be short.
+    _removed.remove(entry.path);
+    _binned.add(entry.path);
+    _scheduleSave();
     notifyListeners();
   }
 
@@ -501,7 +920,7 @@ class LibraryStore extends ChangeNotifier {
   int wordsIn(Iterable<LibraryEntry> shown) {
     var total = 0;
     for (final entry in shown) {
-      total += _stores[entry.assetPath]?.wordCount ?? 0;
+      total += _stores[entry.path]?.wordCount ?? 0;
     }
     return total;
   }
@@ -517,8 +936,9 @@ class LibraryStore extends ChangeNotifier {
 
   @override
   void dispose() {
+    _pendingSave?.cancel();
     for (final store in _stores.values) {
-      store.removeListener(notifyListeners);
+      store.removeListener(_onDocumentChanged);
       store.dispose();
     }
     super.dispose();

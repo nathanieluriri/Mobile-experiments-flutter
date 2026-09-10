@@ -17,6 +17,7 @@ import '../../../theme/colors.dart';
 import '../../../theme/metrics.dart';
 import '../../../theme/typography.dart';
 import '../back_layer.dart';
+import '../page_frames.dart';
 import '../sheet_surface.dart';
 import 'page_states.dart';
 
@@ -602,14 +603,23 @@ Rect imageRectOf(ImageCmd image, double scale) {
 
 /// The PDF body: one strip of paper, every page on it at its own size.
 class PdfBody extends ReaderBody {
-  const PdfBody({super.key, required this.store, required this.pages});
+  const PdfBody({
+    super.key,
+    required this.store,
+    required this.pages,
+    this.frames,
+  });
 
   final DocumentStore store;
   final PdfPages pages;
 
+  /// Where the strip says it has drawn the page the reader is on, for the
+  /// placement, which cannot record a mark against paper it cannot find.
+  final PageFrames? frames;
+
   @override
   Widget buildFront(BuildContext context) =>
-      PdfPageBlock(store: store, pages: pages);
+      PdfPageBlock(store: store, pages: pages, frames: frames);
 
   /// Makes the current page's text layer ready before a corner can move.
   ///
@@ -658,11 +668,16 @@ class PdfPageBlock extends StatefulWidget {
     super.key,
     required this.store,
     required this.pages,
+    this.frames,
     this.width = kSheetWidth,
   });
 
   final DocumentStore store;
   final PdfPages pages;
+
+  /// Reported to after every frame, with the current page's rectangle.
+  final PageFrames? frames;
+
   final double width;
 
   @override
@@ -725,7 +740,22 @@ class _PdfPageBlockState extends State<PdfPageBlock>
       ? _controller.position.viewportDimension
       : kSheetHeight;
 
-  double get _offset => _controller.hasClients ? _controller.offset : 0;
+  /// How far the pages are held off the band and the gesture bar.
+  double _topInset = kReaderContentTop;
+  double _bottomInset = kReaderContentBottom;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final safeArea = MediaQuery.paddingOf(context);
+    _topInset = readerContentTop(safeArea);
+    _bottomInset = readerContentBottom(safeArea);
+  }
+
+  /// Where the reader is among the pages, with the leading inset taken off,
+  /// so page one starts at zero the way the layout states it.
+  double get _offset =>
+      _controller.hasClients ? _controller.offset - _topInset : -_topInset;
 
   void _onScroll() {
     final page = _layout.pageAt(_offset, _viewport);
@@ -758,6 +788,29 @@ class _PdfPageBlockState extends State<PdfPageBlock>
     }
     _follow(first, last);
     _band(first, last);
+    _report();
+  }
+
+  /// Says where the current page has ended up, so a mark can be set on it.
+  ///
+  /// The strip's own offset is the whole point: the page's top edge is at
+  /// [PdfLayout.topOf] less however far the reader has scrolled, and a
+  /// placement that assumed the top of the sheet instead was out by exactly
+  /// that much.
+  void _report() {
+    final frames = widget.frames;
+    if (frames == null) return;
+    final page = widget.store.position;
+    if (page < 0 || page >= _layout.pageCount) return;
+    frames.value = PageFrame(
+      index: page,
+      rect: Rect.fromLTWH(
+        0,
+        _layout.topOf(page) - _offset,
+        widget.width,
+        _layout.heightOf(page),
+      ),
+    );
   }
 
   /// Brings the strip to the page the reader was put on by something that is
@@ -798,7 +851,12 @@ class _PdfPageBlockState extends State<PdfPageBlock>
     }
     return ListView.builder(
       controller: _controller,
-      padding: EdgeInsets.zero,
+      // The paper is the whole screen, so the pages are held clear of the
+      // band at one end and the gesture bar at the other, by whatever the
+      // phone says those are. The inset does not change while the document
+      // is open, which is what lets every offset here still be read against
+      // the pages themselves by taking the same number back off it.
+      padding: EdgeInsets.only(top: _topInset, bottom: _bottomInset),
       itemCount: _layout.pageCount,
       itemExtentBuilder: (index, _) => _layout.extentOf(index),
       itemBuilder: (context, index) => Column(

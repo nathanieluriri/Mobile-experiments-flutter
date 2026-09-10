@@ -133,13 +133,14 @@ class DocumentCard extends StatelessWidget {
   final VoidCallback? onOpen;
 
   /// The three dots. The menu behind them belongs to the shell.
-  final VoidCallback? onOverflow;
+  final void Function(Rect target)? onOverflow;
 
   @override
   Widget build(BuildContext context) {
     return PaperPress(
       onTap: onOpen,
       semanticLabel: entry.title,
+      washRadius: kGridCardRadius,
       child: DecoratedBox(
         decoration: BoxDecoration(
           color: AppColors.surface,

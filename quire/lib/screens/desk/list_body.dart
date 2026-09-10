@@ -62,7 +62,8 @@ class ListBody extends StatefulWidget {
   final void Function(LibraryEntry entry, Rect rowRect)? onOpen;
 
   /// A row's three dots. The menu behind them belongs to the shell.
-  final void Function(LibraryEntry entry, Rect rowRect)? onOverflow;
+  final void Function(LibraryEntry entry, Rect rowRect, Rect target)?
+      onOverflow;
 
   final ScrollController? controller;
 
@@ -113,8 +114,8 @@ class _ListBodyState extends State<ListBody>
     _onDesk = _deskPaths;
     _rows = List<LibraryEntry>.of(widget.entries);
     for (final entry in _rows) {
-      _from[entry.assetPath] = 1;
-      _to[entry.assetPath] = 1;
+      _from[entry.path] = 1;
+      _to[entry.path] = 1;
     }
   }
 
@@ -145,15 +146,15 @@ class _ListBodyState extends State<ListBody>
   }
 
   Set<String> get _deskPaths =>
-      <String>{for (final entry in widget.library.entries) entry.assetPath};
+      <String>{for (final entry in widget.library.entries) entry.path};
 
   GlobalKey _keyFor(LibraryEntry entry) =>
-      _keys.putIfAbsent(entry.assetPath, GlobalKey.new);
+      _keys.putIfAbsent(entry.path, GlobalKey.new);
 
   /// Where [entry]'s row is on the screen right now, or nothing if it has no
   /// box to measure because it has been scrolled away or not laid out yet.
   Rect _rectOf(LibraryEntry entry) {
-    final box = _keys[entry.assetPath]?.currentContext?.findRenderObject();
+    final box = _keys[entry.path]?.currentContext?.findRenderObject();
     if (box is! RenderBox || !box.hasSize) return Rect.zero;
     return box.localToGlobal(Offset.zero) & box.size;
   }
@@ -170,7 +171,7 @@ class _ListBodyState extends State<ListBody>
     if (status != AnimationStatus.completed || !mounted) return;
     final settled = <LibraryEntry>[
       for (final entry in _rows)
-        if ((_to[entry.assetPath] ?? 0) > 0) entry,
+        if ((_to[entry.path] ?? 0) > 0) entry,
     ];
     if (settled.length == _rows.length) return;
     setState(() => _rows = settled);
@@ -206,7 +207,7 @@ class _ListBodyState extends State<ListBody>
   /// left that could gather those pixels together, so holding them would be
   /// holding a bitmap for the life of the app.
   void _dropUnclaimed() {
-    final offered = widget.library.lastRemoved?.assetPath;
+    final offered = widget.library.lastRemoved?.path;
     for (final path in _snapshots.keys.toList()) {
       if (path == offered ||
           _onDesk.contains(path) ||
@@ -295,19 +296,19 @@ class _ListBodyState extends State<ListBody>
     final onDesk = _onDesk;
     final shown = <String>{
       for (final entry in widget.entries)
-        if (onDesk.contains(entry.assetPath)) entry.assetPath,
+        if (onDesk.contains(entry.path)) entry.path,
     };
     final rows = List<LibraryEntry>.of(widget.entries);
-    final placed = <String>{for (final entry in rows) entry.assetPath};
+    final placed = <String>{for (final entry in rows) entry.path};
     for (var i = 0; i < _rows.length; i++) {
       final entry = _rows[i];
-      if (!placed.add(entry.assetPath)) continue;
-      if (_factorOf(entry.assetPath) <= 0) continue;
+      if (!placed.add(entry.path)) continue;
+      if (_factorOf(entry.path) <= 0) continue;
       rows.insert(i < rows.length ? i : rows.length, entry);
     }
     final next = <String, double>{
       for (final entry in rows)
-        entry.assetPath: shown.contains(entry.assetPath) ? 1.0 : 0.0,
+        entry.path: shown.contains(entry.path) ? 1.0 : 0.0,
     };
     if (_sameTargets(next) && _sameRows(rows)) return;
     final from = <String, double>{
@@ -334,7 +335,7 @@ class _ListBodyState extends State<ListBody>
   bool _sameRows(List<LibraryEntry> rows) {
     if (rows.length != _rows.length) return false;
     for (var i = 0; i < rows.length; i++) {
-      if (rows[i].assetPath != _rows[i].assetPath) return false;
+      if (rows[i].path != _rows[i].path) return false;
     }
     return true;
   }
@@ -362,7 +363,7 @@ class _ListBodyState extends State<ListBody>
   /// the row reads as being drawn out of the list rather than squashed inside
   /// it.
   Widget _slot(LibraryEntry entry) {
-    final path = entry.assetPath;
+    final path = entry.path;
     final factor = _factorOf(path);
     // A slot that is opening is built while it is still shut, so the row
     // inside it has a size and a place from the first frame. Undo needs both:
@@ -390,7 +391,8 @@ class _ListBodyState extends State<ListBody>
                   : () => widget.onOpen!(entry, _rectOf(entry)),
               onOverflow: widget.onOverflow == null
                   ? null
-                  : () => widget.onOverflow!(entry, _rectOf(entry)),
+                  : (target) =>
+                      widget.onOverflow!(entry, _rectOf(entry), target),
             ),
           ),
         ),
