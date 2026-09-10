@@ -582,6 +582,11 @@ class LibraryStore extends ChangeNotifier {
   /// Documents the reader has starred.
   final Set<String> _starred = <String>{};
 
+  /// What the reader has renamed, by path. A shipped document cannot carry its
+  /// new name in a file of its own, so every rename is remembered here and the
+  /// index is written as well for the ones that have a file.
+  final Map<String, String> _titles = <String, String>{};
+
   /// Documents taken off the desk and waiting in the bin.
   final Set<String> _binned = <String>{};
 
@@ -753,6 +758,7 @@ class LibraryStore extends ChangeNotifier {
 
   /// Everything the desk remembers, as plain data.
   Map<String, Object?> _stateJson() => <String, Object?>{
+        'titles': _titles,
         'starred': _starred.toList(),
         'binned': _binned.toList(),
         'gone': _gone.toList(),
@@ -769,6 +775,17 @@ class LibraryStore extends ChangeNotifier {
       into.addAll(list.whereType<String>().where(known.contains));
     }
 
+    final titles = state['titles'];
+    if (titles is Map<String, Object?>) {
+      for (final named in titles.entries) {
+        final title = named.value;
+        if (title is! String || title.isEmpty) continue;
+        if (!known.contains(named.key)) continue;
+        _titles[named.key] = title;
+        final at = _entries.indexWhere((e) => e.path == named.key);
+        if (at >= 0) _entries[at] = _entries[at].renamed(title);
+      }
+    }
     fill(_starred, state['starred']);
     fill(_binned, state['binned']);
     fill(_gone, state['gone']);
@@ -864,6 +881,63 @@ class LibraryStore extends ChangeNotifier {
     await catalogue.save(_entries);
     await _hydrateOne(entry);
     return entry;
+  }
+
+  /// Gives [entry] a new title.
+  ///
+  /// The path does not move, because the path is what the reading position,
+  /// the stars, the dog ears and every placed signature are filed under. A
+  /// rename changes what the document is called and nothing about what the
+  /// desk knows about it.
+  void rename(LibraryEntry entry, String title) {
+    final clean = title.trim();
+    if (clean.isEmpty || clean == entry.title) return;
+    final at = _entries.indexWhere((e) => e.path == entry.path);
+    if (at < 0) return;
+    _entries[at] = _entries[at].renamed(clean);
+    _titles[entry.path] = clean;
+    _catalogue?.save(_entries);
+    _scheduleSave();
+    notifyListeners();
+  }
+
+  /// Puts a second copy of [entry] on the desk, with its own file behind it.
+  ///
+  /// A real copy rather than a second card pointing at one file, because two
+  /// cards over one file would be two readings of one document fighting over
+  /// the same reading position, and a signature placed on one would appear on
+  /// the other.
+  Future<LibraryEntry?> duplicate(LibraryEntry entry) async {
+    final catalogue = _catalogue;
+    if (catalogue == null) return null;
+    final Uint8List bytes;
+    try {
+      bytes = await _read(entry);
+    } on Object {
+      return null;
+    }
+    final copy = await catalogue.import(entry.fileName, bytes);
+    if (copy == null) return null;
+    final named = copy.renamed(_freeTitle(entry.title));
+    _entries.insert(0, named);
+    _titles[named.path] = named.title;
+    notifyListeners();
+    await catalogue.save(_entries);
+    await _hydrateOne(named);
+    return named;
+  }
+
+  /// `Field Guide To Paper copy`, then `copy 2`, and so on for as long as the
+  /// desk already holds one.
+  String _freeTitle(String title) {
+    final taken = <String>{for (final entry in _entries) entry.title};
+    var wanted = '$title copy';
+    var n = 2;
+    while (taken.contains(wanted)) {
+      wanted = '$title copy $n';
+      n++;
+    }
+    return wanted;
   }
 
   /// Takes [entry] off the desk.

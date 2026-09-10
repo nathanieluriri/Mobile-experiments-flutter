@@ -22,6 +22,9 @@ import '../../theme/typography.dart';
 import '../../widgets/gooey_fab/gooey_fab_controller.dart';
 import '../../widgets/gooey_fab/gooey_fab.dart';
 import 'desk_colophon.dart';
+import 'desk_sheet.dart';
+import 'details_sheet.dart';
+import 'rename_sheet.dart';
 import 'desk_empty.dart';
 import 'desk_top_bar.dart';
 import 'destination_panel.dart';
@@ -420,6 +423,20 @@ class _DeskScreenState extends State<DeskScreen> with TickerProviderStateMixin {
       case DeskAction.dogEar:
         final store = widget.store.storeFor(entry);
         store.toggleDogEar(store.position);
+      case DeskAction.rename:
+        _rename(entry);
+      case DeskAction.duplicate:
+        _duplicate(entry);
+      case DeskAction.shareOriginal:
+        _shareOriginal(entry);
+      case DeskAction.details:
+        _details(entry);
+      case DeskAction.convert:
+        _convert(entry);
+      case DeskAction.move:
+        _notify('Folders are not built yet.');
+      case DeskAction.more:
+        _more(entry);
       case DeskAction.star:
       case DeskAction.unstar:
         widget.store.toggleStar(entry);
@@ -458,6 +475,100 @@ class _DeskScreenState extends State<DeskScreen> with TickerProviderStateMixin {
         files: <XFile>[XFile(file.path, mimeType: 'application/pdf')],
       ),
     );
+  }
+
+  /// The rest of what can be done to [entry], on a sheet.
+  ///
+  /// The dots hold what a reader reaches for. This holds the rest, because a
+  /// dozen pills peeled off one button stops looking like anything came out of
+  /// it and starts looking like a list that happens to be sticky.
+  Future<void> _more(LibraryEntry entry) async {
+    final actions = _actionsFor(entry, DeskMenuPlace.sheet);
+    final picked = await showDeskSheet<DeskAction>(
+      context,
+      (context) => DeskSheet(
+        title: entry.title,
+        children: <Widget>[
+          for (final action in actions)
+            DeskSheetRow(
+              label: action.label,
+              icon: action.icon,
+              note: _noteFor(entry, action),
+              enabled: _allows(entry, action),
+              onTap: () => Navigator.of(context).pop(action),
+            ),
+        ],
+      ),
+    );
+    if (picked != null && mounted) _act(entry, picked);
+  }
+
+  /// Why a sheet row is offered but cannot be taken, or null when it can.
+  String? _noteFor(LibraryEntry entry, DeskAction action) =>
+      switch (action) {
+        DeskAction.move => 'Folders are not built yet',
+        DeskAction.shareOriginal when entry.source == DocSource.asset =>
+          'A shipped document has no file to hand over',
+        _ => null,
+      };
+
+  bool _allows(LibraryEntry entry, DeskAction action) => switch (action) {
+    DeskAction.move => false,
+    DeskAction.shareOriginal => entry.source == DocSource.file,
+    _ => true,
+  };
+
+  /// What the desk knows about [entry].
+  void _details(LibraryEntry entry) {
+    showDeskSheet<void>(
+      context,
+      (context) => DetailsSheet(
+        entry: entry,
+        store: widget.store.peek(entry),
+        starred: widget.store.isStarred(entry),
+        binned: widget.store.isBinned(entry),
+      ),
+    );
+  }
+
+  /// Gives [entry] a different name.
+  Future<void> _rename(LibraryEntry entry) async {
+    final wanted = await showDeskSheet<String>(
+      context,
+      (context) => RenameSheet(title: entry.title),
+    );
+    if (wanted == null || !mounted) return;
+    widget.store.rename(entry, wanted);
+  }
+
+  /// Puts a second copy of [entry] on the desk.
+  Future<void> _duplicate(LibraryEntry entry) async {
+    final copy = await widget.store.duplicate(entry);
+    if (!mounted) return;
+    _notify(
+      copy == null
+          ? 'That document could not be copied.'
+          : '${copy.title} is on the desk.',
+    );
+  }
+
+  /// Hands the file itself to the phone's share sheet, as it came in.
+  Future<void> _shareOriginal(LibraryEntry entry) async {
+    if (entry.source != DocSource.file) {
+      _notify('A shipped document has no file to hand over.');
+      return;
+    }
+    await SharePlus.instance.share(
+      ShareParams(
+        title: entry.title,
+        files: <XFile>[XFile(entry.path)],
+      ),
+    );
+  }
+
+  /// Turns [entry] into another kind of file.
+  void _convert(LibraryEntry entry) {
+    _notify('Converting is not built yet.');
   }
 
   /// Puts the desk in the state of waiting for a PDF to sign.
@@ -564,15 +675,21 @@ class _DeskScreenState extends State<DeskScreen> with TickerProviderStateMixin {
         for (final tab in DeskTab.values) tab: _pool.where(tab.holds).length,
       };
 
-  /// What [entry] can have done to it, here and now.
-  List<DeskAction> _actionsFor(LibraryEntry entry) => DeskAction.values
+  /// What [entry] can have done to it, here and now, in the one place.
+  List<DeskAction> _actionsFor(
+    LibraryEntry entry, [
+    DeskMenuPlace place = DeskMenuPlace.goo,
+  ]) => DeskAction.values
       .where(
-        (action) => action.suits(
-          entry,
-          starred: widget.store.isStarred(entry),
-          binned: widget.store.isBinned(entry),
-          signed: widget.store.peek(entry)?.signed ?? false,
-        ),
+        (action) =>
+            action.place == place &&
+            action.suits(
+              entry,
+              starred: widget.store.isStarred(entry),
+              binned: widget.store.isBinned(entry),
+              signed: widget.store.peek(entry)?.signed ?? false,
+              canCopy: widget.store.canImport,
+            ),
       )
       .toList();
 

@@ -73,6 +73,19 @@ class LibraryEntry {
         source: DocSource.file,
       );
 
+  /// The same document under a different name.
+  ///
+  /// Only the title changes. The path is what the desk keys everything else
+  /// by, from the reading position to the signatures, so a rename that moved
+  /// it would be a rename that lost the reading.
+  LibraryEntry renamed(String title) => LibraryEntry(
+    path: path,
+    title: title.trim().isEmpty ? this.title : title.trim(),
+    format: format,
+    bytes: bytes,
+    source: source,
+  );
+
   /// Where the bytes are: an asset path, or a path on the file system.
   final String path;
 

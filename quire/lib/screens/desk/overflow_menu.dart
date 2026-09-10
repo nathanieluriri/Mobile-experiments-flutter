@@ -12,22 +12,66 @@ import '../../theme/metrics.dart';
 import '../../theme/typography.dart';
 import '../../widgets/press_fade.dart';
 
+/// Where an action is offered.
+///
+/// The goo can only hold so much. It is a body peeled off a button, and a
+/// dozen pills hanging off one is a list that happens to be sticky rather
+/// than something that came out of the dots. So the goo carries what a reader
+/// reaches for and the rest waits behind one more pill, on a sheet, which is
+/// the same move [DeskAction.convert] already makes.
+enum DeskMenuPlace { goo, sheet }
+
 /// Everything a document can have done to it that is not reading it.
 enum DeskAction {
   read(label: 'Open', icon: LucideIcons.bookOpen),
   sign(label: 'Sign', icon: LucideIcons.penLine),
-  share(label: 'Share signed', icon: LucideIcons.share2),
-  dogEar(label: 'Dog ear', icon: LucideIcons.bookmark),
+  convert(label: 'Convert', icon: LucideIcons.fileOutput),
+  rename(label: 'Rename', icon: LucideIcons.pencil),
   star(label: 'Star', icon: LucideIcons.star),
   unstar(label: 'Unstar', icon: LucideIcons.starOff),
+  more(label: 'More', icon: LucideIcons.ellipsis),
   remove(label: 'Remove', icon: LucideIcons.trash2),
   restore(label: 'Put back', icon: LucideIcons.archiveRestore),
-  deleteForever(label: 'Delete for good', icon: LucideIcons.trash);
+  deleteForever(label: 'Delete for good', icon: LucideIcons.trash),
 
-  const DeskAction({required this.label, required this.icon});
+  duplicate(
+    label: 'Duplicate',
+    icon: LucideIcons.copy,
+    place: DeskMenuPlace.sheet,
+  ),
+  shareOriginal(
+    label: 'Share the file',
+    icon: LucideIcons.share,
+    place: DeskMenuPlace.sheet,
+  ),
+  share(
+    label: 'Share the signed copy',
+    icon: LucideIcons.share2,
+    place: DeskMenuPlace.sheet,
+  ),
+  dogEar(
+    label: 'Dog ear',
+    icon: LucideIcons.bookmark,
+    place: DeskMenuPlace.sheet,
+  ),
+  move(
+    label: 'Move to a folder',
+    icon: LucideIcons.folderInput,
+    place: DeskMenuPlace.sheet,
+  ),
+  details(label: 'Details', icon: LucideIcons.info, place: DeskMenuPlace.sheet);
+
+  const DeskAction({
+    required this.label,
+    required this.icon,
+    this.place = DeskMenuPlace.goo,
+  });
 
   final String label;
   final IconData icon;
+
+  /// Whether this comes out of the dots or waits on the sheet behind [more].
+  final DeskMenuPlace place;
 
   /// True when this action changes what is on the desk rather than what is
   /// on the screen, which is what sets it in the accent.
@@ -45,18 +89,26 @@ enum DeskAction {
     required bool starred,
     required bool binned,
     required bool signed,
+    required bool canCopy,
   }) =>
       switch (this) {
         DeskAction.read => true,
         DeskAction.sign => !binned && entry.format == DocFormat.pdf,
-        DeskAction.share =>
-          !binned && signed && entry.format == DocFormat.pdf,
-        DeskAction.dogEar => !binned,
+        DeskAction.convert => !binned && canCopy,
+        DeskAction.rename => !binned,
         DeskAction.star => !binned && !starred,
         DeskAction.unstar => !binned && starred,
+        DeskAction.more => !binned,
         DeskAction.remove => !binned,
         DeskAction.restore => binned,
         DeskAction.deleteForever => binned,
+        DeskAction.duplicate => !binned && canCopy,
+        DeskAction.shareOriginal => !binned,
+        DeskAction.share =>
+          !binned && signed && entry.format == DocFormat.pdf,
+        DeskAction.dogEar => !binned,
+        DeskAction.move => !binned,
+        DeskAction.details => true,
       };
 }
 
