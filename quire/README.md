@@ -1,49 +1,65 @@
-# quire
+<img src="assets/brand/quire-mark.png" width="96" alt="Quire">
 
-A document reader for PDF, Word, spreadsheet, CSV and Markdown files. Every
-sheet has two sides: turn a corner and the back of the page carries the text a
-machine can read, the values behind the formatting, the source under the
-rendering.
+# Quire
 
-## The desk
+A reader for the documents you are actually sent. It opens PDF, Word,
+spreadsheets, CSV and Markdown, and it treats every one of them as a document
+rather than as a file it happens to be able to display.
 
-The library opens on a dark shell: a navigation drawer behind the menu, a
-search field, format tabs carrying live counts, a sort menu, and a toggle
-between a list and a grid. Grid cards show the real first page of each
-document, painted by the same code that renders it in the reader, so you
-recognise a file by its shape before you read its name.
+## What it does that other readers do not
 
-Taking a document off the desk crumbles its row into its own pixels. Undo
-gathers them back into the gap they left.
+**A sheet has two sides.** Turn a corner and the back of the page carries that
+page's own words, extracted and set for reading. Nothing you uncover is ever
+blank.
 
-## The reader
+**You can sign a PDF and the signature is really in the file.** Draw the mark or
+bring a picture of one, put it where you want it on the page, size it there, and
+what comes out is a PDF that opens signed in any other reader. The mark snaps to
+the page's own lines of type rather than to a grid laid over them.
 
-- **PDF** pages rendered from the file's own content streams, with a fore edge
-  you can scrub, a page riffle, and a dog ear you can leave behind.
-- **Word, Markdown, CSV and spreadsheets** reflowed into a reading column, with
-  a spreadsheet's columns folding into spines so a wide sheet still fits a
-  phone.
-- **Search** sweeps a highlighter across every match, in the order they appear
-  on the page.
-- **Signing** a PDF: draw a signature, place it, and it snaps to the rule it
-  belongs on.
-- **Protected PDFs** open on the password that unlocks them. A file locked only
-  against printing or copying opens with nothing asked for at all, which is
-  most of them. The password is used and dropped: it is never stored and it
-  never leaves the phone.
+**It converts what it reads.** Plain text and Markdown from anything, CSV and a
+spreadsheet from anything with a grid, a Word file from anything without one,
+and a PDF set fresh in the app's own typeface. Every conversion says what it
+will cost before you pick it, because every conversion loses something.
 
-A file this version cannot decrypt says which cipher sealed it, and a password
-protected Word or Excel file is called protected rather than damaged, because
-an intact document should never be described as a broken one.
+**It reads a page file's shape, not just its words.** A PDF states where its
+glyphs sit and nothing else. Quire works the rest out from the setting: type
+markedly bigger than the body is a heading, a line that fills its column without
+finishing its sentence runs into the next, a strip no word crosses is a gutter,
+and a line repeated at the same height on most pages is a running head rather
+than part of the text.
 
-## Run
+**The reading can be fastened down.** Lock the way out, so a hand on the edge of
+the screen cannot close the document, or lock the page as well and every bar
+leaves the screen.
 
-    flutter pub get
-    flutter run
+**Four kinds of bigger.** Pinch and double tap, which set the page again at the
+new size rather than magnifying it. Fit the width, the whole page, or actual
+size. Reflowing text for documents that have no pages of their own. And a loupe
+that follows your finger for the fine print.
 
-## Tests
+Everything stays on the device. There is no account, no sync and no network.
 
-    flutter test
+## Running it
 
-The images under `test/goldens` were rendered on Windows. Regenerate them with
-`flutter test --update-goldens` before comparing on another platform.
+Flutter 3.44 or newer, on Android or iOS:
+
+```
+flutter pub get
+flutter run
+```
+
+The desk opens with a few sample documents. The folder button in the search bar
+brings in your own, and Quire also appears in the share sheet and in the list of
+apps that can open a document.
+
+## Layout
+
+- `lib/pdf/` the page engine: parser, content interpreter, typesetter, and the
+  incremental writer that puts a signature into an existing file
+- `lib/format/` the Word, spreadsheet, CSV and Markdown parsers
+- `lib/model/` the one document model they all produce, and the search over it
+- `lib/screens/` the desk and the reader
+- `lib/painting/` everything drawn rather than laid out
+- `test/` unit tests for the parsing and the geometry, golden images for the
+  screens and for each animation's keyframes

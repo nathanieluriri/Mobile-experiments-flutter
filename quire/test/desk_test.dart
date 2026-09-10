@@ -158,6 +158,11 @@ void main() {
       await settle(tester);
     }
     expect(store.entries, isEmpty);
+    // The mark only enters the tree once the desk is empty, so it is decoded
+    // here rather than at the pump that built a desk which did not have it.
+    await precacheImages(tester);
+    expect(find.byType(Image), findsOneWidget);
+    expect(find.text('Quire'), findsOneWidget);
     await capture(tester, 'desk__empty');
   });
 }

@@ -4,6 +4,12 @@ import 'package:flutter/painting.dart';
 /// but never used: a reader must not compete with what it is displaying.
 const kFontFamily = 'Inter';
 
+/// The brand mark's face, and nothing else's.
+///
+/// The one relaxation of the single family rule. Document text, every label
+/// and every other string in the app stay [kFontFamily].
+const kMarkFamily = 'Quicksand';
+
 /// Builds every style in the app, so no style can drift.
 ///
 /// Colour is deliberately absent: it is applied at the call site, which is
@@ -36,6 +42,24 @@ TextStyle _text({
 /// mid roll.
 abstract final class AppText {
   /// The word `quire` on the desk, and nowhere else.
+  /// The brand mark's own face, and the only thing in the app set in anything
+  /// but Inter.
+  ///
+  /// A reader should have no typographic voice of its own, because the
+  /// document is the thing you are meant to hear. A name is the one exception:
+  /// it is not the app talking about a document, it is the app saying which
+  /// app it is, once, on a screen with nothing else on it.
+  static final markName = TextStyle(
+    inherit: false,
+    fontFamily: kMarkFamily,
+    fontSize: 34,
+    height: 40 / 34,
+    leadingDistribution: TextLeadingDistribution.even,
+    fontWeight: FontWeight.w600,
+    letterSpacing: 0.6,
+    textBaseline: TextBaseline.alphabetic,
+  );
+
   static final wordmark = _text(
     size: 30,
     lineHeight: 34,

@@ -1,16 +1,15 @@
 import 'package:flutter/widgets.dart';
 
-import '../../helpers/fold_geometry.dart';
 import '../../theme/colors.dart';
 import '../../theme/metrics.dart';
 import '../../theme/typography.dart';
-import '../../widgets/paper_sheet.dart';
 import '../../widgets/press_fade.dart';
 
-/// The mark: a sheet with its corner turned, at the one size it is ever drawn.
-const kEmptyMarkWidth = 64.0;
-const kEmptyMarkHeight = 82.0;
-const kEmptyMarkFoldInset = 18.0;
+/// The brand mark, at the one size it is ever drawn in the app.
+const kEmptyMarkSize = 96.0;
+
+/// Between the mark and the name under it.
+const kEmptyNameGap = 12.0;
 
 /// How far down its own box the block starts, and the gaps inside it.
 ///
@@ -43,14 +42,17 @@ class DeskEmpty extends StatelessWidget {
     return Column(
       children: [
         const SizedBox(height: kEmptyBlockTop),
-        const PaperSheet(
-          width: kEmptyMarkWidth,
-          height: kEmptyMarkHeight,
-          foldInset: kEmptyMarkFoldInset,
-          foldCorner: Corner.bottomRight,
-          foldBackground: AppColors.ground,
-          foldColor: AppColors.leafFlap,
+        // The one place in the app the mark is drawn. A desk with documents on
+        // it does not need to say which app it is: the documents do that. A
+        // desk with nothing on it has the room, and the reason.
+        Image.asset(
+          'assets/brand/quire-mark.png',
+          width: kEmptyMarkSize,
+          height: kEmptyMarkSize,
+          filterQuality: FilterQuality.medium,
         ),
+        const SizedBox(height: kEmptyNameGap),
+        Text('Quire', style: AppText.markName.copyWith(color: AppColors.ink)),
         const SizedBox(height: kEmptyHeadlineGap),
         Text(
           'Nothing on the desk',
