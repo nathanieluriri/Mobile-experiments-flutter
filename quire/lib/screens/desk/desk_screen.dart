@@ -9,6 +9,7 @@ import 'package:flutter/foundation.dart' show clampDouble;
 import 'package:flutter/physics.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter/widgets.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../../constants/gooey_fab.dart';
@@ -26,6 +27,8 @@ import '../../widgets/gooey_fab/gooey_fab.dart';
 import '../../services/convert.dart';
 import 'convert_sheet.dart';
 import 'desk_colophon.dart';
+import 'folder_body.dart';
+import 'move_sheet.dart';
 import 'desk_sheet.dart';
 import 'details_sheet.dart';
 import 'rename_sheet.dart';
@@ -113,6 +116,9 @@ class _DeskScreenState extends State<DeskScreen> with TickerProviderStateMixin {
   bool _drawerOpen = false;
 
   DrawerDestination _destination = DrawerDestination.recent;
+
+  /// The folder the desk is inside, or null on the open desk.
+  String? _folder;
   DeskTab _tab = DeskTab.recent;
   SortField _sortField = SortField.dateModified;
   SortOrder _sortOrder = SortOrder.newToOld;
@@ -260,7 +266,10 @@ class _DeskScreenState extends State<DeskScreen> with TickerProviderStateMixin {
   }
 
   void _select(DrawerDestination destination) {
-    setState(() => _destination = destination);
+    setState(() {
+      _destination = destination;
+      _folder = null;
+    });
     _settleDrawer(open: false, velocity: 0);
   }
 
@@ -438,7 +447,7 @@ class _DeskScreenState extends State<DeskScreen> with TickerProviderStateMixin {
       case DeskAction.convert:
         _convert(entry);
       case DeskAction.move:
-        _notify('Folders are not built yet.');
+        _move(entry);
       case DeskAction.more:
         _more(entry);
       case DeskAction.star:
@@ -521,6 +530,72 @@ class _DeskScreenState extends State<DeskScreen> with TickerProviderStateMixin {
     DeskAction.shareOriginal => entry.source == DocSource.file,
     _ => true,
   };
+
+  /// Files [entry] in a folder, or takes it out of the one it is in.
+  Future<void> _move(LibraryEntry entry) async {
+    final store = widget.store;
+    final choice = await showDeskSheet<MoveChoice>(
+      context,
+      (context) => MoveSheet(
+        title: entry.title,
+        folders: store.folders,
+        current: store.folderOf(entry),
+        countIn: store.countIn,
+      ),
+    );
+    if (choice == null || !mounted) return;
+    switch (choice) {
+      case MoveOut():
+        final was = store.folderOf(entry);
+        store.moveTo(entry, null);
+        _notify('${entry.title} is out of ${was ?? 'its folder'}.');
+      case MoveInto(:final folder):
+        store.moveTo(entry, folder);
+        _notify('${entry.title} is in $folder.');
+      case MoveIntoNew():
+        final name = await showDeskSheet<String>(
+          context,
+          (context) => const RenameSheet(
+            title: '',
+            heading: 'New folder',
+            note: 'A pile on the desk. Nothing moves on the disk.',
+            action: 'Make the folder',
+          ),
+        );
+        if (name == null || !mounted) return;
+        store.moveTo(entry, name);
+        _notify('${entry.title} is in $name.');
+    }
+  }
+
+  /// Takes a folder away, once it has been said what that means.
+  Future<void> _removeFolder(String folder) async {
+    final held = widget.store.countIn(folder);
+    final gone = await showDeskSheet<bool>(
+      context,
+      (context) => DeskSheet(
+        title: folder,
+        note: held == 0
+            ? 'It is empty.'
+            : 'What is in it goes back onto the open desk. Nothing is thrown '
+                  'away.',
+        children: <Widget>[
+          DeskSheetRow(
+            label: 'Take this folder away',
+            icon: LucideIcons.folderMinus,
+            destructive: true,
+            onTap: () => Navigator.of(context).pop(true),
+          ),
+        ],
+      ),
+    );
+    if (gone != true || !mounted) return;
+    widget.store.removeFolder(folder);
+    setState(() {
+      if (_folder == folder) _folder = null;
+    });
+    _notify('$folder is gone. What was in it is back on the desk.');
+  }
 
   /// What the desk knows about [entry].
   void _details(LibraryEntry entry) {
@@ -734,6 +809,7 @@ class _DeskScreenState extends State<DeskScreen> with TickerProviderStateMixin {
             .where((e) => widget.store.peek(e)?.signed ?? false)
             .toList(),
         DrawerDestination.bin => widget.store.binned,
+        DrawerDestination.folders => widget.store.inFolder(_folder ?? ''),
         _ => widget.store.entries,
       };
 
@@ -746,7 +822,8 @@ class _DeskScreenState extends State<DeskScreen> with TickerProviderStateMixin {
   bool get _listed =>
       _destination.library &&
       widget.store.entries.isNotEmpty &&
-      _pool.isNotEmpty;
+      _pool.isNotEmpty &&
+      !(_destination == DrawerDestination.folders && _folder == null);
 
   /// What the body shows: the destination, then the search, then the tab,
   /// then the sort.
@@ -876,6 +953,18 @@ class _DeskScreenState extends State<DeskScreen> with TickerProviderStateMixin {
         // A desk with nothing on it drops the tabs and the sort row, for the
         // same reason a destination with nothing in it does: they are chrome
         // about a list, and there is no list.
+        // Inside a folder, the crumb says which one and is the way out of it.
+        if (_folder != null) ...[
+          const SizedBox(height: kFolderCrumbGap),
+          FolderCrumb(
+            folder: _folder!,
+            held: widget.store.countIn(_folder!),
+            onLeave: () {
+              Feel.tap.ring();
+              setState(() => _folder = null);
+            },
+          ),
+        ],
         if (_listed) ...[
           TabStrip(
             selected: _tab,
@@ -900,6 +989,26 @@ class _DeskScreenState extends State<DeskScreen> with TickerProviderStateMixin {
       return DestinationPanel(destination: _destination);
     }
     if (bare) return const DeskEmpty(onOpen: null);
+    if (_destination == DrawerDestination.folders && _folder == null) {
+      final folders = widget.store.folders;
+      if (folders.isEmpty) {
+        return DestinationPanel(destination: _destination);
+      }
+      return FolderBody(
+        folders: folders,
+        countIn: widget.store.countIn,
+        onOpen: (folder) => setState(() => _folder = folder),
+        onRemove: _removeFolder,
+        controller: _scroll,
+        padding: EdgeInsets.only(bottom: bottom + kBodyBottomPadding),
+      );
+    }
+    // A folder you have emptied is still a folder, and it says so where it
+    // stands rather than sending you back to the drawer's words about having
+    // no folders at all.
+    if (_pool.isEmpty && _folder != null) {
+      return const EmptyFolderPanel();
+    }
     // Starred, signed and binned are destinations that can be empty while
     // the desk is not, and each has its own words for that.
     if (_pool.isEmpty) return DestinationPanel(destination: _destination);

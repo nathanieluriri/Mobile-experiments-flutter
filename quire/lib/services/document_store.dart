@@ -582,6 +582,17 @@ class LibraryStore extends ChangeNotifier {
   /// Documents the reader has starred.
   final Set<String> _starred = <String>{};
 
+  /// Which folder each document is in, by path. A document not in one is not
+  /// in here.
+  final Map<String, String> _inFolder = <String, String>{};
+
+  /// Every folder the reader has made, in the order they made them.
+  ///
+  /// Kept apart from [_inFolder] so a folder can be empty. A folder that
+  /// vanished when you took the last document out of it would be a folder you
+  /// could not fill in the order you wanted to.
+  final List<String> _folders = <String>[];
+
   /// What the reader has renamed, by path. A shipped document cannot carry its
   /// new name in a file of its own, so every rename is remembered here and the
   /// index is written as well for the ones that have a file.
@@ -758,6 +769,8 @@ class LibraryStore extends ChangeNotifier {
 
   /// Everything the desk remembers, as plain data.
   Map<String, Object?> _stateJson() => <String, Object?>{
+        'folders': _folders,
+        'inFolder': _inFolder,
         'titles': _titles,
         'starred': _starred.toList(),
         'binned': _binned.toList(),
@@ -775,6 +788,19 @@ class LibraryStore extends ChangeNotifier {
       into.addAll(list.whereType<String>().where(known.contains));
     }
 
+    final folders = state['folders'];
+    if (folders is List<Object?>) {
+      _folders.addAll(folders.whereType<String>());
+    }
+    final inFolder = state['inFolder'];
+    if (inFolder is Map<String, Object?>) {
+      for (final filed in inFolder.entries) {
+        final folder = filed.value;
+        if (folder is! String || !_folders.contains(folder)) continue;
+        if (!known.contains(filed.key)) continue;
+        _inFolder[filed.key] = folder;
+      }
+    }
     final titles = state['titles'];
     if (titles is Map<String, Object?>) {
       for (final named in titles.entries) {
@@ -881,6 +907,58 @@ class LibraryStore extends ChangeNotifier {
     await catalogue.save(_entries);
     await _hydrateOne(entry);
     return entry;
+  }
+
+  /// Every folder, in the order they were made.
+  List<String> get folders => List<String>.unmodifiable(_folders);
+
+  /// The folder [entry] is in, or null when it is on the open desk.
+  String? folderOf(LibraryEntry entry) => _inFolder[entry.path];
+
+  /// What is in [folder], in desk order.
+  List<LibraryEntry> inFolder(String folder) =>
+      entries.where((e) => _inFolder[e.path] == folder).toList();
+
+  /// How many documents are in [folder].
+  int countIn(String folder) => inFolder(folder).length;
+
+  /// Makes a folder called [name], or returns the one already called that.
+  ///
+  /// Names are what a reader files by, so two folders with the same name would
+  /// be a filing system that cannot answer where a thing is.
+  String makeFolder(String name) {
+    final clean = name.trim();
+    if (clean.isEmpty) return clean;
+    for (final folder in _folders) {
+      if (folder.toLowerCase() == clean.toLowerCase()) return folder;
+    }
+    _folders.add(clean);
+    _scheduleSave();
+    notifyListeners();
+    return clean;
+  }
+
+  /// Puts [entry] in [folder], or back on the open desk when it is null.
+  void moveTo(LibraryEntry entry, String? folder) {
+    if (folder == null) {
+      if (_inFolder.remove(entry.path) == null) return;
+    } else {
+      final made = makeFolder(folder);
+      if (made.isEmpty || _inFolder[entry.path] == made) return;
+      _inFolder[entry.path] = made;
+    }
+    _scheduleSave();
+    notifyListeners();
+  }
+
+  /// Takes a folder away. What was in it goes back on the open desk rather
+  /// than anywhere near the bin: a folder is a place to put documents, and
+  /// removing the place must never remove the documents.
+  void removeFolder(String folder) {
+    if (!_folders.remove(folder)) return;
+    _inFolder.removeWhere((_, held) => held == folder);
+    _scheduleSave();
+    notifyListeners();
   }
 
   /// Gives [entry] a new title.

@@ -99,6 +99,15 @@ enum DrawerDestination {
     body: 'Draw a signature on a PDF and it is listed here, with the page you '
         'set the mark into.',
   ),
+  folders(
+    label: 'Folders',
+    icon: LucideIcons.folder,
+    library: true,
+    headline: 'No folders yet',
+    body: 'Move a document into a folder from its menu and the folder is made '
+        'here. A folder is a pile on the desk, so nothing moves on the disk '
+        'and nothing else about the document changes.',
+  ),
   offline(
     label: 'Offline',
     icon: LucideIcons.circleCheck,
