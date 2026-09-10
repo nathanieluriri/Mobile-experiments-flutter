@@ -133,6 +133,31 @@ class PlacedSignature {
 /// It is a [ChangeNotifier] rather than something smaller because the reader,
 /// the fore edge, the folio chip and the desk card all watch the same position
 /// and must never disagree about it.
+/// What a reader has fastened down while they read.
+///
+/// Reading is done in places where the screen is being touched by more than
+/// the one finger doing the reading: on a bus, lying down, handing the phone
+/// to somebody else. Both of these exist so that a reading survives that.
+enum ReaderLock {
+  /// Nothing is fastened. The reading behaves as it always has.
+  none,
+
+  /// The way out. Back does nothing and the edge swipe does nothing, so the
+  /// document cannot be closed by the heel of a hand.
+  back,
+
+  /// The page as well. The reading is pinned where it is, every bar goes, and
+  /// what is left on the screen is the page and nothing else.
+  page;
+
+  /// True when leaving the document is fastened.
+  bool get holdsBack => this != ReaderLock.none;
+
+  /// True when the page itself is fastened, which is also what clears the
+  /// screen: a bar you cannot use is a bar in the way.
+  bool get holdsPage => this == ReaderLock.page;
+}
+
 class DocumentStore extends ChangeNotifier {
   DocumentStore(this.entry);
 
@@ -142,6 +167,12 @@ class DocumentStore extends ChangeNotifier {
 
   /// The desk entry this document came from.
   final LibraryEntry entry;
+
+  /// What is fastened down, which is not remembered between runs.
+  ///
+  /// A document that opened locked, with nothing on screen saying why and no
+  /// memory of having done it, would be a document that looked broken.
+  ReaderLock _lock = ReaderLock.none;
 
   ParseState _state = ParseState.loading;
   LoadedDocument? _loaded;
@@ -237,6 +268,13 @@ class DocumentStore extends ChangeNotifier {
       error: error,
     );
     _state = ParseState.failed;
+    notifyListeners();
+  }
+
+  ReaderLock get lock => _lock;
+  set lock(ReaderLock value) {
+    if (value == _lock) return;
+    _lock = value;
     notifyListeners();
   }
 

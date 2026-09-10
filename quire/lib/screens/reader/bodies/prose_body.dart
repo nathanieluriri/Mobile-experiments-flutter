@@ -921,6 +921,10 @@ class _ProseSheetState extends State<ProseSheet> {
   Widget build(BuildContext context) {
     return SingleChildScrollView(
       controller: _controller,
+      // Locked to where it is, the same as a page.
+      physics: widget.store.lock.holdsPage
+          ? const NeverScrollableScrollPhysics()
+          : null,
       // The prose keeps its own breathing room and is held clear of the band
       // and the gesture bar on top of it, the same as a page is.
       padding: EdgeInsets.only(

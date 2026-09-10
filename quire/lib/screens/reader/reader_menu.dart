@@ -14,7 +14,8 @@ enum ReaderAction {
   shareSigned(label: 'Share the signed copy', icon: LucideIcons.share2),
   dogEar(label: 'Dog ear this page', icon: LucideIcons.bookmark),
   undogEar(label: 'Remove the dog ear', icon: LucideIcons.bookmark),
-  find(label: 'Find in document', icon: LucideIcons.search);
+  find(label: 'Find in document', icon: LucideIcons.search),
+  lock(label: 'Lock the reading', icon: LucideIcons.lockKeyhole);
 
   const ReaderAction({required this.label, required this.icon});
 

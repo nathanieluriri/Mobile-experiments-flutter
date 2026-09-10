@@ -25,6 +25,8 @@ import 'find/find_layer.dart';
 import '../../widgets/goo_menu.dart';
 import '../../widgets/gooey_fab/gooey_fab_controller.dart';
 import 'page_frames.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
+import '../desk/desk_sheet.dart';
 import 'reader_menu.dart';
 import 'reader_screen.dart';
 import 'sheet_surface.dart';
@@ -214,6 +216,7 @@ class _ReaderHostState extends State<ReaderHost> with TickerProviderStateMixin {
             ? ReaderAction.undogEar
             : ReaderAction.dogEar,
         ReaderAction.find,
+        ReaderAction.lock,
       ];
 
   void _act(ReaderAction action) {
@@ -228,6 +231,8 @@ class _ReaderHostState extends State<ReaderHost> with TickerProviderStateMixin {
         _shareSigned();
       case ReaderAction.find:
         _openFind();
+      case ReaderAction.lock:
+        _lock();
     }
   }
 
@@ -263,6 +268,44 @@ class _ReaderHostState extends State<ReaderHost> with TickerProviderStateMixin {
       _drawn = mark;
       _placed = false;
     });
+  }
+
+  /// Offers the two ways of fastening a reading down.
+  ///
+  /// A sheet rather than two pills, because the difference between them is
+  /// the whole point and it takes a sentence each to say. A reader who picked
+  /// the wrong one would be locked out of the thing they wanted.
+  Future<void> _lock() async {
+    final wanted = await showDeskSheet<ReaderLock>(
+      context,
+      (context) => DeskSheet(
+        title: 'Lock the reading',
+        note: 'Both kinds come off from inside the document.',
+        children: <Widget>[
+          DeskSheetRow(
+            label: 'Lock the way out',
+            icon: LucideIcons.lockKeyhole,
+            note: 'Back does nothing. You can still read on, turn pages and '
+                'use everything else.',
+            onTap: () => Navigator.of(context).pop(ReaderLock.back),
+          ),
+          DeskSheetRow(
+            label: 'Lock to this page',
+            icon: LucideIcons.squareDashedBottom,
+            note: 'Pins the reading where it is and takes every bar off the '
+                'screen. Tap the page to bring back the way out.',
+            onTap: () => Navigator.of(context).pop(ReaderLock.page),
+          ),
+        ],
+      ),
+    );
+    if (wanted == null || !mounted) return;
+    widget.store.lock = wanted;
+    _say(
+      wanted.holdsPage
+          ? 'Locked to this page. Tap the page to unlock.'
+          : 'Locked. Tap the padlock to leave.',
+    );
   }
 
   /// Writes the signed PDF and hands it to the phone's share sheet.

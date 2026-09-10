@@ -851,6 +851,12 @@ class _PdfPageBlockState extends State<PdfPageBlock>
     }
     return ListView.builder(
       controller: _controller,
+      // A page lock pins the reading where it is, so the strip stops being a
+      // strip. The list stays rather than being swapped for a single page,
+      // because a swap would lose the offset the lock was put on.
+      physics: widget.store.lock.holdsPage
+          ? const NeverScrollableScrollPhysics()
+          : null,
       // The paper is the whole screen, so the pages are held clear of the
       // band at one end and the gesture bar at the other, by whatever the
       // phone says those are. The inset does not change while the document

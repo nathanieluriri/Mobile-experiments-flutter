@@ -416,6 +416,7 @@ class _SheetViewState extends State<SheetView>
                     scales: columnScales(table, from: _bodyFrom(table)),
                     offset: offset,
                     scroll: _scrollFor(index),
+                    locked: widget.store.lock.holdsPage,
                     face: widget.face,
                     selected: selected,
                     matches: widget.matches,

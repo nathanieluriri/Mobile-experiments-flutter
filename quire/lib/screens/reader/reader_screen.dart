@@ -20,6 +20,7 @@ import 'folio_chip.dart';
 import 'fore_edge.dart';
 import 'password_sheet.dart';
 import 'reader_chrome.dart';
+import 'unlock_chip.dart';
 import 'riffle_sheet.dart';
 import 'sheet_surface.dart';
 
@@ -216,6 +217,15 @@ class _ReaderScreenState extends State<ReaderScreen>
     reverseDuration: kChromeIn,
   )..addListener(_repaint);
 
+  /// The chip a locked page offers when it is asked for the way out.
+  late final AnimationController _unlockChip = AnimationController(
+    vsync: this,
+    duration: kUnlockChipFade,
+  )..addListener(_repaint);
+
+  /// The clock that takes the chip away again.
+  Timer? _chipGone;
+
   late final AnimationController _foldMove = AnimationController(
     vsync: this,
     duration: kFlipCommit,
@@ -285,7 +295,9 @@ class _ReaderScreenState extends State<ReaderScreen>
   void dispose() {
     widget.store.removeListener(_repaint);
     _still?.cancel();
+    _chipGone?.cancel();
     _chrome.dispose();
+    _unlockChip.dispose();
     _foldMove.dispose();
     _riffle.dispose();
     _riffleCommit.dispose();
@@ -293,8 +305,22 @@ class _ReaderScreenState extends State<ReaderScreen>
     super.dispose();
   }
 
+  /// What was fastened last time the store spoke, so a lock going on can be
+  /// noticed rather than merely drawn.
+  ReaderLock _lockWas = ReaderLock.none;
+
   void _repaint() {
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    final now = _store.lock;
+    if (now != _lockWas) {
+      final was = _lockWas;
+      _lockWas = now;
+      // A page lock takes the band away, and the band is where the reader is
+      // told things. So the chip introduces itself: it comes up once, says
+      // what it is for, and goes.
+      if (now.holdsPage && !was.holdsPage) _askUnlock();
+    }
+    setState(() {});
   }
 
   DocumentStore get _store => widget.store;
@@ -588,6 +614,34 @@ class _ReaderScreenState extends State<ReaderScreen>
     Navigator.of(context).maybePop<void>();
   }
 
+  /// A tap on a locked page, which is the one thing a locked page answers.
+  void _askUnlock() {
+    Feel.tap.ring();
+    _chipGone?.cancel();
+    _unlockChip.forward();
+    _chipGone = Timer(kUnlockChipHold, () {
+      if (mounted) _unlockChip.reverse();
+    });
+  }
+
+  /// Takes the lock off, whichever kind it was.
+  void _unlock() {
+    Feel.commit.ring();
+    _chipGone?.cancel();
+    _unlockChip.reverse();
+    _store.lock = ReaderLock.none;
+  }
+
+  /// What happens when something asks to leave a document that is fastened.
+  ///
+  /// A refusal has to be felt, or a lock is indistinguishable from a phone
+  /// that has stopped answering. A page lock also brings its chip up, since
+  /// there is nothing else on screen to point at.
+  void _refuseToLeave(ReaderLock lock) {
+    Feel.commit.ring();
+    if (lock.holdsPage) _askUnlock();
+  }
+
   @override
   Widget build(BuildContext context) {
     final body = widget.bodyBuilder(context);
@@ -596,7 +650,11 @@ class _ReaderScreenState extends State<ReaderScreen>
     final track = _foldTrack;
     final foldPoint = track != null ? track.value : _foldPoint;
     final slide = _slideTrack?.value ?? _slideX;
-    final hidden = _chrome.value;
+    final lock = _store.lock;
+    // A page lock takes the band with it, so the chrome is gone outright
+    // rather than merely scrolled away: there is nothing to bring it back
+    // while the lock is on.
+    final hidden = lock.holdsPage ? 1.0 : _chrome.value;
     final dogEars = <double>[
       for (final page in _store.dogEared) _fractionOf(page, unitCount),
     ];
@@ -619,9 +677,16 @@ class _ReaderScreenState extends State<ReaderScreen>
       // Pressing back while the riffle is up closes the riffle rather than
       // putting the document down: browsing has to be free, and a reader who
       // opened the page block did not ask to leave.
-      canPop: _riffle.value == 0,
+      // A lock is a lock. It answers back before the riffle does, because a
+      // reader who fastened the way out did so to stop exactly this.
+      canPop: _riffle.value == 0 && !lock.holdsBack,
       onPopInvokedWithResult: (didPop, result) {
-        if (!didPop) _closeRiffle();
+        if (didPop) return;
+        if (lock.holdsBack) {
+          _refuseToLeave(lock);
+          return;
+        }
+        _closeRiffle();
       },
       child: RawGestureDetector(
         behavior: HitTestBehavior.opaque,
@@ -651,7 +716,7 @@ class _ReaderScreenState extends State<ReaderScreen>
                       rect: kSheetRect,
                       child: _sheetFor(plan, body, foldPoint),
                     ),
-                    if (readable)
+                    if (readable && !lock.holdsPage)
                       Positioned(
                         left: kForeEdgeLeft,
                         top: kForeEdgeTop,
@@ -681,7 +746,7 @@ class _ReaderScreenState extends State<ReaderScreen>
                           ),
                         ),
                       ),
-                    if (readable)
+                    if (readable && !lock.holdsPage)
                       Positioned(
                         left:
                             kSheetLeft +
@@ -709,7 +774,8 @@ class _ReaderScreenState extends State<ReaderScreen>
                       title: _store.entry.title,
                       hidden: hidden,
                       showingBack: _side == SheetSide.back,
-                      onBack: _leave,
+                      locked: lock.holdsBack,
+                      onBack: lock.holdsBack ? _unlock : _leave,
                       onFind: widget.onFind,
                       onMenu: widget.onMenu,
                       menuOpen: widget.menuOpen,
@@ -720,6 +786,11 @@ class _ReaderScreenState extends State<ReaderScreen>
                     ),
                     ?widget.menu,
                     ?widget.overlay,
+                    if (lock.holdsPage)
+                      UnlockChip(
+                        progress: _unlockChip.value,
+                        onUnlock: _unlock,
+                      ),
                     if (_riffle.value > 0)
                       Positioned.fill(
                         child: RiffleSheet(
@@ -840,7 +911,9 @@ class _ReaderScreenState extends State<ReaderScreen>
     final reading =
         _riffle.value == 0 &&
         widget.placement == null &&
-        widget.overlay == null;
+        widget.overlay == null &&
+        !_store.lock.holdsPage;
+    final locked = _store.lock;
     return <Type, GestureRecognizerFactory>{
       if (reading)
         _ForeEdgeRecognizer:
@@ -871,7 +944,7 @@ class _ReaderScreenState extends State<ReaderScreen>
                 recognizer.onEnd = _peelEnd;
               },
             ),
-      if (reading)
+      if (reading && !locked.holdsBack)
         _BackEdgeRecognizer:
             GestureRecognizerFactoryWithHandlers<_BackEdgeRecognizer>(
               _BackEdgeRecognizer.new,
@@ -882,7 +955,17 @@ class _ReaderScreenState extends State<ReaderScreen>
                 recognizer.onEnd = _backDragEnd;
               },
             ),
-      if (reading && hidden > 0)
+      // A locked page has one gesture and this is it: a tap asks for the way
+      // out, which arrives as a chip and leaves again on its own.
+      if (locked.holdsPage)
+        TapGestureRecognizer:
+            GestureRecognizerFactoryWithHandlers<TapGestureRecognizer>(
+              TapGestureRecognizer.new,
+              (recognizer) {
+                recognizer.onTap = _askUnlock;
+              },
+            )
+      else if (reading && hidden > 0)
         TapGestureRecognizer:
             GestureRecognizerFactoryWithHandlers<TapGestureRecognizer>(
               TapGestureRecognizer.new,

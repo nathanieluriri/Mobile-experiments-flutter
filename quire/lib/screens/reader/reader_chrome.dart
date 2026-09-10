@@ -56,6 +56,7 @@ class ReaderChrome extends StatelessWidget {
     this.onCancel,
     this.menuOpen = 0,
     this.notice,
+    this.locked = false,
   });
 
   /// The document's title, as the desk prints it.
@@ -85,6 +86,14 @@ class ReaderChrome extends StatelessWidget {
   /// 0 with the menu shut, 1 with it open, which is what draws the three dots
   /// together into the one dot the goo comes out of.
   final double menuOpen;
+
+  /// True when the way out is fastened, which turns the arrow into the
+  /// padlock that undoes it.
+  ///
+  /// The same button, because it is the same question: this is the corner you
+  /// go to when you want to be somewhere else, and while the reading is
+  /// locked, what it does first is unlock it.
+  final bool locked;
 
   /// A line the band says instead of the document's name, for as long as it
   /// has something to say.
@@ -136,10 +145,18 @@ class ReaderChrome extends StatelessWidget {
             child: Opacity(
               opacity: fade,
               child: _HeaderButton(
-                icon: placing ? LucideIcons.x : LucideIcons.cornerUpLeft,
+                icon: switch ((placing, locked)) {
+                  (true, _) => LucideIcons.x,
+                  (_, true) => LucideIcons.lockKeyhole,
+                  _ => LucideIcons.cornerUpLeft,
+                },
+                accent: locked && !placing,
                 onTap: placing ? onCancel : onBack,
-                semanticLabel:
-                    placing ? 'Put the signature away' : 'Back to the desk',
+                semanticLabel: switch ((placing, locked)) {
+                  (true, _) => 'Put the signature away',
+                  (_, true) => 'Unlock the reading',
+                  _ => 'Back to the desk',
+                },
               ),
             ),
           ),

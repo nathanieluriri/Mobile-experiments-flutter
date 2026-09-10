@@ -210,6 +210,7 @@ class SpineTable extends StatelessWidget {
     this.selected,
     this.matches = const <SheetCell>{},
     this.raggedRows = const <int>{},
+    this.locked = false,
     this.onCellTap,
     this.onSpineTap,
   });
@@ -229,6 +230,10 @@ class SpineTable extends StatelessWidget {
   /// The body list's scroll controller, owned above so a sheet keeps its place
   /// when the reader turns it over or steps away to another sheet.
   final ScrollController scroll;
+
+  /// True while the reading is pinned to where it is, which stops the rows
+  /// running under the reader the way it stops the pages.
+  final bool locked;
 
   final SheetFace face;
 
@@ -277,6 +282,9 @@ class SpineTable extends StatelessWidget {
           Expanded(
             child: ListView.builder(
               controller: scroll,
+              physics: locked
+                  ? const NeverScrollableScrollPhysics()
+                  : null,
               padding: EdgeInsets.zero,
               itemExtent: kTableRowHeight,
               itemCount: math.max(0, table.rows.length - bodyFrom),
