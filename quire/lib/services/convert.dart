@@ -7,6 +7,7 @@ import '../pdf/compose.dart';
 import '../pdf/document.dart';
 import '../pdf/interpreter.dart';
 import 'office_writer.dart';
+import 'pdf_structure.dart';
 
 /// What a document can be turned into.
 ///
@@ -442,12 +443,13 @@ ConvertResult? runConvert(
   ConvertTarget target, {
   ConvertFaces? faces,
 }) {
-  final document = source.document;
+  var document = source.document;
   final pdf = source.pdf;
   final warnings = <ConvertWarning>[];
+  final fromPages = document == null && pdf != null;
 
   List<String>? pages;
-  if (document == null && pdf != null) {
+  if (fromPages) {
     pages = pdfPageText(pdf);
     if (looksScanned(pages)) {
       warnings.add(
@@ -456,6 +458,11 @@ ConvertResult? runConvert(
           'scanned. What comes out will be close to empty.',
         ),
       );
+    } else {
+      // A page file does not say what its lines were, so the shape is read
+      // back out of how the type is set. It is inference, and the warning
+      // below says so.
+      document = pdfAsDocument(pdf, source.title);
     }
   }
 
@@ -466,6 +473,7 @@ ConvertResult? runConvert(
           : pagesAsText(pages ?? const <String>[]);
       return ConvertResult(bytes: utf8Bytes(text), warnings: warnings);
     case ConvertTarget.markdown:
+      if (fromPages) warnings.add(_inferred);
       final text = document != null
           ? documentAsMarkdown(document)
           : pagesAsMarkdown(pages ?? const <String>[]);
@@ -511,17 +519,7 @@ ConvertResult? runConvert(
                 ], kind: 'page'),
             ],
           );
-      if (document == null) {
-        warnings.add(
-          const ConvertWarning(
-            'A page file states where its words sit, not what they were: the '
-            'headings, columns and tables are not written down anywhere this '
-            'app could read them. What comes out is every line as its own '
-            'paragraph, in reading order. It will open, and it will not look '
-            'like the page.',
-          ),
-        );
-      }
+      if (fromPages) warnings.add(_inferred);
       return ConvertResult(bytes: writeDocx(made), warnings: warnings);
     case ConvertTarget.pdf:
       final made = document;
@@ -534,6 +532,15 @@ ConvertResult? runConvert(
       return ConvertResult(bytes: bytes, warnings: warnings);
   }
 }
+
+/// What is said about anything read back out of a page file's geometry.
+const _inferred = ConvertWarning(
+  'A page file states where its words sit, not what they were. The headings, '
+  'the paragraphs and the columns here were read back out of how the type is '
+  'set: bigger type is a heading, a line that fills its column and does not '
+  'end a sentence carries on into the next one. It is a good reading of the '
+  'page, and it is a reading, so check anything that matters.',
+);
 
 /// The two faces a composed page is set in.
 ///
