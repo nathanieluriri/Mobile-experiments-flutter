@@ -1,0 +1,174 @@
+import 'dart:async';
+import 'dart:io';
+
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
+
+import '../data/library.dart';
+
+/// The channel the platform hands documents over on.
+const kIncomingChannel = 'ng.com.uriri.quire/incoming';
+
+/// What the platform calls when a document arrives while the app is running.
+const kIncomingOpened = 'opened';
+
+/// What this asks the platform for when it starts.
+const kIncomingInitial = 'getInitialFile';
+
+/// Why a document another app offered was not taken.
+enum IncomingRefusal {
+  /// The path came through but there is nothing at it. A share sheet can hand
+  /// over a reference to something already deleted, and a content uri the
+  /// platform copied out can fail to land.
+  missing,
+
+  /// A kind of file quire does not read. The manifest asks for seven of them,
+  /// and a launcher will still occasionally send an eighth.
+  unreadable;
+
+  /// What the desk says about it, in the reader's terms rather than the
+  /// platform's.
+  String get line => switch (this) {
+    IncomingRefusal.missing => 'That file is no longer there.',
+    IncomingRefusal.unreadable => 'quire does not read that kind of file.',
+  };
+}
+
+/// A document handed to quire by another app.
+class IncomingDocument {
+  const IncomingDocument({required this.path, required this.format});
+
+  final String path;
+  final DocFormat format;
+
+  /// The file's own name, which is what it goes onto the desk as.
+  String get name {
+    final cut = path.lastIndexOf(RegExp(r'[/\\]'));
+    return cut < 0 ? path : path.substring(cut + 1);
+  }
+}
+
+/// Documents arriving from outside the app: a file manager, a mail client, a
+/// share sheet.
+///
+/// Two ways in, and they are genuinely different. A cold start has the
+/// document waiting before there is anything to show it on, so it has to be
+/// asked for once the app is up. A warm open arrives at any moment, on top of
+/// whatever the reader was already doing.
+///
+/// Everything the platform sends is checked here rather than trusted. A share
+/// sheet can hand over a file that has already been deleted, and a launcher can
+/// send a kind of file the manifest never asked for, and neither of those
+/// should reach the parser.
+class IncomingDocuments extends ChangeNotifier {
+  IncomingDocuments({MethodChannel? channel})
+    : _channel = channel ?? const MethodChannel(kIncomingChannel);
+
+  final MethodChannel _channel;
+
+  /// The document waiting to be opened, if one is.
+  IncomingDocument? _waiting;
+  IncomingDocument? get waiting => _waiting;
+
+  /// Why the last one was turned away, if it was.
+  IncomingRefusal? _refused;
+  IncomingRefusal? get refused => _refused;
+
+  /// True once [boot] has asked the platform what it started with.
+  bool _booted = false;
+  bool get booted => _booted;
+
+  /// Asks the platform for the document the app was started on, and starts
+  /// listening for the ones that arrive later.
+  ///
+  /// A platform that does not answer is a platform with nothing to hand over,
+  /// which is every platform this app has not been taught about and also the
+  /// ordinary case of being opened from the launcher.
+  Future<void> boot() async {
+    _channel.setMethodCallHandler(_onCall);
+    String? path;
+    try {
+      path = await _channel.invokeMethod<String>(kIncomingInitial);
+    } on MissingPluginException {
+      path = null;
+    } on PlatformException {
+      path = null;
+    }
+    _booted = true;
+    if (path == null || path.isEmpty) {
+      notifyListeners();
+      return;
+    }
+    _offer(path);
+  }
+
+  Future<Object?> _onCall(MethodCall call) async {
+    if (call.method != kIncomingOpened) return null;
+    final path = call.arguments;
+    if (path is String && path.isNotEmpty) _offer(path);
+    return null;
+  }
+
+  /// Takes the waiting document, and clears it.
+  ///
+  /// Handed over rather than read, because a document that stayed here after
+  /// it had been opened would be opened again by the next thing that looked.
+  IncomingDocument? take() {
+    final held = _waiting;
+    if (held == null) return null;
+    _waiting = null;
+    notifyListeners();
+    return held;
+  }
+
+  /// Forgets the last refusal, once it has been said.
+  void clearRefusal() {
+    if (_refused == null) return;
+    _refused = null;
+    notifyListeners();
+  }
+
+  void _offer(String path) {
+    final format = formatOfPath(path);
+    if (format == null) {
+      _waiting = null;
+      _refused = IncomingRefusal.unreadable;
+      notifyListeners();
+      return;
+    }
+    if (!File(path).existsSync()) {
+      _waiting = null;
+      _refused = IncomingRefusal.missing;
+      notifyListeners();
+      return;
+    }
+    _waiting = IncomingDocument(path: path, format: format);
+    _refused = null;
+    notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    _channel.setMethodCallHandler(null);
+    super.dispose();
+  }
+}
+
+/// The format [path] names, or null for one quire does not read.
+///
+/// The extension and nothing else. Sniffing the bytes would be a better
+/// answer to what a file is, and it is the loader's answer: this only has to
+/// decide whether the file is worth handing to the loader at all.
+DocFormat? formatOfPath(String path) {
+  final dot = path.lastIndexOf('.');
+  if (dot < 0 || dot == path.length - 1) return null;
+  final tail = path.substring(dot + 1).toLowerCase();
+  // The two the manifest asks for that are not one of the five the desk names.
+  final wanted = switch (tail) {
+    'doc' => 'docx',
+    'xls' => 'xlsx',
+    'markdown' => 'md',
+    _ => tail,
+  };
+  return DocFormat.forExtension(wanted);
+}

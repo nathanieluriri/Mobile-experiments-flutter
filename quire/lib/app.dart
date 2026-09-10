@@ -1,4 +1,7 @@
+import 'dart:async';
+import 'dart:io' show File;
 import 'dart:math' as math;
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 
@@ -9,6 +12,7 @@ import 'screens/reader/reader_host.dart';
 import 'screens/reader/reader_route.dart';
 import 'screens/sign/sign_screen.dart';
 import 'services/document_store.dart';
+import 'services/incoming_documents.dart';
 import 'services/library_catalogue.dart';
 import 'theme/colors.dart';
 import 'theme/metrics.dart';
@@ -51,6 +55,12 @@ class App extends StatefulWidget {
 class _AppState extends State<App> {
   final GlobalKey<NavigatorState> _navigator = GlobalKey<NavigatorState>();
 
+  /// Where the app says a line about itself when neither the desk's pill nor
+  /// the reader's band is reachable, which is every moment before one of them
+  /// is on screen.
+  final GlobalKey<ScaffoldMessengerState> _messenger =
+      GlobalKey<ScaffoldMessengerState>();
+
   /// Every document on the desk, made once and kept for as long as the app
   /// runs, so a document remembers its place, its dog ears and its search
   /// index between visits.
@@ -66,6 +76,12 @@ class _AppState extends State<App> {
   SignatureMark? _mark;
   DocumentStore? _signing;
 
+  /// Documents handed to quire by another app.
+  ///
+  /// Null for the same reason [_library] is: a test that brings its own desk
+  /// is not being started by a file manager.
+  IncomingDocuments? _incoming;
+
   @override
   void initState() {
     super.initState();
@@ -76,13 +92,82 @@ class _AppState extends State<App> {
     // are read after it rather than before it. The cards are already on the
     // ground when their real page, row and word counts land on them, and any
     // document opened in an earlier run arrives at the top in the same beat.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) library.boot();
+    final incoming = IncomingDocuments()..addListener(_onIncoming);
+    _incoming = incoming;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+      // The desk before the doorstep. A document handed in at a cold start
+      // still goes onto the desk it is opened from, so the desk has to know
+      // what it already holds before anything is added to it.
+      await library.boot();
+      if (mounted) await incoming.boot();
     });
+  }
+
+  /// A document has arrived from outside, or been refused.
+  void _onIncoming() {
+    final incoming = _incoming;
+    if (incoming == null || !mounted) return;
+    final refused = incoming.refused;
+    if (refused != null) {
+      incoming.clearRefusal();
+      _say(refused.line);
+      return;
+    }
+    final waiting = incoming.take();
+    if (waiting != null) unawaited(_openIncoming(waiting));
+  }
+
+  /// Puts an incoming document on the desk and opens it.
+  ///
+  /// It is imported rather than read where it lies, because where it lies is a
+  /// copy the platform made in a cache directory and will delete when it feels
+  /// like it. A document you were handed is a document you have.
+  Future<void> _openIncoming(IncomingDocument document) async {
+    final library = _library;
+    if (library == null) return;
+    final Uint8List bytes;
+    try {
+      bytes = await File(document.path).readAsBytes();
+    } on Object {
+      _say(IncomingRefusal.missing.line);
+      return;
+    }
+    final entry = await library.importFile(document.name, bytes);
+    if (!mounted) return;
+    if (entry == null) {
+      _say(IncomingRefusal.unreadable.line);
+      return;
+    }
+    _open(entry, Rect.zero);
+  }
+
+  /// Says one line over whatever is on screen.
+  ///
+  /// The desk has a pill of its own for this and the reader has its band, and
+  /// neither is reachable from here: this runs before either exists, or over
+  /// whichever of them happens to be up. So it is the one place the app talks
+  /// to somebody without knowing where they are.
+  void _say(String line) {
+    final messenger = _messenger.currentState;
+    if (messenger == null) return;
+    messenger
+      ..clearSnackBars()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(line, style: AppText.label),
+          backgroundColor: AppColors.surfaceHigh,
+          behavior: SnackBarBehavior.floating,
+          duration: kReaderNotice,
+        ),
+      );
   }
 
   @override
   void dispose() {
+    _incoming
+      ?..removeListener(_onIncoming)
+      ..dispose();
     _library?.dispose();
     super.dispose();
   }
@@ -90,9 +175,10 @@ class _AppState extends State<App> {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'quire',
+      title: 'Quire',
       debugShowCheckedModeBanner: false,
       navigatorKey: _navigator,
+      scaffoldMessengerKey: _messenger,
       theme: ThemeData(
         brightness: Brightness.dark,
         fontFamily: kFontFamily,
