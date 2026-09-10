@@ -52,12 +52,10 @@ void main() {
     await tester.tapAt(const Offset(201, 300));
     await settle(tester);
 
-    // The document the reader was handed is the one whose card was tapped, and
-    // the route it arrived on grew out of that card rather than from nothing.
+    // The document the reader was handed is the one whose card was tapped.
     expect(opened.entry.fileName, 'press-lease.pdf');
     expect(opened.opens, 1);
     final route = ModalRoute.of(tester.element(find.byType(SizedBox).last));
     expect(route, isA<ReaderRoute<void>>());
-    expect((route! as ReaderRoute<void>).from, isNot(Rect.zero));
   });
 }

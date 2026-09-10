@@ -7,7 +7,6 @@ import 'painting/signature_painter.dart';
 import 'screens/desk/desk_screen.dart';
 import 'screens/reader/reader_host.dart';
 import 'screens/reader/reader_route.dart';
-import 'screens/reader/sheet_surface.dart';
 import 'screens/sign/sign_screen.dart';
 import 'services/document_store.dart';
 import 'services/library_catalogue.dart';
@@ -33,7 +32,7 @@ const kSignRoute = '/sign';
 /// A record rather than a class because the screens on either side of it need
 /// nothing beyond these two values: the reader reads its document from the
 /// store, and the route grows the sheet from the rect.
-typedef ReaderHandoff = ({DocumentStore store, Rect from});
+typedef ReaderHandoff = ({DocumentStore store});
 
 /// The whole app: one ground, one type family, one theme and no toggle.
 class App extends StatefulWidget {
@@ -173,7 +172,6 @@ class _AppState extends State<App> {
       final handoff = settings.arguments;
       return ReaderRoute<void>(
         settings: settings,
-        from: handoff is ReaderHandoff ? handoff.from : null,
         builder:
             builder ??
             (context) => handoff is ReaderHandoff
@@ -230,7 +228,7 @@ class _AppState extends State<App> {
     navigator.pop();
     navigator.pushNamed(
       kReaderRoute,
-      arguments: (store: store, from: kSheetRect),
+      arguments: (store: store),
     );
   }
 
@@ -240,14 +238,18 @@ class _AppState extends State<App> {
     return DeskScreen(store: library, onOpen: _open, onSign: _sign);
   }
 
-  /// Takes [entry] to the reader, growing the sheet out of its card.
-  void _open(LibraryEntry entry, Rect cardRect) {
+  /// Takes [entry] to the reader.
+  ///
+  /// The desk reports where the row was, because it is the desk's business to
+  /// know. Nothing here needs it: a document arrives from the edge of the
+  /// screen rather than out of the card, the same way the drawer does.
+  void _open(LibraryEntry entry, Rect rowRect) {
     final library = _library;
     if (library == null) return;
     final document = library.storeFor(entry)..markOpened();
     _navigator.currentState?.pushNamed(
       kReaderRoute,
-      arguments: (store: document, from: cardRect),
+      arguments: (store: document),
     );
   }
 
