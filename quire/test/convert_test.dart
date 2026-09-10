@@ -185,6 +185,83 @@ void main() {
     });
   });
 
+  group('what is offered', () {
+    test('a document is never offered a conversion into itself', () {
+      for (final source in <String>['txt', 'md', 'csv', 'xlsx', 'pdf', 'docx']) {
+        final targets = targetsFor(source, hasGrid: true);
+        expect(
+          targets.map((t) => t.extension),
+          isNot(contains(source)),
+          reason: source,
+        );
+      }
+    });
+
+    test('a spreadsheet is only offered when there is a grid to make one of',
+        () {
+      expect(
+        targetsFor('pdf', hasGrid: false),
+        isNot(contains(ConvertTarget.xlsx)),
+      );
+      expect(targetsFor('csv', hasGrid: true), contains(ConvertTarget.xlsx));
+    });
+
+    test('a grid is never offered as a Word file', () {
+      expect(
+        targetsFor('xlsx', hasGrid: true),
+        isNot(contains(ConvertTarget.docx)),
+      );
+    });
+  });
+
+  group('running one', () {
+    test('a spreadsheet becomes a workbook that reads back', () {
+      final result = runConvert(
+        ConvertSource(title: 'Costs', document: _grid()),
+        ConvertTarget.xlsx,
+      );
+      expect(result, isNotNull);
+      final parsed = xlsxToDocument(
+        XlsxParser(result!.bytes).parse(),
+        'Costs',
+      );
+      final table = parsed.sections.first.blocks.whereType<TableBlock>().first;
+      expect(table.rows.length, 3);
+    });
+
+    test('one grid out of two says which one it wrote', () {
+      final two = QuireDocument(
+        title: 'Two',
+        sections: <DocSection>[
+          _grid().sections.first,
+          DocSection('Second', _grid().sections.first.blocks),
+        ],
+      );
+      final result = runConvert(
+        ConvertSource(title: 'Two', document: two),
+        ConvertTarget.csv,
+      );
+      expect(result!.warnings, hasLength(1));
+      expect(result.warnings.first.line, contains('Costs'));
+    });
+
+    test('a PDF has nothing to make a spreadsheet from', () {
+      final result = runConvert(
+        const ConvertSource(title: 'Pages'),
+        ConvertTarget.csv,
+      );
+      expect(result, isNull);
+    });
+
+    test('a PDF is not written yet, and says so rather than pretending', () {
+      final result = runConvert(
+        ConvertSource(title: 'Style', document: _prose()),
+        ConvertTarget.pdf,
+      );
+      expect(result, isNull);
+    });
+  });
+
   group('pages', () {
     test('markdown puts a rule where a page ended', () {
       final md = pagesAsMarkdown(<String>['one', 'two']);

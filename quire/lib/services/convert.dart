@@ -2,6 +2,10 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import '../model/document.dart';
+import '../pdf/display_list.dart';
+import '../pdf/document.dart';
+import '../pdf/interpreter.dart';
+import 'office_writer.dart';
 
 /// What a document can be turned into.
 ///
@@ -334,6 +338,187 @@ String pagesAsMarkdown(List<String> pages) {
   return '${out.toString().trimRight()}\n';
 }
 
+/// Every page of [file] as its own run of text, in reading order.
+///
+/// It interprets each page here rather than asking the reader for its text
+/// layer, because a document can be converted from the desk without ever
+/// having been opened, and a converter that only worked on what you had
+/// already scrolled past would be a converter you could not trust.
+///
+/// A page that will not interpret contributes nothing rather than stopping the
+/// conversion: one broken content stream in a hundred pages is a page missing
+/// from the result, not a result nobody gets.
+List<String> pdfPageText(PdfFile file) {
+  final out = <String>[];
+  for (var page = 0; page < file.pageCount; page++) {
+    try {
+      final list = ContentInterpreter(file).run(file.pages[page]);
+      out.add(mergeRuns(list.texts).map((run) => run.text).join('\n'));
+    } on Object {
+      out.add('');
+    }
+  }
+  return out;
+}
+
+/// True when a run of page text carries so little that the file was almost
+/// certainly scanned rather than set.
+///
+/// A scan converted to a text file is an empty text file, and handing one over
+/// without a word about it is the app pretending it did the job.
+bool looksScanned(List<String> pages) {
+  if (pages.isEmpty) return true;
+  var words = 0;
+  for (final page in pages) {
+    words += page.trim().split(RegExp(r'\s+')).where((w) => w.isNotEmpty).length;
+  }
+  return words < pages.length * 8;
+}
+
 /// Text as the bytes of a file, with the byte order mark left off.
 Uint8List utf8Bytes(String text) =>
     Uint8List.fromList(const Utf8Encoder().convert(text));
+
+/// What a document made of [source] can honestly be turned into.
+///
+/// A target is left off when the source cannot supply what it needs, rather
+/// than offered and then refused: a PDF has no grid to make a spreadsheet out
+/// of, and a spreadsheet turned into a Word file is a spreadsheet nobody can
+/// use. The source's own format is never offered either, because converting a
+/// thing into itself is a copy, and the menu already has one of those.
+List<ConvertTarget> targetsFor(String source, {required bool hasGrid}) {
+  final out = <ConvertTarget>[];
+  for (final target in ConvertTarget.values) {
+    if (target.extension == source) continue;
+    // A csv and a txt are both plain text; offering both for a csv is
+    // offering the same file twice.
+    if (target == ConvertTarget.text && source == 'csv') continue;
+    switch (target) {
+      case ConvertTarget.csv:
+      case ConvertTarget.xlsx:
+        if (hasGrid) out.add(target);
+      case ConvertTarget.docx:
+        if (!hasGrid) out.add(target);
+      case ConvertTarget.text:
+      case ConvertTarget.markdown:
+      case ConvertTarget.pdf:
+        out.add(target);
+    }
+  }
+  return out;
+}
+
+/// What a conversion is being run from: a parsed document, or a page file, or
+/// both when the source is a PDF somebody has also had parsed.
+class ConvertSource {
+  const ConvertSource({required this.title, this.document, this.pdf});
+
+  final String title;
+  final QuireDocument? document;
+  final PdfFile? pdf;
+
+  /// True when the source has a grid a spreadsheet could be made from.
+  bool get hasGrid {
+    final held = document;
+    if (held == null) return false;
+    for (final section in held.sections) {
+      for (final block in section.blocks) {
+        if (block is TableBlock) return true;
+      }
+    }
+    return false;
+  }
+}
+
+/// Turns [source] into [target], or returns null when it cannot.
+///
+/// Null is for a target this build does not write yet. Everything else that
+/// can go wrong comes back as a [ConvertResult] with a warning on it, because
+/// a conversion that dropped something and finished is still a file the reader
+/// wanted, and a conversion that dropped something quietly is a lie.
+ConvertResult? runConvert(ConvertSource source, ConvertTarget target) {
+  final document = source.document;
+  final pdf = source.pdf;
+  final warnings = <ConvertWarning>[];
+
+  List<String>? pages;
+  if (document == null && pdf != null) {
+    pages = pdfPageText(pdf);
+    if (looksScanned(pages)) {
+      warnings.add(
+        const ConvertWarning(
+          'This file carries almost no text of its own, so it was very likely '
+          'scanned. What comes out will be close to empty.',
+        ),
+      );
+    }
+  }
+
+  switch (target) {
+    case ConvertTarget.text:
+      final text = document != null
+          ? documentAsText(document)
+          : pagesAsText(pages ?? const <String>[]);
+      return ConvertResult(bytes: utf8Bytes(text), warnings: warnings);
+    case ConvertTarget.markdown:
+      final text = document != null
+          ? documentAsMarkdown(document)
+          : pagesAsMarkdown(pages ?? const <String>[]);
+      return ConvertResult(bytes: utf8Bytes(text), warnings: warnings);
+    case ConvertTarget.csv:
+      if (document == null) return null;
+      final grids = documentGrids(document);
+      if (grids.length > 1) {
+        warnings.add(
+          ConvertWarning(
+            'CSV holds one grid, so only ${grids.first.$1} was written. The '
+            'other ${grids.length - 1} were left behind.',
+          ),
+        );
+      }
+      return ConvertResult(
+        bytes: utf8Bytes(documentAsCsv(document)),
+        warnings: warnings,
+      );
+    case ConvertTarget.xlsx:
+      if (document == null) return null;
+      final sheets = <SheetOut>[
+        for (final (name, table) in documentGrids(document))
+          SheetOut(name, <List<String>>[
+            for (final row in table.rows)
+              <String>[
+                for (final cell in row.cells)
+                  if (!cell.merged) cell.text,
+              ],
+          ]),
+      ];
+      return ConvertResult(bytes: writeXlsx(sheets), warnings: warnings);
+    case ConvertTarget.docx:
+      final made =
+          document ??
+          QuireDocument(
+            title: source.title,
+            sections: <DocSection>[
+              for (var i = 0; i < (pages?.length ?? 0); i++)
+                DocSection('', <DocBlock>[
+                  for (final line in pages![i].split('\n'))
+                    ParagraphBlock(<DocSpan>[DocSpan(line)]),
+                ], kind: 'page'),
+            ],
+          );
+      if (document == null) {
+        warnings.add(
+          const ConvertWarning(
+            'A page file states where its words sit, not what they were: the '
+            'headings, columns and tables are not written down anywhere this '
+            'app could read them. What comes out is every line as its own '
+            'paragraph, in reading order. It will open, and it will not look '
+            'like the page.',
+          ),
+        );
+      }
+      return ConvertResult(bytes: writeDocx(made), warnings: warnings);
+    case ConvertTarget.pdf:
+      return null;
+  }
+}

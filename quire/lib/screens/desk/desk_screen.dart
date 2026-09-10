@@ -21,6 +21,8 @@ import '../../theme/springs.dart';
 import '../../theme/typography.dart';
 import '../../widgets/gooey_fab/gooey_fab_controller.dart';
 import '../../widgets/gooey_fab/gooey_fab.dart';
+import '../../services/convert.dart';
+import 'convert_sheet.dart';
 import 'desk_colophon.dart';
 import 'desk_sheet.dart';
 import 'details_sheet.dart';
@@ -566,9 +568,75 @@ class _DeskScreenState extends State<DeskScreen> with TickerProviderStateMixin {
     );
   }
 
-  /// Turns [entry] into another kind of file.
-  void _convert(LibraryEntry entry) {
-    _notify('Converting is not built yet.');
+  /// Turns [entry] into another kind of file and puts the result on the desk.
+  ///
+  /// The original is never touched. A conversion is a new document, which is
+  /// why it lands beside the one it came from rather than replacing it.
+  Future<void> _convert(LibraryEntry entry) async {
+    final store = widget.store.peek(entry);
+    if (store == null) {
+      _notify('Nothing has read that file yet.');
+      return;
+    }
+    final source = ConvertSource(
+      title: entry.title,
+      document: store.document,
+      pdf: store.pdf,
+    );
+    final targets = targetsFor(entry.format.extension, hasGrid: source.hasGrid);
+    if (targets.isEmpty) {
+      _notify('There is nothing to turn that into.');
+      return;
+    }
+    final picked = await showDeskSheet<ConvertTarget>(
+      context,
+      (context) => ConvertSheet(
+        title: entry.title,
+        targets: targets,
+        unbuilt: _unbuiltTargets,
+      ),
+    );
+    if (picked == null || !mounted) return;
+
+    final result = runConvert(source, picked);
+    if (result == null) {
+      _notify('quire cannot write a ${picked.label} file yet.');
+      return;
+    }
+    final made = await widget.store.importFile(
+      '${_fileSafe(entry.title)}.${picked.extension}',
+      result.bytes,
+    );
+    if (!mounted) return;
+    if (made == null) {
+      _notify('The converted file could not be kept.');
+      return;
+    }
+    if (result.warnings.isEmpty) {
+      _notify('${made.title} is on the desk as ${picked.label}.');
+      return;
+    }
+    await showDeskSheet<void>(
+      context,
+      (context) => ConvertWarningSheet(
+        title: made.title,
+        warnings: result.warnings,
+      ),
+    );
+  }
+
+  /// The targets the sheet offers but this build cannot write.
+  ///
+  /// Stated here rather than left off the list, so a reader looking for one
+  /// finds out it is coming instead of wondering whether they missed it.
+  static const Set<ConvertTarget> _unbuiltTargets = <ConvertTarget>{
+    ConvertTarget.pdf,
+  };
+
+  /// A title with the characters a file name cannot carry taken out.
+  String _fileSafe(String title) {
+    final clean = title.replaceAll(RegExp(r'[^A-Za-z0-9 ._-]+'), '').trim();
+    return clean.isEmpty ? 'Document' : clean;
   }
 
   /// Puts the desk in the state of waiting for a PDF to sign.
