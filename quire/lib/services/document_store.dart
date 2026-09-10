@@ -1007,6 +1007,46 @@ class LibraryStore extends ChangeNotifier {
     await hydrate();
   }
 
+  /// Reads the desk again: what has been brought in since, and what has gone.
+  ///
+  /// Not [boot] a second time. Booting assumes an empty desk and puts every
+  /// document it finds on the front of it, so calling it twice gives you every
+  /// document twice. This reconciles instead, which is the only honest thing
+  /// to do to a desk somebody is looking at.
+  ///
+  /// It matters because the desk is not the only thing that writes here. A
+  /// document shared in while quire was in the background arrives in the
+  /// index, and a document whose file has been deleted from underneath us
+  /// leaves nothing behind but a card that cannot open.
+  Future<void> refresh() async {
+    final catalogue = _catalogue;
+    if (catalogue == null) {
+      await hydrate();
+      return;
+    }
+    final held = <String>{for (final entry in _entries) entry.path};
+    final found = await catalogue.load();
+
+    // What is new since the desk was last read, newest first, the way it
+    // arrives at an import.
+    final arrived = <LibraryEntry>[
+      for (final entry in found)
+        if (!held.contains(entry.path)) entry,
+    ];
+    if (arrived.isNotEmpty) _entries.insertAll(0, arrived);
+
+    // And what has gone. A shipped document is part of the app and cannot go;
+    // a brought in one is only ever as real as the file behind it.
+    final still = <String>{for (final entry in found) entry.path};
+    _entries.removeWhere(
+      (entry) => entry.source == DocSource.file && !still.contains(entry.path),
+    );
+
+    _applyState(await catalogue.loadState());
+    notifyListeners();
+    await hydrate();
+  }
+
   /// Writes [entry]'s signed PDF to a file the phone can hand to another app,
   /// or returns null when there is nothing to write or nowhere to write it.
   ///

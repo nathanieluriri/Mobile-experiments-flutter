@@ -42,6 +42,7 @@ import 'list_body.dart' show DeskListBody;
 import 'nav_drawer.dart';
 import 'overflow_menu.dart';
 import '../../widgets/goo_menu.dart';
+import '../../widgets/pull_to_refresh.dart';
 import '../../painting/overflow_dots_painter.dart';
 import '../../painting/overflow_goo_painter.dart';
 import '../../config/flags.dart';
@@ -1024,6 +1025,25 @@ class _DeskScreenState extends State<DeskScreen> with TickerProviderStateMixin {
     // behind a removal has to be able to move the list under the finger. The
     // shell only says how much room to leave at the bottom for what it floats
     // over the body.
+    //
+    // A pull at the top reads the desk again. It wraps the list rather than
+    // living in the shell, because what is being pulled is the list: the tabs
+    // and the sort row above it stay where they are, the way they do for
+    // every other scroll.
+    return PullToRefresh(
+      onRefresh: _refresh,
+      child: _list(bottom, colophon),
+    );
+  }
+
+  /// Reads the desk again, for the pull at the top of the list.
+  Future<void> _refresh() async {
+    await widget.store.refresh();
+    if (!mounted) return;
+    setState(() {});
+  }
+
+  Widget _list(double bottom, Widget colophon) {
     if (_view == DeskView.list) {
       return DeskListBody(
         library: widget.store,
