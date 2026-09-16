@@ -335,10 +335,30 @@ class _AppState extends State<App> with WidgetsBindingObserver {
 
   /// The pad, and the one thing that happens when a signature leaves it: the
   /// document it was drawn for opens, with the mark in hand.
-  Widget _pad(DocumentStore store) => SignScreen(
-    onBack: () => _navigator.currentState?.maybePop<void>(),
-    onCommit: (mark) => _placeOn(store, mark),
-  );
+  ///
+  /// The pad offers the signatures used before, and the one placed is put at
+  /// the front of them.
+  Widget _pad(DocumentStore store) {
+    final library = _library;
+    if (library == null) {
+      return SignScreen(
+        onBack: () => _navigator.currentState?.maybePop<void>(),
+        onCommit: (mark) => _placeOn(store, mark),
+      );
+    }
+    return ListenableBuilder(
+      listenable: library,
+      builder: (context, _) => SignScreen(
+        recent: library.recentSignatures,
+        onForget: library.forgetSignature,
+        onBack: () => _navigator.currentState?.maybePop<void>(),
+        onCommit: (mark) {
+          library.useSignature(savedOf(mark));
+          _placeOn(store, mark);
+        },
+      ),
+    );
+  }
 
   /// Carries [mark] from the pad to the page.
   ///

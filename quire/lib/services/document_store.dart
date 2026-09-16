@@ -15,6 +15,7 @@ import '../pdf/document.dart';
 import '../pdf/writer.dart';
 import 'library_catalogue.dart';
 import 'picture.dart';
+import 'recent_signatures.dart';
 import 'reading_time.dart';
 import 'render_plan.dart';
 
@@ -732,6 +733,10 @@ class LibraryStore extends ChangeNotifier {
   /// could not fill in the order you wanted to.
   final List<String> _folders = <String>[];
 
+  /// The signatures used most lately, newest first, so the pad can offer
+  /// them again instead of asking for the same name to be drawn every time.
+  List<SavedSignature> _recentSignatures = <SavedSignature>[];
+
   /// What the reader has renamed, by path. A shipped document cannot carry its
   /// new name in a file of its own, so every rename is remembered here and the
   /// index is written as well for the ones that have a file.
@@ -909,6 +914,9 @@ class LibraryStore extends ChangeNotifier {
   /// Everything the desk remembers, as plain data.
   Map<String, Object?> _stateJson() => <String, Object?>{
         'folders': _folders,
+        'signatures': <Object?>[
+          for (final signature in _recentSignatures) signature.toJson(),
+        ],
         'inFolder': _inFolder,
         'titles': _titles,
         'starred': _starred.toList(),
@@ -927,6 +935,13 @@ class LibraryStore extends ChangeNotifier {
       into.addAll(list.whereType<String>().where(known.contains));
     }
 
+    final signatures = state['signatures'];
+    if (signatures is List<Object?>) {
+      _recentSignatures = <SavedSignature>[
+        for (final json in signatures) ?SavedSignature.fromJson(json),
+      ].take(kRecentSignatureLimit).toList();
+      unawaited(_decodeRecentPictures());
+    }
     final folders = state['folders'];
     if (folders is List<Object?>) {
       _folders.addAll(folders.whereType<String>());
@@ -1086,6 +1101,55 @@ class LibraryStore extends ChangeNotifier {
     await catalogue.save(_entries);
     await _hydrateOne(entry);
     return entry;
+  }
+
+  /// The signatures used most lately, newest first.
+  List<SavedSignature> get recentSignatures =>
+      List<SavedSignature>.unmodifiable(_recentSignatures);
+
+  /// Puts [signature] at the front of the recent ones, keeping it once.
+  void useSignature(SavedSignature signature) {
+    _recentSignatures = rememberSignature(_recentSignatures, signature);
+    notifyListeners();
+    _scheduleSave();
+  }
+
+  /// Takes [signature] out of the recent ones.
+  void forgetSignature(SavedSignature signature) {
+    final before = _recentSignatures.length;
+    _recentSignatures = <SavedSignature>[
+      for (final kept in _recentSignatures)
+        if (!kept.sameAs(signature)) kept,
+    ];
+    if (_recentSignatures.length == before) return;
+    notifyListeners();
+    _scheduleSave();
+  }
+
+  /// Decodes the pictures among the recent signatures read back from disk. A
+  /// picture that will not decode is dropped rather than offered and failed.
+  Future<void> _decodeRecentPictures() async {
+    final decoded = <SavedSignature, ui.Image?>{};
+    for (final signature in List<SavedSignature>.of(_recentSignatures)) {
+      final bytes = signature.encoded;
+      if (bytes == null || signature.picture != null) continue;
+      try {
+        decoded[signature] = await decodePicture(bytes);
+      } on Object {
+        decoded[signature] = null;
+      }
+    }
+    if (decoded.isEmpty) return;
+    // Matched against the list as it is now, since a signature may have been
+    // used or forgotten while the pictures were decoding.
+    _recentSignatures = <SavedSignature>[
+      for (final signature in _recentSignatures)
+        if (!decoded.containsKey(signature))
+          signature
+        else if (decoded[signature] case final ui.Image image)
+          signature.withPicture(image),
+    ];
+    notifyListeners();
   }
 
   /// Every folder, in the order they were made.

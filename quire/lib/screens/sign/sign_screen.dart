@@ -4,6 +4,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../painting/signature_painter.dart';
 import '../../services/picture.dart';
+import '../../services/recent_signatures.dart';
 import '../../theme/colors.dart';
 import '../../theme/easings.dart';
 import '../../theme/edges.dart';
@@ -38,13 +39,36 @@ const kPicturePadInset = 16.0;
 /// The glyph inside the back pill.
 const kSignBackIcon = 20.0;
 
+/// The strip of signatures used before, under the tools.
+const kRecentLabelTop = 494.0;
+const kRecentStripTop = 518.0;
+const kRecentTileWidth = 128.0;
+const kRecentTileHeight = 72.0;
+const kRecentTileGap = 10.0;
+const kRecentTileRadius = 10.0;
+const kRecentTileInset = 10.0;
+
 /// The signature pad: one sheet, one line to sign above, and one way off it.
 ///
 /// It is paper on the desk like every other surface in the app. A dark pad
 /// would be the only screen in quire that is not, and a signature is not a
 /// different kind of act from reading, it is the last one.
 class SignScreen extends StatefulWidget {
-  const SignScreen({super.key, this.pad, this.onCommit, this.onBack});
+  const SignScreen({
+    super.key,
+    this.pad,
+    this.onCommit,
+    this.onBack,
+    this.recent = const <SavedSignature>[],
+    this.onForget,
+  });
+
+  /// Signatures used before, newest first, offered so a name does not have
+  /// to be drawn again every time it is needed.
+  final List<SavedSignature> recent;
+
+  /// Takes one of [recent] off the strip.
+  final ValueChanged<SavedSignature>? onForget;
 
   /// The ink. One is made here when the caller does not bring its own.
   final SignPadController? pad;
@@ -63,8 +87,12 @@ class _SignScreenState extends State<SignScreen>
   SignPadController? _own;
   SignPadController get _pad => widget.pad ?? (_own ??= SignPadController());
 
-  /// A picture the reader brought in instead of drawing one, if they did.
+  /// A mark the reader brought in or picked from the recent ones instead of
+  /// drawing one, if they did.
   SignatureMark? _picture;
+
+  /// Which recent signature [_picture] is, when it is one.
+  SavedSignature? _recent;
 
   /// True while the phone's picker is up, so a second tap does not open a
   /// second one over it.
@@ -131,7 +159,10 @@ class _SignScreenState extends State<SignScreen>
       final image = await decodePicture(bytes);
       if (!mounted) return;
       _pad.clear();
-      setState(() => _picture = SignatureMark.picture(image, bytes));
+      setState(() {
+        _picture = SignatureMark.picture(image, bytes);
+        _recent = null;
+      });
       if (_live.status == AnimationStatus.dismissed) _live.forward();
     } on Object {
       // A file the phone offered and the engine cannot read. There is nothing
@@ -143,8 +174,38 @@ class _SignScreenState extends State<SignScreen>
 
   /// Puts the picture away, which puts the pad back.
   void _clearPicture() {
-    setState(() => _picture = null);
+    setState(() {
+      _picture = null;
+      _recent = null;
+    });
   }
+
+  /// Puts a signature used before on the pad, ready to place. Picking the one
+  /// already there puts it away again.
+  void _pickRecent(SavedSignature signature) {
+    if (_recent == signature) {
+      _clearPicture();
+      return;
+    }
+    _pad.clear();
+    setState(() {
+      _picture = markOf(signature);
+      _recent = signature;
+    });
+    if (_live.status == AnimationStatus.dismissed) _live.forward();
+  }
+
+  void _forgetRecent(SavedSignature signature) {
+    if (_recent == signature) _clearPicture();
+    widget.onForget?.call(signature);
+  }
+
+  /// The recent signatures that can be drawn now. A picture read back from
+  /// disk waits until it has been decoded.
+  List<SavedSignature> get _shown => <SavedSignature>[
+        for (final signature in widget.recent)
+          if (!signature.isPicture || signature.picture != null) signature,
+      ];
 
   @override
   Widget build(BuildContext context) {
@@ -184,9 +245,12 @@ class _SignScreenState extends State<SignScreen>
             top: kSignHintTop,
             child: Center(
               child: Text(
-                picture == null
-                    ? 'Sign above the line, or bring a picture of your mark.'
-                    : 'This picture will be set into the page.',
+                switch ((picture, _recent)) {
+                  (null, _) =>
+                    'Sign above the line, or bring a picture of your mark.',
+                  (_, null) => 'This picture will be set into the page.',
+                  _ => 'This signature will be set into the page.',
+                },
                 style: AppText.hint.copyWith(color: AppColors.inkFaint),
               ),
             ),
@@ -206,7 +270,11 @@ class _SignScreenState extends State<SignScreen>
             top: kSignToolTop,
             child: _Tool(
               icon: LucideIcons.trash2,
-              label: picture == null ? 'Clear the pad' : 'Put the picture away',
+              label: switch ((picture, _recent)) {
+                (null, _) => 'Clear the pad',
+                (_, null) => 'Put the picture away',
+                _ => 'Put the signature away',
+              },
               enabled: hasInk,
               onTap: picture == null ? _pad.clear : _clearPicture,
             ),
@@ -221,6 +289,39 @@ class _SignScreenState extends State<SignScreen>
               onTap: _choosePicture,
             ),
           ),
+          if (_shown.isNotEmpty) ...<Widget>[
+            Positioned(
+              left: kSignToolLeft,
+              top: kRecentLabelTop,
+              child: Text(
+                'RECENT SIGNATURES',
+                style: AppText.micro.copyWith(color: AppColors.inkFaint),
+              ),
+            ),
+            Positioned(
+              left: 0,
+              right: 0,
+              top: kRecentStripTop,
+              height: kRecentTileHeight,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(horizontal: kSignToolLeft),
+                itemCount: _shown.length,
+                separatorBuilder: (context, index) =>
+                    const SizedBox(width: kRecentTileGap),
+                itemBuilder: (context, index) {
+                  final signature = _shown[index];
+                  return _RecentTile(
+                    mark: markOf(signature),
+                    chosen: _recent == signature,
+                    label: 'Use recent signature ${index + 1}',
+                    onTap: () => _pickRecent(signature),
+                    onLongPress: () => _forgetRecent(signature),
+                  );
+                },
+              ),
+            ),
+          ],
           Positioned(
             left: kScreenPadding,
             top: kCommitPillTop,
@@ -254,6 +355,69 @@ class _SignScreenState extends State<SignScreen>
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// [signature] as a mark the pad and the page can draw.
+SignatureMark markOf(SavedSignature signature) => SignatureMark(
+      signature.outlines,
+      signature.bounds,
+      picture: signature.picture,
+      encoded: signature.encoded,
+    );
+
+/// [mark] as a signature to keep.
+SavedSignature savedOf(SignatureMark mark) => SavedSignature(
+      outlines: mark.outlines,
+      bounds: mark.bounds,
+      encoded: mark.encoded,
+      picture: mark.picture,
+    );
+
+/// One signature used before, on a slip of paper the size of a stamp.
+///
+/// A long press takes it off the strip, which is the one thing a kept
+/// signature can have done to it besides being used.
+class _RecentTile extends StatelessWidget {
+  const _RecentTile({
+    required this.mark,
+    required this.chosen,
+    required this.label,
+    required this.onTap,
+    required this.onLongPress,
+  });
+
+  final SignatureMark mark;
+  final bool chosen;
+  final String label;
+  final VoidCallback onTap;
+  final VoidCallback onLongPress;
+
+  @override
+  Widget build(BuildContext context) {
+    return PaperPress(
+      onTap: onTap,
+      onLongPress: onLongPress,
+      semanticLabel: label,
+      washRadius: kRecentTileRadius,
+      child: Container(
+        width: kRecentTileWidth,
+        height: kRecentTileHeight,
+        decoration: BoxDecoration(
+          color: AppColors.page,
+          borderRadius: BorderRadius.circular(kRecentTileRadius),
+          border: Border.all(
+            color: chosen ? AppColors.accentBright : AppColors.hairline,
+            width: chosen ? 2 : kHairline,
+          ),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: Padding(
+          padding: const EdgeInsets.all(kRecentTileInset),
+          child: CustomPaint(painter: _PicturePainter(mark)),
+        ),
       ),
     );
   }
