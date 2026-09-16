@@ -1149,11 +1149,23 @@ class _DeskScreenState extends State<DeskScreen> with TickerProviderStateMixin {
     setState(() {});
   }
 
+  /// What the body being shown is a view of, which is what tells a document
+  /// that has left from one that is merely not listed here.
+  ///
+  /// Everywhere but the bin that is the desk. In the bin it is the bin, so a
+  /// binned document is present rather than gone, and deleting one for good
+  /// is what takes it apart there.
+  /// Null everywhere but the bin, where null means the desk, which is what a
+  /// body assumes when nothing tells it otherwise.
+  bool Function(LibraryEntry entry)? get _holds =>
+      _destination == DrawerDestination.bin ? widget.store.isBinned : null;
+
   Widget _list(double bottom, Widget colophon) {
     if (_view == DeskView.list) {
       return DeskListBody(
         library: widget.store,
         entries: _entries,
+        holds: _holds,
         query: widget.store.query,
         onOpen: _choosingToSign ? _signChosen : widget.onOpen,
         onOverflow: _openOverflow,
@@ -1165,6 +1177,7 @@ class _DeskScreenState extends State<DeskScreen> with TickerProviderStateMixin {
     return GridBody(
       library: widget.store,
       entries: _entries,
+      holds: _holds,
       query: widget.store.query,
       onOpen: _choosingToSign ? _signChosen : widget.onOpen,
       onOverflow: _openOverflow,

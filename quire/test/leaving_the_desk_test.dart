@@ -5,6 +5,7 @@ import 'package:quire/data/library.dart';
 import 'package:quire/screens/desk/desk_screen.dart';
 import 'package:quire/screens/desk/document_card.dart';
 import 'package:quire/screens/desk/document_row.dart';
+import 'package:quire/screens/desk/list_body.dart';
 import 'package:quire/screens/desk/grid_body.dart';
 import 'package:quire/theme/metrics.dart';
 import 'package:quire/widgets/dissolve/dissolve_scope.dart';
@@ -15,6 +16,9 @@ import 'support/golden.dart';
 
 List<Object> _jobs(WidgetTester tester) =>
     DissolveScope.of(tester.element(find.byType(GridBody))).jobs;
+
+List<Object> _listJobs(WidgetTester tester) =>
+    DissolveScope.of(tester.element(find.byType(DeskListBody))).jobs;
 
 void main() {
   group('a card leaving the grid', () {
@@ -176,6 +180,117 @@ void main() {
       await tester.pump();
       expect(library.binned.map((e) => e.path), contains(removed.path));
       await settle(tester);
+    });
+  });
+
+  group('a document put back while it is still coming apart', () {
+    testWidgets('gathers once the dust has landed, not on top of it', (
+      tester,
+    ) async {
+      final library = await deskStore();
+      final entries = ValueNotifier<List<LibraryEntry>>(library.visible);
+      addTearDown(entries.dispose);
+      await pumpScreen(
+        tester,
+        bodyApp(
+          entries,
+          (shown) => DeskListBody(library: library, entries: shown),
+        ),
+      );
+      await settle(tester);
+
+      final removed = library.visible[1];
+      library.remove(removed);
+      entries.value = library.visible;
+      await tester.pump();
+      expect(_listJobs(tester), hasLength(1));
+
+      // Put back with most of the run still to go, which is the first thing
+      // a finger can do after the pill arrives.
+      await pumpMs(tester, 600);
+      library.undoRemove();
+      entries.value = library.visible;
+      await tester.pump();
+
+      // One run at a time on one picture. Two would be the document blowing
+      // apart and gathering in at once, off pixels the first to finish lets
+      // go of under the other.
+      expect(_listJobs(tester), hasLength(1));
+
+      await settle(tester);
+      expect(tester.takeException(), isNull);
+      expect(find.byType(DocumentRow), findsNWidgets(6));
+    });
+  });
+
+  group('the space a document is leaving', () {
+    testWidgets('takes no taps while its dust is in the air', (tester) async {
+      final library = await deskStore();
+      final entries = ValueNotifier<List<LibraryEntry>>(library.visible);
+      addTearDown(entries.dispose);
+      var opened = 0;
+      await pumpScreen(
+        tester,
+        bodyApp(
+          entries,
+          (shown) => DeskListBody(
+            library: library,
+            entries: shown,
+            onOpen: (entry, rect) => opened++,
+          ),
+        ),
+      );
+      await settle(tester);
+
+      final removed = library.visible[1];
+      final where = tester.getRect(find.byType(DocumentRow).at(1)).center;
+      library.remove(removed);
+      entries.value = library.visible;
+      await tester.pump();
+      await pumpMs(tester, 400);
+
+      // What looks like empty desk is empty desk. Opening a document that is
+      // halfway to the bin is the one thing a tap there must not do.
+      await tester.tapAt(where);
+      await tester.pump();
+      expect(opened, 0);
+      await settle(tester);
+    });
+  });
+
+  group('the bin as a body', () {
+    testWidgets('lists what is in it instead of closing over it', (
+      tester,
+    ) async {
+      final library = await deskStore();
+      final binned = library.visible.first;
+      library.remove(binned);
+      library.commitRemoval();
+      final entries = ValueNotifier<List<LibraryEntry>>(library.binned);
+      addTearDown(entries.dispose);
+
+      await pumpScreen(
+        tester,
+        bodyApp(
+          entries,
+          (shown) => DeskListBody(
+            library: library,
+            entries: shown,
+            holds: library.isBinned,
+          ),
+        ),
+      );
+      await settle(tester);
+
+      expect(find.byType(DocumentRow), findsOneWidget);
+
+      // And deleting it for good is what takes it apart there.
+      library.deleteForever(binned);
+      entries.value = library.binned;
+      await tester.pump();
+      expect(_listJobs(tester), hasLength(1));
+      await settle(tester);
+      expect(find.byType(DocumentRow), findsNothing);
     });
   });
 }

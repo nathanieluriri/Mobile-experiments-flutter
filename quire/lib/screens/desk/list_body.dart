@@ -38,6 +38,7 @@ class ListBody extends StatefulWidget {
     this.query = '',
     this.onOpen,
     this.onOverflow,
+    this.holds,
     this.controller,
     this.padding = EdgeInsets.zero,
     this.footer,
@@ -63,7 +64,16 @@ class ListBody extends StatefulWidget {
 
   /// A row's three dots. The menu behind them belongs to the shell.
   final void Function(LibraryEntry entry, Rect rowRect, Rect target)?
-      onOverflow;
+  onOverflow;
+
+  /// Which documents this body is a view of, for telling a document that has
+  /// left from one that is merely not shown.
+  ///
+  /// The desk is the usual answer and the default. The bin is the other one:
+  /// its rows are documents the desk no longer holds, so a body that took the
+  /// desk's word for it would close every slot the moment it was built and
+  /// show an empty bin.
+  final bool Function(LibraryEntry entry)? holds;
 
   final ScrollController? controller;
 
@@ -84,6 +94,14 @@ class _ListBodyState extends State<ListBody>
   final Map<String, double> _to = <String, double>{};
   final Map<String, ui.Image> _snapshots = <String, ui.Image>{};
   final Set<String> _hidden = <String>{};
+
+  /// The documents somebody put back while their own dust was still in the
+  /// air, which are gathered the moment that run lands.
+  ///
+  /// Two runs on one snapshot is the document blowing apart and gathering in
+  /// at the same time, painted from pixels the first of the two to finish
+  /// would then let go of underneath the other.
+  final Set<String> _waiting = <String>{};
 
   /// The documents whose dust is still in the air.
   ///
@@ -111,7 +129,7 @@ class _ListBodyState extends State<ListBody>
     _curve = SpringCurve(AppSprings.shelfLayout, duration: duration);
     _spring.addStatusListener(_onSpring);
     widget.library.addListener(_onLibrary);
-    _onDesk = _deskPaths;
+    _onDesk = _held();
     _rows = List<LibraryEntry>.of(widget.entries);
     for (final entry in _rows) {
       _from[entry.path] = 1;
@@ -125,7 +143,7 @@ class _ListBodyState extends State<ListBody>
     if (old.library != widget.library) {
       old.library.removeListener(_onLibrary);
       widget.library.addListener(_onLibrary);
-      _onDesk = _deskPaths;
+      _onDesk = _held();
     }
     _sync();
   }
@@ -145,8 +163,17 @@ class _ListBodyState extends State<ListBody>
     super.dispose();
   }
 
-  Set<String> get _deskPaths =>
-      <String>{for (final entry in widget.library.entries) entry.path};
+  /// Everything this body counts as still here.
+  Set<String> _held() {
+    final holds = widget.holds;
+    if (holds == null) {
+      return <String>{for (final entry in widget.library.entries) entry.path};
+    }
+    return <String>{
+      for (final entry in widget.library.allEntries)
+        if (holds(entry)) entry.path,
+    };
+  }
 
   GlobalKey _keyFor(LibraryEntry entry) =>
       _keys.putIfAbsent(entry.path, GlobalKey.new);
@@ -184,7 +211,7 @@ class _ListBodyState extends State<ListBody>
   /// comes apart the same way and nothing else can.
   void _onLibrary() {
     if (!mounted) return;
-    final now = _deskPaths;
+    final now = _held();
     final gone = _onDesk.difference(now);
     final back = now.difference(_onDesk);
     _onDesk = now;
@@ -226,6 +253,14 @@ class _ListBodyState extends State<ListBody>
   void _dissolve(String path) {
     final key = _keys[path];
     if (key?.currentContext == null) return;
+    if (_hidden.contains(path)) {
+      // Drawn as nothing because its pixels are already in the air: it is
+      // being gathered back at this very moment. There is nothing on screen
+      // to photograph, so the row simply goes, and the gather in flight ends
+      // in its own time.
+      _waiting.remove(path);
+      return;
+    }
     final image = DissolveScope.of(context).dissolve(
       key!,
       pixelRatio: MediaQuery.devicePixelRatioOf(context),
@@ -246,6 +281,12 @@ class _ListBodyState extends State<ListBody>
           _hidden.remove(path);
           _running.remove(path);
         });
+        if (_waiting.remove(path)) {
+          // It was put back while it was still coming apart. Now that the run
+          // has landed, it can gather out of the same pixels.
+          _materialize(path);
+          return;
+        }
         // The dust has landed. Only now is the slot allowed to close.
         _sync();
         // And a snapshot nobody is being offered back any more has nothing
@@ -258,6 +299,12 @@ class _ListBodyState extends State<ListBody>
 
   /// Gathers a document that has come back out of the dust it came apart into.
   void _materialize(String path) {
+    if (_running.contains(path)) {
+      // Its own dust is still falling. It is gathered when that run lands,
+      // which is the only moment there is one picture and one run.
+      _waiting.add(path);
+      return;
+    }
     final image = _snapshots.remove(path);
     if (image == null) return;
     setState(() => _hidden.add(path));
@@ -391,23 +438,29 @@ class _ListBodyState extends State<ListBody>
       child: Align(
         alignment: Alignment.topCenter,
         heightFactor: factor.clamp(0.0, 1.0),
-        child: Opacity(
-          // A row whose pixels are in flight is not on the desk any more. It
-          // keeps its slot only for as long as the slot takes to close.
-          opacity: _hidden.contains(path) ? 0 : 1,
-          child: RepaintBoundary(
-            key: _keyFor(entry),
-            child: DocumentRow(
-              entry: entry,
-              store: widget.library.peek(entry),
-              query: widget.query,
-              onOpen: widget.onOpen == null
-                  ? null
-                  : () => widget.onOpen!(entry, _rectOf(entry)),
-              onOverflow: widget.onOverflow == null
-                  ? null
-                  : (target) =>
-                      widget.onOverflow!(entry, _rectOf(entry), target),
+        child: IgnorePointer(
+          // A row whose pixels have left is not something to tap. Drawn as
+          // nothing and still taking touches, the empty space where it was
+          // would open the document that is halfway to the bin.
+          ignoring: _hidden.contains(path) || (_to[path] ?? 1) <= 0,
+          child: Opacity(
+            // A row whose pixels are in flight is not on the desk any more. It
+            // keeps its slot only for as long as the slot takes to close.
+            opacity: _hidden.contains(path) ? 0 : 1,
+            child: RepaintBoundary(
+              key: _keyFor(entry),
+              child: DocumentRow(
+                entry: entry,
+                store: widget.library.peek(entry),
+                query: widget.query,
+                onOpen: widget.onOpen == null
+                    ? null
+                    : () => widget.onOpen!(entry, _rectOf(entry)),
+                onOverflow: widget.onOverflow == null
+                    ? null
+                    : (target) =>
+                          widget.onOverflow!(entry, _rectOf(entry), target),
+              ),
             ),
           ),
         ),

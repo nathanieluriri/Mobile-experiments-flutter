@@ -33,6 +33,7 @@ class GridBody extends StatefulWidget {
     this.query = '',
     this.onOpen,
     this.onOverflow,
+    this.holds,
     this.controller,
     this.padding = const EdgeInsets.all(kGridPadding),
     this.footer,
@@ -53,6 +54,15 @@ class GridBody extends StatefulWidget {
   /// A card's three dots. The menu behind them belongs to the shell.
   final void Function(LibraryEntry entry, Rect cardRect, Rect target)?
   onOverflow;
+
+  /// Which documents this body is a view of, for telling a document that has
+  /// left from one that is merely not shown.
+  ///
+  /// The desk is the usual answer and the default. The bin is the other one:
+  /// its rows are documents the desk no longer holds, so a body that took the
+  /// desk's word for it would close every slot the moment it was built and
+  /// show an empty bin.
+  final bool Function(LibraryEntry entry)? holds;
 
   final ScrollController? controller;
 
@@ -85,6 +95,14 @@ class _GridBodyState extends State<GridBody>
   /// Cards drawn as nothing because their pixels are in the air instead.
   final Set<String> _hidden = <String>{};
 
+  /// The documents somebody put back while their own dust was still in the
+  /// air, which are gathered the moment that run lands.
+  ///
+  /// Two runs on one snapshot is the document blowing apart and gathering in
+  /// at the same time, painted from pixels the first of the two to finish
+  /// would then let go of underneath the other.
+  final Set<String> _waiting = <String>{};
+
   /// The documents whose dust is still falling. Their cells stay open.
   final Set<String> _running = <String>{};
 
@@ -107,7 +125,7 @@ class _GridBodyState extends State<GridBody>
     _curve = SpringCurve(AppSprings.shelfLayout, duration: duration);
     _spring.addStatusListener(_onSpring);
     widget.library.addListener(_onLibrary);
-    _onDesk = _deskPaths;
+    _onDesk = _held();
     _cards = List<LibraryEntry>.of(widget.entries);
     for (final entry in _cards) {
       _from[entry.path] = 1;
@@ -121,7 +139,7 @@ class _GridBodyState extends State<GridBody>
     if (old.library != widget.library) {
       old.library.removeListener(_onLibrary);
       widget.library.addListener(_onLibrary);
-      _onDesk = _deskPaths;
+      _onDesk = _held();
     }
     _sync();
   }
@@ -139,9 +157,17 @@ class _GridBodyState extends State<GridBody>
     super.dispose();
   }
 
-  Set<String> get _deskPaths => <String>{
-    for (final entry in widget.library.entries) entry.path,
-  };
+  /// Everything this body counts as still here.
+  Set<String> _held() {
+    final holds = widget.holds;
+    if (holds == null) {
+      return <String>{for (final entry in widget.library.entries) entry.path};
+    }
+    return <String>{
+      for (final entry in widget.library.allEntries)
+        if (holds(entry)) entry.path,
+    };
+  }
 
   GlobalKey _keyFor(LibraryEntry entry) =>
       _keys.putIfAbsent(entry.path, GlobalKey.new);
@@ -172,7 +198,7 @@ class _GridBodyState extends State<GridBody>
   /// Watches the desk for documents arriving and leaving.
   void _onLibrary() {
     if (!mounted) return;
-    final now = _deskPaths;
+    final now = _held();
     final gone = _onDesk.difference(now);
     final back = now.difference(_onDesk);
     _onDesk = now;
@@ -204,6 +230,14 @@ class _GridBodyState extends State<GridBody>
   void _dissolve(String path) {
     final key = _keys[path];
     if (key?.currentContext == null) return;
+    if (_hidden.contains(path)) {
+      // Drawn as nothing because its pixels are already in the air: it is
+      // being gathered back at this very moment. There is nothing on screen
+      // to photograph, so the card simply goes, and the gather in flight ends
+      // in its own time.
+      _waiting.remove(path);
+      return;
+    }
     final image = DissolveScope.of(context).dissolve(
       key!,
       pixelRatio: MediaQuery.devicePixelRatioOf(context),
@@ -221,6 +255,12 @@ class _GridBodyState extends State<GridBody>
           _hidden.remove(path);
           _running.remove(path);
         });
+        if (_waiting.remove(path)) {
+          // It was put back while it was still coming apart. Now that the run
+          // has landed, it can gather out of the same pixels.
+          _materialize(path);
+          return;
+        }
         // Only now does the grid close over the space the card held.
         _sync();
         _dropUnclaimed();
@@ -231,6 +271,12 @@ class _GridBodyState extends State<GridBody>
 
   /// Gathers a document that has come back out of the dust it came apart into.
   void _materialize(String path) {
+    if (_running.contains(path)) {
+      // Its own dust is still falling. It is gathered when that run lands,
+      // which is the only moment there is one picture and one run.
+      _waiting.add(path);
+      return;
+    }
     final image = _snapshots.remove(path);
     if (image == null) return;
     setState(() => _hidden.add(path));
@@ -367,24 +413,31 @@ class _GridBodyState extends State<GridBody>
         heightFactor: factor,
         child: SizedBox(
           width: width,
-          child: Opacity(
-            // A card whose pixels are in the air is not drawn here as well.
-            opacity: hidden ? 0 : 1,
-            // The boundary is what those pixels are taken off, the same way a
-            // row's are.
-            child: RepaintBoundary(
-              key: _keyFor(entry),
-              child: DocumentCard(
-                entry: entry,
-                store: widget.library.peek(entry),
-                query: widget.query,
-                onOpen: widget.onOpen == null
-                    ? null
-                    : () => widget.onOpen!(entry, _rectOf(entry)),
-                onOverflow: widget.onOverflow == null
-                    ? null
-                    : (target) =>
-                        widget.onOverflow!(entry, _rectOf(entry), target),
+          child: IgnorePointer(
+            // A card whose pixels have left is not something to tap. Drawn as
+            // nothing and still taking touches, the space where it was would
+            // open the document that is halfway to the bin.
+            ignoring:
+                _hidden.contains(entry.path) || (_to[entry.path] ?? 1) <= 0,
+            child: Opacity(
+              // A card whose pixels are in the air is not drawn here as well.
+              opacity: hidden ? 0 : 1,
+              // The boundary is what those pixels are taken off, the same way a
+              // row's are.
+              child: RepaintBoundary(
+                key: _keyFor(entry),
+                child: DocumentCard(
+                  entry: entry,
+                  store: widget.library.peek(entry),
+                  query: widget.query,
+                  onOpen: widget.onOpen == null
+                      ? null
+                      : () => widget.onOpen!(entry, _rectOf(entry)),
+                  onOverflow: widget.onOverflow == null
+                      ? null
+                      : (target) =>
+                            widget.onOverflow!(entry, _rectOf(entry), target),
+                ),
               ),
             ),
           ),
