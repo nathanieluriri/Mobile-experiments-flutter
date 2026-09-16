@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:quire/app.dart';
 import 'package:quire/screens/reader/reader_host.dart';
+import 'package:quire/services/document_store.dart';
 
 import 'support/fixtures.dart';
 import 'support/golden.dart';
@@ -207,6 +208,58 @@ void main() {
       await leaveToCaller(platform: TargetPlatform.iOS, backInApp: () => inApp++);
       expect(calls, isNot(contains('SystemNavigator.pop')));
       expect(inApp, 1);
+    });
+  });
+
+  group('leaving a document another app opened, inside the app', () {
+    testWidgets('pops the reader once rather than asking its guard again', (
+      tester,
+    ) async {
+      final store = await storeFor(kFieldGuide);
+      final navigator = GlobalKey<NavigatorState>();
+      var left = 0;
+      await pumpScreen(
+        tester,
+        MaterialApp(
+          navigatorKey: navigator,
+          home: const SizedBox.expand(),
+        ),
+      );
+      navigator.currentState!.push(
+        MaterialPageRoute<void>(
+          builder: (context) => ReaderHost(
+            store: store,
+            onLeave: () {
+              left++;
+              leaveToCaller(
+                platform: TargetPlatform.iOS,
+                backInApp: () => navigator.currentState?.pop<void>(),
+              );
+            },
+          ),
+        ),
+      );
+      await settle(tester);
+      expect(find.byType(ReaderHost), findsOneWidget);
+
+      await tester.binding.handlePopRoute();
+      await settle(tester);
+      expect(left, 1);
+      expect(find.byType(ReaderHost), findsNothing);
+    });
+  });
+
+  group('a cold start with a document waiting', () {
+    test('can know the desk without reading every document on it', () async {
+      final library = LibraryStore();
+      addTearDown(library.dispose);
+      await library.boot(parse: false);
+      expect(
+        library.entries.every(
+          (e) => library.storeFor(e).state == ParseState.loading,
+        ),
+        isTrue,
+      );
     });
   });
 }

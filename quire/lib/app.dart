@@ -103,8 +103,9 @@ class _AppState extends State<App> with WidgetsBindingObserver {
       // The desk before the doorstep. A document handed in at a cold start
       // still goes onto the desk it is opened from, so the desk has to know
       // what it already holds before anything is added to it.
-      await library.boot();
+      await library.boot(parse: false);
       if (mounted) await incoming.boot();
+      await library.hydrate();
     });
   }
 
@@ -155,7 +156,9 @@ class _AppState extends State<App> with WidgetsBindingObserver {
   /// goes back to the desk.
   void _leaveToCaller() => leaveToCaller(
     platform: defaultTargetPlatform,
-    backInApp: () => _navigator.currentState?.maybePop<void>(),
+    // A pop and not a maybePop: the reader's own guard is what called this,
+    // and asking it again would only call this again.
+    backInApp: () => _navigator.currentState?.pop<void>(),
   );
 
   /// Says one line over whatever is on screen.

@@ -1030,7 +1030,11 @@ class LibraryStore extends ChangeNotifier {
   /// The shipped six are on the desk from the first frame; these arrive a
   /// moment later, once the index has been read, which is a moment the desk
   /// already knows how to spend: it is the same moment the page counts land.
-  Future<void> boot() async {
+  ///
+  /// With [parse] false the documents are known but not yet read, which is
+  /// what lets a document handed in from another app open before six others
+  /// have been parsed; the caller reads them afterwards with [hydrate].
+  Future<void> boot({bool parse = true}) async {
     final catalogue = _catalogue;
     if (catalogue != null) {
       final imported = await catalogue.load();
@@ -1038,7 +1042,7 @@ class LibraryStore extends ChangeNotifier {
       _applyState(await catalogue.loadState());
       notifyListeners();
     }
-    await hydrate();
+    if (parse) await hydrate();
   }
 
   /// Reads the desk again: what has been brought in since, and what has gone.
