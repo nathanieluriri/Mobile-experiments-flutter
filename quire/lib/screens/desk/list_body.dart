@@ -246,8 +246,10 @@ class _ListBodyState extends State<ListBody>
           _hidden.remove(path);
           _running.remove(path);
         });
-        // The dust has landed, so a snapshot nobody is being offered back any
-        // more has nothing left to do.
+        // The dust has landed. Only now is the slot allowed to close.
+        _sync();
+        // And a snapshot nobody is being offered back any more has nothing
+        // left to do.
         _dropUnclaimed();
       },
     );
@@ -297,6 +299,11 @@ class _ListBodyState extends State<ListBody>
     final shown = <String>{
       for (final entry in widget.entries)
         if (onDesk.contains(entry.path)) entry.path,
+      // A row whose dust is still in the air keeps its slot. A gap that
+      // closes under falling pixels is the list moving on before the document
+      // has finished leaving, and it is the one moment where the two motions
+      // must not overlap: the row comes apart, and then the list closes.
+      ..._running,
     };
     final rows = List<LibraryEntry>.of(widget.entries);
     final placed = <String>{for (final entry in rows) entry.path};

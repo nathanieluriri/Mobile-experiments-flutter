@@ -148,8 +148,21 @@ void main() {
     await tester.pump();
     expect(jobsIn(tester), hasLength(1));
 
-    // The slot closes on the layout spring, so the row under the one that
-    // left travels up rather than jumping.
+    // The row keeps its slot for as long as its own pixels are in the air.
+    // A gap closing under falling dust is the list moving on before the
+    // document has finished leaving.
+    await pumpMs(tester, 60);
+    expect(tester.getRect(find.byType(DocumentRow).at(2)).top, before);
+    await pumpMs(tester, kDissolve.inMilliseconds ~/ 2);
+    expect(tester.getRect(find.byType(DocumentRow).at(2)).top, before);
+
+    // Once the dust has landed the slot closes, on the layout spring, so the
+    // row under it travels rather than jumping.
+    for (var waited = 0; waited < 4000 && jobsIn(tester).isNotEmpty; waited += 60) {
+      await pumpMs(tester, 60);
+    }
+    expect(jobsIn(tester), isEmpty);
+    expect(tester.getRect(find.byType(DocumentRow).at(2)).top, before);
     await pumpMs(tester, 60);
     final travelling = tester.getRect(find.byType(DocumentRow).at(2)).top;
     expect(travelling, lessThan(before));

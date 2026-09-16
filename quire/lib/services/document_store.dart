@@ -1360,6 +1360,9 @@ class LibraryStore extends ChangeNotifier {
   /// into belong to whatever drew the row, and a model that held an image
   /// would be a model that could not be tested without a rasteriser.
   void remove(LibraryEntry entry) {
+    // One offer at a time: removing a second document settles the first,
+    // rather than leaving it off the desk and out of the bin both.
+    commitRemoval();
     if (!_removed.add(entry.path)) return;
     _lastRemoved = entry;
     notifyListeners();
@@ -1423,6 +1426,8 @@ class LibraryStore extends ChangeNotifier {
 
   @override
   void dispose() {
+    // A removal nobody undid is a removal, even if the app is going.
+    commitRemoval();
     _pendingSave?.cancel();
     _pendingSave = null;
     for (final store in _stores.values) {

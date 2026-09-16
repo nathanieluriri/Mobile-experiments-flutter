@@ -36,9 +36,18 @@ Offset overflowOf(int index) {
 
 /// Takes row [index] off the desk through its own overflow menu.
 Future<void> removeRow(WidgetTester tester, int index) async {
-  await tester.tapAt(overflowOf(index));
+  // Found rather than measured: the dots move with the row, and a tap worked
+  // out from constants goes on hitting where the row used to be.
+  await tester.tap(find.byType(OverflowTarget).at(index));
   await tester.pump();
   await pumpMs(tester, kSortMenuIn.inMilliseconds);
+  // The pills peel off the dots one at a time, so the one we want is not
+  // under the finger until its own neck has let go.
+  for (var waited = 0;
+      waited < 2000 && find.text('Remove').hitTestable().evaluate().isEmpty;
+      waited += 60) {
+    await pumpMs(tester, 60);
+  }
   await tester.tap(find.text('Remove'));
   // The row is put back whole for one frame, so the snapshot the dust is made
   // of is a snapshot of a row and not of a half pressed one.

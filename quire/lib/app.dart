@@ -178,6 +178,9 @@ class _AppState extends State<App> with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.detached) {
+      // An app going into the background may not come back, so a removal
+      // still waiting to be undone is settled before the state is written.
+      _library?.commitRemoval();
       unawaited(_library?.saveNow());
     }
   }

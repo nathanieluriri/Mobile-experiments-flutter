@@ -212,6 +212,12 @@ class _DeskScreenState extends State<DeskScreen> with TickerProviderStateMixin {
   @override
   void dispose() {
     widget.store.removeListener(_onStoreChanged);
+    // A removal nobody undid is a removal. The pill's clock dies with this
+    // screen, so a desk put away while one was draining (a document opened,
+    // the app closed) would leave that document in neither place: off the
+    // desk and never in the bin. Listeners are let go of first, so nothing
+    // that is already being taken down is asked to redraw.
+    widget.store.commitRemoval();
     _drawer.dispose();
     _menu.dispose();
     _overflow.dispose();
