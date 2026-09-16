@@ -3,10 +3,15 @@
         android:label="Quire"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
+        <!-- The reader is a sheet of paper held upright, so the screen stays
+             upright. A page the file says is turned is turned by the reader
+             when it draws it, and a thumb resting on the fore edge is not a
+             request to lay the whole app out again sideways. -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
             android:launchMode="singleTop"
+            android:screenOrientation="portrait"
             android:taskAffinity=""
             android:theme="@style/LaunchTheme"
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
