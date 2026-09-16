@@ -140,21 +140,7 @@ void main() {
   });
 
   group('a reading with only the way out locked', () {
-    testWidgets('keeps every bar it had', (tester) async {
-      final store = await storeFor(kFieldGuide);
-      await pumpScreen(tester, _host(store));
-      await settle(tester);
-
-      store.lock = ReaderLock.back;
-      await tester.pump();
-      await settle(tester);
-
-      expect(find.byType(ForeEdge), findsOneWidget);
-      expect(find.byType(FolioChip), findsOneWidget);
-      expect(find.byType(UnlockChip), findsNothing);
-    });
-
-    testWidgets('turns the way back into the way out of the lock', (
+    testWidgets('takes every bar off the screen, the band included', (
       tester,
     ) async {
       final store = await storeFor(kFieldGuide);
@@ -164,16 +150,61 @@ void main() {
       store.lock = ReaderLock.back;
       await tester.pump();
       await settle(tester);
-      expect(
-        tester.widget<ReaderChrome>(find.byType(ReaderChrome)).locked,
-        isTrue,
-      );
 
-      // The corner button is the padlock now, and it undoes the lock rather
-      // than leaving.
-      await tester.tap(find.bySemanticsLabel('Unlock the reading'));
+      expect(tester.widget<ReaderChrome>(find.byType(ReaderChrome)).hidden, 1);
+      expect(find.byType(ForeEdge), findsNothing);
+      expect(find.byType(FolioChip), findsNothing);
+    });
+
+    testWidgets('a tap does not bring the band back, only the chip', (
+      tester,
+    ) async {
+      final store = await storeFor(kFieldGuide);
+      await pumpScreen(tester, _host(store));
+      await settle(tester);
+      store.lock = ReaderLock.back;
+      await tester.pump();
+      await settle(tester);
+
+      await tester.tapAt(const Offset(200, 500));
+      await tester.pump(kUnlockChipFade);
+      expect(tester.widget<ReaderChrome>(find.byType(ReaderChrome)).hidden, 1);
+      final chip = tester.widget<UnlockChip>(find.byType(UnlockChip));
+      expect(chip.progress, 1);
+      expect(chip.label, 'Unlock the reading');
+      await settle(tester);
+    });
+
+    testWidgets('the chip at the bottom is the way out of the lock', (
+      tester,
+    ) async {
+      final store = await storeFor(kFieldGuide);
+      await pumpScreen(tester, _host(store));
+      await settle(tester);
+
+      store.lock = ReaderLock.back;
+      await tester.pump();
+      await tester.pump(kUnlockChipFade);
+
+      await tester.tap(find.byType(UnlockChip));
       await tester.pump();
       expect(store.lock, ReaderLock.none);
+      await settle(tester);
+      expect(find.byType(ForeEdge), findsOneWidget);
+    });
+
+    testWidgets('still scrolls, which is what separates it from a page lock', (
+      tester,
+    ) async {
+      final store = await storeFor(kFieldGuide);
+      await pumpScreen(tester, _host(store));
+      await settle(tester);
+      store.lock = ReaderLock.back;
+      await tester.pump();
+      await settle(tester);
+
+      final list = tester.widget<Scrollable>(find.byType(Scrollable).first);
+      expect(list.physics, isNot(isA<NeverScrollableScrollPhysics>()));
     });
   });
 

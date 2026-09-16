@@ -147,17 +147,17 @@ void main() {
     testWidgets('a button that finishes something keeps its accent', (
       tester,
     ) async {
-      final store = await storeFor(kFieldGuide);
+      // Setting a signature into the page is the one thing the band finishes
+      // rather than opens, and its tick is the one button that keeps a fill.
       await pumpScreen(
         tester,
-        MaterialApp(
+        const MaterialApp(
           debugShowCheckedModeBanner: false,
-          home: ReaderHost(store: store),
+          home: Stack(
+            children: <Widget>[ReaderChrome(title: 'Press Lease', placing: true)],
+          ),
         ),
       );
-      await settle(tester);
-      store.lock = ReaderLock.back;
-      await tester.pump();
       await settle(tester);
 
       final filled = tester

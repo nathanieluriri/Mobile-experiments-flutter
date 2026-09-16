@@ -69,7 +69,6 @@ class ReaderChrome extends StatelessWidget {
     this.onCancel,
     this.menuOpen = 0,
     this.notice,
-    this.locked = false,
     this.backMorph = 1,
   });
 
@@ -108,14 +107,6 @@ class ReaderChrome extends StatelessWidget {
   /// same button the desk had. So it turns rather than being swapped, which is
   /// what the drawer's own button does when the drawer comes over the desk.
   final double backMorph;
-
-  /// True when the way out is fastened, which turns the arrow into the
-  /// padlock that undoes it.
-  ///
-  /// The same button, because it is the same question: this is the corner you
-  /// go to when you want to be somewhere else, and while the reading is
-  /// locked, what it does first is unlock it.
-  final bool locked;
 
   /// A line the band says instead of the document's name, for as long as it
   /// has something to say.
@@ -174,22 +165,12 @@ class ReaderChrome extends StatelessWidget {
               opacity: fade,
               child: _HeaderButton(
                 size: kBurgerTarget,
-                icon: switch ((placing, locked)) {
-                  (true, _) => LucideIcons.x,
-                  (_, true) => LucideIcons.lockKeyhole,
-                  _ => null,
-                },
-                accent: locked && !placing,
+                icon: placing ? LucideIcons.x : null,
                 onTap: placing ? onCancel : onBack,
-                semanticLabel: switch ((placing, locked)) {
-                  (true, _) => 'Put the signature away',
-                  (_, true) => 'Unlock the reading',
-                  _ => 'Back to the desk',
-                },
+                semanticLabel:
+                    placing ? 'Put the signature away' : 'Back to the desk',
                 // Not a glyph but the desk's own, part way through its turn.
-                child: placing || locked
-                    ? null
-                    : HamburgerGlyph(progress: backMorph),
+                child: placing ? null : HamburgerGlyph(progress: backMorph),
               ),
             ),
           ),

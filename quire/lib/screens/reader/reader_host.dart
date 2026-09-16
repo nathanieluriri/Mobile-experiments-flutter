@@ -292,8 +292,8 @@ class _ReaderHostState extends State<ReaderHost> with TickerProviderStateMixin {
           DeskSheetRow(
             label: 'Lock the way out',
             icon: LucideIcons.lockKeyhole,
-            note: 'Back does nothing. You can still read on, turn pages and '
-                'use everything else.',
+            note: 'Back does nothing and every bar leaves the screen. You can '
+                'still scroll. Tap the page for the way out.',
             onTap: () => Navigator.of(context).pop(ReaderLock.back),
           ),
           DeskSheetRow(
@@ -307,12 +307,9 @@ class _ReaderHostState extends State<ReaderHost> with TickerProviderStateMixin {
       ),
     );
     if (wanted == null || !mounted) return;
+    // No line in the band: the band is the first thing either lock takes
+    // away. The chip at the bottom introduces itself instead.
     widget.store.lock = wanted;
-    _say(
-      wanted.holdsPage
-          ? 'Locked to this page. Tap the page to unlock.'
-          : 'Locked. Tap the padlock.',
-    );
   }
 
   /// Writes the signed PDF and hands it to the phone's share sheet.
