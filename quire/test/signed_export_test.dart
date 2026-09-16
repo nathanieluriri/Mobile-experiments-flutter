@@ -11,6 +11,7 @@ import 'package:quire/services/document_store.dart';
 
 import 'sign_test.dart' show scriptStrokes;
 import 'support/fixtures.dart';
+import 'dart:convert';
 
 /// The fills a page paints in the signature's ink colour.
 int _inkFills(Uint8List bytes, int page) {
@@ -79,4 +80,51 @@ void main() {
       expect(offers(DeskAction.shareOriginal, signed: false), isTrue);
     });
   });
+
+  group('a file whose page holds true and false', () {
+    test('is still written signed', () {
+      final bytes = _pdfWithBooleans();
+      final file = PdfFile.open(bytes);
+      final signed = PdfSignatureWriter.signed(file, <PlacedInk>[
+        PlacedInk(
+          pageIndex: 0,
+          rect: const Rect.fromLTWH(100, 100, 200, 80),
+          outlines: SignatureMark.of(scriptStrokes()).outlines,
+        ),
+      ]);
+      final text = latin1.decode(signed.sublist(bytes.length));
+      expect(text, contains('/I true'));
+      expect(text, contains('/K false'));
+      expect(_inkFills(signed, 0), greaterThan(0));
+    });
+  });
+}
+
+/// A one page PDF whose page dictionary carries booleans, the way a page with
+/// a transparency group does, with its cross reference worked out byte by byte.
+Uint8List _pdfWithBooleans() {
+  final objects = <String>[
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] '
+        '/Group << /S /Transparency /CS /DeviceRGB /I true /K false >> '
+        '/Contents 4 0 R /Resources << >> >>',
+    '<< /Length 11 >>\nstream\n0 0 m 1 1 l\nendstream',
+  ];
+  final out = StringBuffer('%PDF-1.4\n');
+  final offsets = <int>[];
+  for (var i = 0; i < objects.length; i++) {
+    offsets.add(out.length);
+    out.write('${i + 1} 0 obj\n${objects[i]}\nendobj\n');
+  }
+  final xref = out.length;
+  out.write('xref\n0 ${objects.length + 1}\n0000000000 65535 f \n');
+  for (final offset in offsets) {
+    out.write('${offset.toString().padLeft(10, '0')} 00000 n \n');
+  }
+  out.write(
+    'trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\n'
+    'startxref\n$xref\n%%EOF\n',
+  );
+  return Uint8List.fromList(latin1.encode(out.toString()));
 }

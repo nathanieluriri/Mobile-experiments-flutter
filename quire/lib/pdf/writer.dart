@@ -5,6 +5,7 @@ import 'dart:ui' show Offset, Rect;
 import 'package:archive/archive.dart';
 
 import 'document.dart';
+import 'lexer.dart' show PdfKeyword;
 import 'objects.dart';
 
 /// A picture on its way into a page: colour and opacity kept apart, which is
@@ -434,12 +435,16 @@ class PdfSignatureWriter {
           _serialise(out, entry.value, number, gen, encrypt: encrypt);
         }
         out.write(' >>');
+      case PdfKeyword(value: 'true' || 'false' || 'null'):
+        out.write(value.value);
       case PdfStream():
         // A page dictionary never holds a stream inline; a file where one
         // does is not one this writer can promise to reproduce.
         throw const PdfWriteError('This page holds data that cannot be copied.');
       default:
-        throw PdfWriteError('Cannot write a ${value.runtimeType}.');
+        throw const PdfWriteError(
+          'This file holds something quire cannot copy into a signed version.',
+        );
     }
   }
 
