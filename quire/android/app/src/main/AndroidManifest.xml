@@ -20,6 +20,14 @@
               android:name="io.flutter.embedding.android.NormalTheme"
               android:resource="@style/NormalTheme"
               />
+            <!-- A document opened from another app arrives on the incoming
+                 channel, not as a route. Left on, Flutter takes the document's
+                 content address and starts the app on it as a page name, and
+                 every segment of it becomes a blank page the reader has to
+                 press back through. -->
+            <meta-data
+              android:name="flutter_deeplinking_enabled"
+              android:value="false" />
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>

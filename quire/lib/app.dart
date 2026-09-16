@@ -1,9 +1,10 @@
 import 'dart:async';
 import 'dart:io' show File;
 import 'dart:math' as math;
-import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'data/library.dart';
 import 'painting/signature_painter.dart';
@@ -36,7 +37,7 @@ const kSignRoute = '/sign';
 /// A record rather than a class because the screens on either side of it need
 /// nothing beyond these two values: the reader reads its document from the
 /// store, and the route grows the sheet from the rect.
-typedef ReaderHandoff = ({DocumentStore store});
+typedef ReaderHandoff = ({DocumentStore store, bool outside});
 
 /// The whole app: one ground, one type family, one theme and no toggle.
 class App extends StatefulWidget {
@@ -52,7 +53,7 @@ class App extends StatefulWidget {
   State<App> createState() => _AppState();
 }
 
-class _AppState extends State<App> {
+class _AppState extends State<App> with WidgetsBindingObserver {
   final GlobalKey<NavigatorState> _navigator = GlobalKey<NavigatorState>();
 
   /// Where the app says a line about itself when neither the desk's pill nor
@@ -85,6 +86,9 @@ class _AppState extends State<App> {
   @override
   void initState() {
     super.initState();
+    // Registered before the app's own navigator registers, so a page name the
+    // platform pushes reaches this first. See [didPushRouteInformation].
+    WidgetsBinding.instance.addObserver(this);
     if (widget.routes.containsKey(kDeskRoute)) return;
     final library = LibraryStore(catalogue: LibraryCatalogue());
     _library = library;
@@ -139,8 +143,20 @@ class _AppState extends State<App> {
       _say(IncomingRefusal.unreadable.line);
       return;
     }
-    _open(entry, Rect.zero);
+    _open(entry, Rect.zero, outside: true);
   }
+
+  /// Hands the reader back to whichever app opened the document.
+  ///
+  /// On Android that is finishing the activity, which returns to the task
+  /// underneath it, which is the file manager or the mail client the document
+  /// came from. iOS does not let an app send itself away, and puts its own
+  /// link back to the other app in the status bar, so there the reader simply
+  /// goes back to the desk.
+  void _leaveToCaller() => leaveToCaller(
+    platform: defaultTargetPlatform,
+    backInApp: () => _navigator.currentState?.maybePop<void>(),
+  );
 
   /// Says one line over whatever is on screen.
   ///
@@ -163,8 +179,20 @@ class _AppState extends State<App> {
       );
   }
 
+  /// Refuses every page name the platform tries to push.
+  ///
+  /// This app is never navigated from outside. A document another app hands
+  /// over arrives on the incoming channel, where it can be checked and put on
+  /// the desk. A name pushed here instead is a document's address being read
+  /// as a place in the app, and there is no such place: honouring it pushes a
+  /// blank page the reader then has to press back through.
+  @override
+  Future<bool> didPushRouteInformation(RouteInformation routeInformation) =>
+      Future<bool>.value(true);
+
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _incoming
       ?..removeListener(_onIncoming)
       ..dispose();
@@ -239,6 +267,13 @@ class _AppState extends State<App> {
         ),
       ),
       initialRoute: kDeskRoute,
+      // The desk and nothing under it, whatever the platform says the app was
+      // started on. Left to the default, a document's content address becomes
+      // the starting page and each segment of it becomes a blank page under
+      // the reader, which is the one thing back must never uncover.
+      onGenerateInitialRoutes: (_) => <Route<void>>[
+        _route(const RouteSettings(name: kDeskRoute)),
+      ],
       onGenerateRoute: _route,
       onUnknownRoute: _route,
       // The scope sits above the Navigator, so a card can come apart over the
@@ -261,7 +296,7 @@ class _AppState extends State<App> {
         builder:
             builder ??
             (context) => handoff is ReaderHandoff
-                ? _reader(handoff.store)
+                ? _reader(handoff.store, outside: handoff.outside)
                 : const _Ground(),
       );
     }
@@ -284,9 +319,13 @@ class _AppState extends State<App> {
   }
 
   /// The reader, holding [store] and whatever is waiting to be set into it.
-  Widget _reader(DocumentStore store) => ReaderHost(
+  ///
+  /// A document another app opened is left the way it was arrived at: back
+  /// goes to that app, not to a desk the reader never asked to see.
+  Widget _reader(DocumentStore store, {bool outside = false}) => ReaderHost(
     store: store,
     library: _library,
+    onLeave: outside ? _leaveToCaller : null,
     placing: identical(store, _signing) ? _mark : null,
     onPlaced: () {
       _mark = null;
@@ -314,7 +353,7 @@ class _AppState extends State<App> {
     navigator.pop();
     navigator.pushNamed(
       kReaderRoute,
-      arguments: (store: store),
+      arguments: (store: store, outside: false),
     );
   }
 
@@ -329,13 +368,13 @@ class _AppState extends State<App> {
   /// The desk reports where the row was, because it is the desk's business to
   /// know. Nothing here needs it: a document arrives from the edge of the
   /// screen rather than out of the card, the same way the drawer does.
-  void _open(LibraryEntry entry, Rect rowRect) {
+  void _open(LibraryEntry entry, Rect rowRect, {bool outside = false}) {
     final library = _library;
     if (library == null) return;
     final document = library.storeFor(entry)..markOpened();
     _navigator.currentState?.pushNamed(
       kReaderRoute,
-      arguments: (store: document),
+      arguments: (store: document, outside: outside),
     );
   }
 
@@ -348,6 +387,23 @@ class _AppState extends State<App> {
       arguments: library.storeFor(entry),
     );
   }
+}
+
+/// Leaves a document another app opened, the way that platform leaves things.
+///
+/// On Android that is finishing the activity, which returns to the task under
+/// it: the file manager or mail client the document came from. iOS does not
+/// let an app send itself away, and puts its own link back to the other app in
+/// the status bar, so there [backInApp] runs instead.
+Future<void> leaveToCaller({
+  required TargetPlatform platform,
+  required VoidCallback backInApp,
+}) async {
+  if (platform == TargetPlatform.android) {
+    await SystemNavigator.pop();
+    return;
+  }
+  backInApp();
 }
 
 /// The bare desk. What is left when a route has nothing behind it, so a wrong
