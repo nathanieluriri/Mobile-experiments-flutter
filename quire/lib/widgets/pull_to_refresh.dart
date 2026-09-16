@@ -1,12 +1,12 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:flutter/scheduler.dart' show Ticker;
 import 'package:flutter/widgets.dart';
 
 import '../config/flags.dart';
 import '../painting/spinner_painter.dart';
 import '../theme/colors.dart';
-import '../theme/easings.dart';
 import '../theme/feedback.dart';
 
 /// How far the list has to be pulled before letting go means anything.
@@ -19,10 +19,31 @@ const kPullLimit = 128.0;
 /// Where the loop rests while it is working, measured from the top of the body.
 const kPullRest = 60.0;
 
-/// How long the loop takes to leave once the work is done, and how long it
-/// holds at rest before it does.
-const kPullRetract = Duration(milliseconds: 260);
+/// How long the loop holds at rest once the work is done, before it goes.
 const kPullHold = Duration(milliseconds: 180);
+
+/// How long the loop takes to leave once the work is done, where the loop is
+/// a loop and not a body of goo, and how closely it follows the finger.
+const kPullRetract = Duration(milliseconds: 110);
+const kPullPrompt = Duration(milliseconds: 1);
+
+/// How long the goo takes to catch up with where it is being pulled to.
+///
+/// It never arrives exactly: it closes most of the distance in this time and
+/// keeps closing, which is what viscous means. Coming out it is close behind
+/// the finger; going back it is slow, because a body this thick does not snap
+/// anywhere. A finger that can move the shape at once is moving a sticker.
+const kGooFollow = Duration(milliseconds: 110);
+const kGooReturn = Duration(milliseconds: 300);
+
+/// Under this much left to travel the goo has arrived, and the pull is over.
+const double kGooSettled = 0.4;
+
+/// The speed at which the goo is stretched as far as it stretches, in points
+/// a second. It squashes along the way it is going and pinches across it, the
+/// way a falling drop does.
+const double kGooStretchAt = 900.0;
+const double kGooStretch = 0.42;
 
 /// How far the loop turns over the whole pull, before it is doing anything.
 ///
@@ -46,7 +67,7 @@ const int kGooLobes = 3;
 ///
 /// The app draws no shadows, so depth is a difference in value: the list goes
 /// quiet, the goo does not, and the eye puts the goo in front.
-const double kPullHush = 0.66;
+const double kPullHush = 0.34;
 
 /// A list you pull down to read again.
 ///
@@ -104,30 +125,97 @@ class _PullToRefreshState extends State<PullToRefresh>
   /// built by its own dispose, which reaches for the ticker of a widget that
   /// has already left the tree.
   late final AnimationController _turn;
-  late final AnimationController _leave;
 
-  /// The crinkle travelling round the ring, once, as the work starts.
+  /// The crinkle travelling round the ring, once, as the work starts, and the
+  /// hush coming up under it.
   late final AnimationController _trace;
+
+  /// True from the moment the work is done until the goo is home.
+  bool _going = false;
+
+  /// Where the goo is being pulled to, and where it has actually got to.
+  ///
+  /// The two are not the same thing and that is the point. The finger sets
+  /// the first; the second follows it the way something thick follows the
+  /// thing dragging it, always a little behind and never quite there.
+  double _here = 0;
+  double _speed = 0;
+  Duration _last = Duration.zero;
+  Ticker? _ooze;
+
+  /// Called once the goo is back in the edge, to end the run.
+  Completer<void>? _home;
 
   @override
   void initState() {
     super.initState();
     _turn = AnimationController(vsync: this, duration: kSpinnerPeriod);
-    _leave = AnimationController(vsync: this, duration: kPullRetract);
     _trace = AnimationController(vsync: this, duration: kSpinnerTrace);
   }
 
   @override
   void dispose() {
+    _ooze?.dispose();
     _turn.dispose();
-    _leave.dispose();
     _trace.dispose();
     super.dispose();
   }
 
-  /// How far down the loop is drawn, and how much of it there is.
-  double get _shown =>
-      _working ? kPullRest * (1 - easeOutCubic.transform(_leave.value)) : _pull;
+  /// Where the goo is being pulled to at this moment.
+  double get _wanted {
+    if (_going) return 0;
+    if (_working) return kPullRest;
+    return _pull;
+  }
+
+  /// How far down the loop is drawn, which is where the goo has got to.
+  double get _shown => _here;
+
+  /// Keeps the goo moving towards [_wanted] for as long as it is not there.
+  void _startOozing() {
+    if (_ooze != null) return;
+    _last = Duration.zero;
+    _ooze = createTicker(_onOoze)..start();
+  }
+
+  void _onOoze(Duration elapsed) {
+    final dt = _last == Duration.zero
+        ? 1 / 60
+        : ((elapsed - _last).inMicroseconds / 1e6).clamp(0.0, 1 / 20);
+    _last = elapsed;
+    final wanted = _wanted;
+    // Only the goo is thick. The other two answers to a pull are a loop being
+    // moved, and a loop that lagged the finger would just feel loose.
+    final thick = widget.style == PullStyle.goo;
+    final going = _going || (!_working && wanted <= 0);
+    final tau =
+        (thick
+                ? (going ? kGooReturn : kGooFollow)
+                : (going ? kPullRetract : kPullPrompt))
+            .inMicroseconds /
+        1e6;
+    // Exponential, not linear: it closes the same share of what is left every
+    // moment, so it leaves fast and arrives slowly, and it never snaps.
+    final step = 1 - math.exp(-dt / tau);
+    final next = _here + (wanted - _here) * step;
+    _speed = (next - _here) / dt;
+    setState(() => _here = next);
+    if ((wanted - _here).abs() > kGooSettled || _working) {
+      if (_working && !_going) return;
+      if ((wanted - _here).abs() > kGooSettled) return;
+    }
+    // It has arrived.
+    setState(() {
+      _here = wanted;
+      _speed = 0;
+    });
+    if (wanted <= 0) {
+      _ooze?.dispose();
+      _ooze = null;
+      _home?.complete();
+      _home = null;
+    }
+  }
 
   bool _onScroll(ScrollNotification notification) {
     if (!widget.enabled || _working) return false;
@@ -176,6 +264,7 @@ class _PullToRefreshState extends State<PullToRefresh>
   void _setPull(double next) {
     if (next == _pull) return;
     setState(() => _pull = next);
+    _startOozing();
     // The mark is a thing you feel arriving, once, on the way out and not
     // again on the way back.
     final past = _pull >= kPullThreshold;
@@ -190,9 +279,10 @@ class _PullToRefreshState extends State<PullToRefresh>
   Future<void> _run() async {
     setState(() {
       _working = true;
+      _going = false;
       _pull = kPullRest;
     });
-    _leave.value = 0;
+    _startOozing();
     // A plain circle until there is work. The zig zag is what working looks
     // like, so it is drawn on at the moment the work starts.
     _trace.forward(from: 0);
@@ -216,14 +306,21 @@ class _PullToRefreshState extends State<PullToRefresh>
     if (!mounted) return;
     await Future<void>.delayed(kPullHold);
     if (!mounted) return;
-    await _leave.forward();
+    // Home is where the goo came from, and it takes its own time getting
+    // there: the run is not over until it has arrived.
+    final home = _home = Completer<void>();
+    setState(() => _going = true);
+    _startOozing();
+    await home.future;
     if (!mounted) return;
     _turn.stop();
     _trace.value = 0;
     setState(() {
       _working = false;
+      _going = false;
       _pull = 0;
       _armed = false;
+      _speed = 0;
     });
   }
 
@@ -232,7 +329,7 @@ class _PullToRefreshState extends State<PullToRefresh>
     return NotificationListener<ScrollNotification>(
       onNotification: _onScroll,
       child: AnimatedBuilder(
-        animation: Listenable.merge(<Listenable>[_turn, _leave, _trace]),
+        animation: Listenable.merge(<Listenable>[_turn, _trace]),
         builder: (context, _) {
           final down = _shown;
           final reach = (_pull / kPullThreshold).clamp(0.0, 1.0);
@@ -247,31 +344,41 @@ class _PullToRefreshState extends State<PullToRefresh>
             // The goo does the talking in its own style, so the ring inside
             // it stays a plain circle rather than crinkling as well.
             trace: _working && !goo ? _trace.value : 0,
-            // 1 while it is still part of the top edge, 0 once it has been
-            // pulled clear, and back to 1 as it is taken up again: the goo
-            // comes out of the edge, works loose of it, and melts back into
-            // it, rather than appearing and vanishing.
-            attach: _working ? _leave.value : 1 - reach,
+            // How much of it is still part of the top edge, worked out from
+            // where it has actually got to rather than from a clock. It comes
+            // out of the edge, works loose of it at the mark, and melts back
+            // into it on the way home.
+            attach: _working && !_going
+                ? 0
+                : 1 - (down / kPullThreshold).clamp(0.0, 1.0),
+            // Squashed along the way it is travelling, the faster the more.
+            stretch: (_speed / kGooStretchAt).clamp(-1.0, 1.0) * kGooStretch,
             style: widget.style,
           );
           // The hush comes up with the work and goes with the retract.
           final hush = goo && _working
-              ? kPullHush * _trace.value * (1 - _leave.value)
+              ? kPullHush * _trace.value * (down / kPullRest).clamp(0.0, 1.0)
               : 0.0;
           return Stack(
             children: <Widget>[
               Positioned.fill(
-                child: switch (widget.style) {
-                  // The list opens a space at its head and the loop sits in
-                  // it, so what is being pulled is the list itself.
-                  PullStyle.follow => Transform.translate(
-                    offset: Offset(0, down),
-                    child: widget.child,
-                  ),
-                  // The list holds still. Only the loop moves, over the top
-                  // of it.
-                  PullStyle.overlay || PullStyle.goo => widget.child,
-                },
+                // What the list is told about the work, so it can wait in its
+                // own outline rather than sit there pretending it is still
+                // the thing it was showing a moment ago.
+                child: Hushed(
+                  quiet: hush > 0 ? (hush / kPullHush).clamp(0.0, 1.0) : 0,
+                  child: switch (widget.style) {
+                    // The list opens a space at its head and the loop sits
+                    // in it, so what is being pulled is the list itself.
+                    PullStyle.follow => Transform.translate(
+                      offset: Offset(0, down),
+                      child: widget.child,
+                    ),
+                    // The list holds still. Only the loop moves, over the top
+                    // of it.
+                    PullStyle.overlay || PullStyle.goo => widget.child,
+                  },
+                ),
               ),
               if (hush > 0)
                 Positioned.fill(
@@ -305,6 +412,7 @@ class _Loop extends StatelessWidget {
     required this.working,
     required this.trace,
     required this.attach,
+    required this.stretch,
     required this.style,
   });
 
@@ -313,6 +421,10 @@ class _Loop extends StatelessWidget {
 
   /// How much of the goo is still part of the top edge: 1 joined, 0 clear.
   final double attach;
+
+  /// How hard it is being drawn out or drawn back, which squashes the body
+  /// along the way it is going.
+  final double stretch;
 
   /// Which answer to a pull this is drawing.
   final PullStyle style;
@@ -362,6 +474,7 @@ class _Loop extends StatelessWidget {
                   centreY: centre + kSpinnerSize / 2,
                   radius: size / 2 + kNeckHug,
                   attach: attach,
+                  stretch: stretch,
                   phase: turns,
                   working: working,
                 ),
@@ -415,6 +528,7 @@ class _GooPainter extends CustomPainter {
     required this.centreY,
     required this.radius,
     required this.attach,
+    required this.stretch,
     required this.phase,
     required this.working,
   });
@@ -427,6 +541,11 @@ class _GooPainter extends CustomPainter {
 
   /// 1 while the goo is still part of the top edge, 0 once it is clear.
   final double attach;
+
+  /// How far it is being drawn along, positive downward. The body lengthens
+  /// the way it is travelling and pinches across it, which is what a drop
+  /// does and what tells the eye the stuff is thick.
+  final double stretch;
 
   /// What turn the loop is on, which is what the breathing is timed to.
   final double phase;
@@ -488,14 +607,16 @@ class _GooPainter extends CustomPainter {
   Path _body(double x) {
     final swell = kGooWobble * (working ? 1 : 0.45);
     final turn = phase * 2 * math.pi;
+    final along = 1 + stretch.abs();
+    final across = 1 - stretch.abs() * 0.45;
     final path = Path();
     const steps = 60;
     for (var i = 0; i <= steps; i++) {
       final angle = i / steps * 2 * math.pi;
       final r = radius * (1 + swell * math.sin(kGooLobes * angle + turn));
       final point = Offset(
-        x + math.cos(angle) * r,
-        centreY + math.sin(angle) * r,
+        x + math.cos(angle) * r * across,
+        centreY + math.sin(angle) * r * along,
       );
       if (i == 0) {
         path.moveTo(point.dx, point.dy);
@@ -511,6 +632,26 @@ class _GooPainter extends CustomPainter {
       old.centreY != centreY ||
       old.radius != radius ||
       old.attach != attach ||
+      old.stretch != stretch ||
       old.phase != phase ||
       old.working != working;
+}
+
+/// How quiet the list under a pull has been asked to go, which is how far it
+/// has been drawn into its own outline.
+///
+/// It is handed down rather than passed in, because what is under a pull is
+/// whatever the shell put there, and the pull has no business knowing what
+/// that is.
+class Hushed extends InheritedWidget {
+  const Hushed({super.key, required this.quiet, required super.child});
+
+  /// 0 for the list as it is, 1 for the list as its own outline.
+  final double quiet;
+
+  static double of(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<Hushed>()?.quiet ?? 0;
+
+  @override
+  bool updateShouldNotify(Hushed old) => old.quiet != quiet;
 }

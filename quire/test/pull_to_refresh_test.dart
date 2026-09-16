@@ -9,6 +9,10 @@ import 'package:quire/theme/colors.dart';
 import 'package:quire/theme/typography.dart';
 import 'package:quire/widgets/pull_to_refresh.dart';
 
+import 'package:quire/screens/desk/document_row.dart';
+import 'package:quire/screens/desk/list_body.dart';
+import 'package:quire/widgets/skeleton.dart';
+import 'desk_test.dart' show deskStore;
 import 'support/golden.dart';
 
 /// The loop, if it is on screen at all.
@@ -19,6 +23,14 @@ SpinnerPainter? loop(WidgetTester tester) {
     if (painter is SpinnerPainter) return painter;
   }
   return null;
+}
+
+/// Real frames rather than one long one, so tickers and controllers actually
+/// run: a single pump of 700 ms advances the clock once and animates nothing.
+Future<void> _frames(WidgetTester tester, int ms) async {
+  for (var spent = 0; spent < ms; spent += 16) {
+    await tester.pump(const Duration(milliseconds: 16));
+  }
 }
 
 Widget _list({
@@ -310,6 +322,8 @@ void main() {
         final drag = await tester.startGesture(const Offset(200, 300));
         await drag.moveBy(const Offset(0, 60));
         await tester.pump();
+        // The goo is thick, so it is given a moment to catch the finger up.
+        await pumpMs(tester, 400);
         // Within a point: the scroll view itself takes up the slop before it
         // reports the overscroll this widget reads.
         expect(await topOfFirstItem(tester), closeTo(rest, 1));
@@ -440,7 +454,7 @@ void main() {
       await tester.pump();
       await drag.up();
       await tester.pump();
-      await pumpMs(tester, 300);
+      await pumpMs(tester, 500);
       await capture(tester, 'pull__goo_working');
 
       // While it works, what it is over has gone quiet, so the goo reads as
@@ -452,8 +466,11 @@ void main() {
 
       held.complete();
       await tester.pump();
-      await pumpMs(tester, kPullHold.inMilliseconds + 90);
+      await pumpMs(tester, kPullHold.inMilliseconds + 140);
       await capture(tester, 'pull__goo_going');
+      // Still on its way home rather than gone in a frame: this stuff does
+      // not snap anywhere.
+      expect(loop(tester), isNotNull);
 
       await settle(tester);
       expect(loop(tester), isNull);
@@ -464,6 +481,65 @@ void main() {
         ),
         isEmpty,
       );
+    });
+  });
+
+  group('what is under the goo while it works', () {
+    testWidgets('waits in its own outline, and comes back to itself', (
+      tester,
+    ) async {
+      final library = await deskStore();
+      final held = Completer<void>();
+      await pumpScreen(
+        tester,
+        App(
+          routes: <String, WidgetBuilder>{
+            kDeskRoute: (context) => ColoredBox(
+              color: AppColors.ground,
+              child: PullToRefresh(
+                style: PullStyle.goo,
+                onRefresh: () => held.future,
+                child: DeskListBody(
+                  library: library,
+                  entries: library.visible,
+                ),
+              ),
+            ),
+          },
+        ),
+      );
+      await settle(tester);
+      expect(find.byType(SkeletonRow), findsNothing);
+
+      final drag = await tester.startGesture(const Offset(200, 420));
+      for (var i = 0; i < 6; i++) {
+        await drag.moveBy(const Offset(0, 24));
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      await drag.up();
+      await _frames(tester, 700);
+
+      // Every row is waiting in its outline, and the rows themselves are on
+      // their way out rather than thrown away.
+      expect(find.byType(SkeletonRow), findsNWidgets(library.visible.length));
+      final quiet = tester
+          .widgetList<Skeletal>(find.byType(Skeletal))
+          .first
+          .quiet;
+      expect(quiet, greaterThan(0.5));
+      await capture(tester, 'desk__skeletons');
+
+      held.complete();
+      await settle(tester);
+      // And the desk is itself again, with nothing of the wait left on it.
+      expect(
+        tester.widgetList<Skeletal>(find.byType(Skeletal)).every(
+          (row) => row.quiet == 0,
+        ),
+        isTrue,
+      );
+      expect(find.byType(SkeletonRow), findsNothing);
+      expect(find.byType(DocumentRow), findsNWidgets(library.visible.length));
     });
   });
 }

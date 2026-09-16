@@ -7,6 +7,8 @@ import '../../services/document_store.dart';
 import '../../theme/metrics.dart';
 import '../../theme/springs.dart';
 import '../../widgets/dissolve/dissolve_scope.dart';
+import '../../widgets/pull_to_refresh.dart' show Hushed;
+import '../../widgets/skeleton.dart';
 import 'document_card.dart';
 
 /// The desk as a grid: two columns of cards, each showing its document's own
@@ -192,9 +194,8 @@ class _GridBodyState extends State<GridBody>
         if ((_to[entry.path] ?? 0) > 0) entry,
     ];
     if (settled.length == _cards.length) return;
-    final dropped = <String>{
-      for (final entry in _cards) entry.path,
-    }..removeAll(<String>{for (final entry in settled) entry.path});
+    final dropped = <String>{for (final entry in _cards) entry.path}
+      ..removeAll(<String>{for (final entry in settled) entry.path});
     setState(() {
       _cards = settled;
       // Nothing is drawing them any more, so nothing has to be told not to.
@@ -438,17 +439,22 @@ class _GridBodyState extends State<GridBody>
               // row's are.
               child: RepaintBoundary(
                 key: _keyFor(entry),
-                child: DocumentCard(
-                  entry: entry,
-                  store: widget.library.peek(entry),
-                  query: widget.query,
-                  onOpen: widget.onOpen == null
-                      ? null
-                      : () => widget.onOpen!(entry, _rectOf(entry)),
-                  onOverflow: widget.onOverflow == null
-                      ? null
-                      : (target) =>
-                            widget.onOverflow!(entry, _rectOf(entry), target),
+                // The same wait the rows keep, in the shape a card has.
+                child: Skeletal(
+                  quiet: Hushed.of(context),
+                  skeleton: const SkeletonCard(),
+                  child: DocumentCard(
+                    entry: entry,
+                    store: widget.library.peek(entry),
+                    query: widget.query,
+                    onOpen: widget.onOpen == null
+                        ? null
+                        : () => widget.onOpen!(entry, _rectOf(entry)),
+                    onOverflow: widget.onOverflow == null
+                        ? null
+                        : (target) =>
+                              widget.onOverflow!(entry, _rectOf(entry), target),
+                  ),
                 ),
               ),
             ),

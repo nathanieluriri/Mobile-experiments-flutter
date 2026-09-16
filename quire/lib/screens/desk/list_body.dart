@@ -6,6 +6,8 @@ import '../../data/library.dart';
 import '../../services/document_store.dart';
 import '../../theme/springs.dart';
 import '../../widgets/dissolve/dissolve_scope.dart';
+import '../../widgets/pull_to_refresh.dart' show Hushed;
+import '../../widgets/skeleton.dart';
 import 'document_row.dart';
 
 /// The list body under the same name a file that also imports Flutter's
@@ -201,9 +203,8 @@ class _ListBodyState extends State<ListBody>
         if ((_to[entry.path] ?? 0) > 0) entry,
     ];
     if (settled.length == _rows.length) return;
-    final dropped = <String>{
-      for (final entry in _rows) entry.path,
-    }..removeAll(<String>{for (final entry in settled) entry.path});
+    final dropped = <String>{for (final entry in _rows) entry.path}
+      ..removeAll(<String>{for (final entry in settled) entry.path});
     setState(() {
       _rows = settled;
       // Nothing is drawing them any more, so nothing has to be told not to.
@@ -461,17 +462,24 @@ class _ListBodyState extends State<ListBody>
             opacity: _hidden.contains(path) ? 0 : 1,
             child: RepaintBoundary(
               key: _keyFor(entry),
-              child: DocumentRow(
-                entry: entry,
-                store: widget.library.peek(entry),
-                query: widget.query,
-                onOpen: widget.onOpen == null
-                    ? null
-                    : () => widget.onOpen!(entry, _rectOf(entry)),
-                onOverflow: widget.onOverflow == null
-                    ? null
-                    : (target) =>
-                          widget.onOverflow!(entry, _rectOf(entry), target),
+              // While the desk is being read again the row waits in its own
+              // outline, so the list keeps its shape and its weight instead
+              // of showing what it knew a moment ago as though it were news.
+              child: Skeletal(
+                quiet: Hushed.of(context),
+                skeleton: const SkeletonRow(),
+                child: DocumentRow(
+                  entry: entry,
+                  store: widget.library.peek(entry),
+                  query: widget.query,
+                  onOpen: widget.onOpen == null
+                      ? null
+                      : () => widget.onOpen!(entry, _rectOf(entry)),
+                  onOverflow: widget.onOverflow == null
+                      ? null
+                      : (target) =>
+                            widget.onOverflow!(entry, _rectOf(entry), target),
+                ),
               ),
             ),
           ),
