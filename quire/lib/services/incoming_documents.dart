@@ -42,9 +42,14 @@ class IncomingDocument {
   final DocFormat format;
 
   /// The file's own name, which is what it goes onto the desk as.
+  ///
+  /// The platform side copies the file in behind a millisecond stamp, so two
+  /// files with one name cannot overwrite each other on the way in. The stamp
+  /// is how the copy is kept apart, not part of what the document is called.
   String get name {
     final cut = path.lastIndexOf(RegExp(r'[/\\]'));
-    return cut < 0 ? path : path.substring(cut + 1);
+    final file = cut < 0 ? path : path.substring(cut + 1);
+    return file.replaceFirst(RegExp(r'^\d{10,}_'), '');
   }
 }
 

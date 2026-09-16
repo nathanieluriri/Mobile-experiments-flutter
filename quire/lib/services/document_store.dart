@@ -1092,7 +1092,14 @@ class LibraryStore extends ChangeNotifier {
   Future<File?> exportSigned(LibraryEntry entry) async {
     final catalogue = _catalogue;
     final store = _stores[entry.path];
-    if (catalogue == null || store == null) return null;
+    if (store == null) return null;
+    if (store.state == ParseState.loading) await _hydrateOne(entry);
+    if (store.signed && store.locked != null) {
+      throw const PdfWriteError(
+        'Open this document and enter its password, then share it signed.',
+      );
+    }
+    if (catalogue == null) return null;
     final bytes = store.signedPdf(pictures: await store.signaturePictures());
     if (bytes == null) return null;
     final title = entry.title.replaceAll(RegExp(r'[^A-Za-z0-9 ._-]+'), '');
@@ -1106,6 +1113,8 @@ class LibraryStore extends ChangeNotifier {
   /// file is a kind quire does not read. The card goes on the desk before the
   /// file has been parsed, at the top, because it is the newest thing there.
   Future<LibraryEntry?> importFile(String name, Uint8List bytes) async {
+    final held = await _holding(name, bytes);
+    if (held != null) return held;
     final catalogue = _catalogue;
     if (catalogue == null) return null;
     final entry = await catalogue.import(name, bytes);
@@ -1117,6 +1126,39 @@ class LibraryStore extends ChangeNotifier {
     return entry;
   }
 
+  /// A document already on the desk that is [bytes] under [name], so opening
+  /// the same file from another app twice does not put two cards down.
+  ///
+  /// Matched by title and then byte for byte, and only among files of the
+  /// same length, so nothing is read that could not be the same file.
+  Future<LibraryEntry?> _holding(String name, Uint8List bytes) async {
+    final title = LibraryEntry.titleFor(name);
+    for (final entry in _entries) {
+      if (entry.source != DocSource.file || entry.bytes != bytes.length) {
+        continue;
+      }
+      if (_titles[entry.path] == null && entry.title != title) continue;
+      try {
+        final there = await File(entry.path).readAsBytes();
+        if (_sameBytes(there, bytes)) {
+          if (_binned.contains(entry.path)) restore(entry);
+          return entry;
+        }
+      } on Object {
+        continue;
+      }
+    }
+    return null;
+  }
+
+  static bool _sameBytes(Uint8List a, Uint8List b) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
+  }
+
   /// The signatures used most lately, newest first.
   List<SavedSignature> get recentSignatures =>
       List<SavedSignature>.unmodifiable(_recentSignatures);
@@ -1125,7 +1167,19 @@ class LibraryStore extends ChangeNotifier {
   void useSignature(SavedSignature signature) {
     _recentSignatures = rememberSignature(_recentSignatures, signature);
     notifyListeners();
-    _scheduleSave();
+    // At once rather than after the usual quiet: a signature is made at the
+    // end of a task, which is exactly when somebody leaves the app.
+    unawaited(saveNow());
+  }
+
+  /// Writes the desk's state now, if there is anywhere to write it, instead
+  /// of waiting out the quiet a change normally waits for.
+  Future<void> saveNow() async {
+    final catalogue = _catalogue;
+    _pendingSave?.cancel();
+    _pendingSave = null;
+    if (catalogue == null) return;
+    await catalogue.saveState(_stateJson());
   }
 
   /// Takes [signature] out of the recent ones.
@@ -1370,6 +1424,7 @@ class LibraryStore extends ChangeNotifier {
   @override
   void dispose() {
     _pendingSave?.cancel();
+    _pendingSave = null;
     for (final store in _stores.values) {
       store.removeListener(_onDocumentChanged);
       store.dispose();

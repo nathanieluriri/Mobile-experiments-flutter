@@ -105,6 +105,9 @@ class _AppState extends State<App> with WidgetsBindingObserver {
       // what it already holds before anything is added to it.
       await library.boot(parse: false);
       if (mounted) await incoming.boot();
+      // A document handed in at a cold start is opened before the desk's own
+      // documents are read, not raced against them.
+      await _opening;
       await library.hydrate();
     });
   }
@@ -120,8 +123,11 @@ class _AppState extends State<App> with WidgetsBindingObserver {
       return;
     }
     final waiting = incoming.take();
-    if (waiting != null) unawaited(_openIncoming(waiting));
+    if (waiting != null) _opening = _openIncoming(waiting);
   }
+
+  /// The incoming document being opened, if one is.
+  Future<void>? _opening;
 
   /// Puts an incoming document on the desk and opens it.
   ///
@@ -154,12 +160,27 @@ class _AppState extends State<App> with WidgetsBindingObserver {
   /// came from. iOS does not let an app send itself away, and puts its own
   /// link back to the other app in the status bar, so there the reader simply
   /// goes back to the desk.
-  void _leaveToCaller() => leaveToCaller(
-    platform: defaultTargetPlatform,
-    // A pop and not a maybePop: the reader's own guard is what called this,
-    // and asking it again would only call this again.
-    backInApp: () => _navigator.currentState?.pop<void>(),
-  );
+  Future<void> _leaveToCaller() async {
+    // The activity may be gone the moment it finishes, so whatever the
+    // reading changed is written first.
+    await _library?.saveNow();
+    await leaveToCaller(
+      platform: defaultTargetPlatform,
+      // A pop and not a maybePop: the reader's own guard is what called this,
+      // and asking it again would only call this again.
+      backInApp: () => _navigator.currentState?.pop<void>(),
+    );
+  }
+
+  /// Writes the desk's state as the app goes to the background, since an app
+  /// in the background can be closed without another word.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached) {
+      unawaited(_library?.saveNow());
+    }
+  }
 
   /// Says one line over whatever is on screen.
   ///
