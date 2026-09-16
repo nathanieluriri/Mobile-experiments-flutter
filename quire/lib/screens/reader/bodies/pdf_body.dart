@@ -172,7 +172,12 @@ class PdfPages extends ChangeNotifier {
     final box = crop is List && crop.length == 4
         ? crop.map((e) => ((file.resolve(e) as num?) ?? 0).toDouble()).toList()
         : file.mediaBox(dict);
-    return Size((box[2] - box[0]).abs(), (box[3] - box[1]).abs());
+    final width = (box[2] - box[0]).abs();
+    final height = (box[3] - box[1]).abs();
+    final rot = ((file.resolve(dict['Rotate']) as num?)?.toInt() ?? 0) % 180;
+    // A page the file says is turned is as wide as it is tall and the other
+    // way about, the same swap the interpreter makes.
+    return rot.abs() == 90 ? Size(height, width) : Size(width, height);
   });
 
   /// True when [page]'s display list is still in the cache.

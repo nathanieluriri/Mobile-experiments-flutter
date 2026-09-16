@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import '../pdf/display_list.dart';
@@ -60,12 +61,30 @@ class PageListPainter extends CustomPainter {
   void _image(Canvas canvas, ImageCmd im) {
     final img = images[im.name];
     if (img == null) return;
+    final source = Rect.fromLTWH(0, 0, img.width.toDouble(), img.height.toDouble());
+    final into = Rect.fromLTRB(im.rect[0], im.rect[1], im.rect[2], im.rect[3]);
+    final paint = Paint()..filterQuality = FilterQuality.medium;
+    final turns = (list.rotation ~/ 90) % 4;
+    if (turns == 0) {
+      canvas.drawImageRect(img, source, into, paint);
+      return;
+    }
+    // Turned about the middle of the rectangle it was placed in, so a scan
+    // fed in sideways comes out the way it was written.
+    canvas.save();
+    canvas.translate(into.center.dx, into.center.dy);
+    canvas.rotate(turns * math.pi / 2);
     canvas.drawImageRect(
       img,
-      Rect.fromLTWH(0, 0, img.width.toDouble(), img.height.toDouble()),
-      Rect.fromLTRB(im.rect[0], im.rect[1], im.rect[2], im.rect[3]),
-      Paint()..filterQuality = FilterQuality.medium,
+      source,
+      Rect.fromCenter(
+        center: Offset.zero,
+        width: turns.isOdd ? into.height : into.width,
+        height: turns.isOdd ? into.width : into.height,
+      ),
+      paint,
     );
+    canvas.restore();
   }
 
   void _path(Canvas canvas, PathCmd p) {

@@ -53,11 +53,31 @@ class ContentInterpreter {
     final y0 = box[1] < box[3] ? box[1] : box[3];
     final w = (box[2] - box[0]).abs();
     final h = (box[3] - box[1]).abs();
-    final rot = ((doc.resolve(page['Rotate']) as num?)?.toInt() ?? 0) % 360;
-    final out = PageDisplayList(widthPts: w, heightPts: h, rotation: rot);
+    var rot = ((doc.resolve(page['Rotate']) as num?)?.toInt() ?? 0) % 360;
+    if (rot < 0) rot += 360;
+    // Rotate is stated in whole quarter turns; anything else is not a turn
+    // this format has, and the page is taken as it lies.
+    if (rot % 90 != 0) rot = 0;
+    final quarter = rot ~/ 90;
+    // A quarter turn swaps the page over: a sheet stored on its side is a
+    // page that is taller than it is wide once it has been turned upright.
+    final turned = quarter.isOdd;
+    final out = PageDisplayList(
+      widthPts: turned ? h : w,
+      heightPts: turned ? w : h,
+      rotation: rot,
+    );
 
-    // PDF space is bottom-left origin; flip into top-left screen space.
-    final base = Mat(1, 0, 0, -1, -x0, y0 + h);
+    // PDF space is bottom-left origin; flip into top-left screen space, and
+    // turn the page by what /Rotate says, which is what a scanner writes when
+    // it feeds a sheet in sideways. Without this the page is drawn as it is
+    // stored rather than as it is meant to be read.
+    final base = switch (quarter) {
+      1 => Mat(0, 1, 1, 0, -y0, -x0),
+      2 => Mat(-1, 0, 0, 1, x0 + w, -y0),
+      3 => Mat(0, -1, -1, 0, y0 + h, x0 + w),
+      _ => Mat(1, 0, 0, -1, -x0, y0 + h),
+    };
     final content = doc.pageContent(page);
     final res = doc.dict(page['Resources']) ?? const {};
     _exec(content, res, base, out, 0);
@@ -131,7 +151,7 @@ class ContentInterpreter {
           mono: f.baseFont.toLowerCase().contains('courier') ||
               f.baseFont.toLowerCase().contains('mono'),
           color: gs.fillColor,
-          rotated: tm.b.abs() > 0.01 || tm.c.abs() > 0.01,
+          rotated: m.b.abs() > 0.01 || m.c.abs() > 0.01,
           seq: _seq++,
         ));
       }

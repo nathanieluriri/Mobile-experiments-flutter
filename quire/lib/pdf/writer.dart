@@ -179,7 +179,7 @@ class PdfSignatureWriter {
       xobjects[name] = PdfRef(_addImage(image), 0);
     }
 
-    final ink = _inkStream(box, marks, names);
+    final ink = _inkStream(box, _quarterOf(page), marks, names);
     final inkNumber = _add(_stream(_next, 0, ink));
 
     final contents = file.resolve(page['Contents']);
@@ -201,6 +201,16 @@ class PdfSignatureWriter {
           xobjects.isEmpty ? page['Resources'] : _resourcesWith(page, xobjects);
     _objects[ref.number] = _serialiseObject(ref.number, ref.generation, dict);
     _generations[ref.number] = ref.generation;
+  }
+
+  /// The quarter turns [page] says it is meant to be seen through, which is
+  /// the turn the reader drew it with and therefore the turn its coordinates
+  /// are in.
+  int _quarterOf(Map<String, Object?> page) {
+    final raw = file.resolve(page['Rotate']);
+    var rot = (raw is num ? raw.toInt() : 0) % 360;
+    if (rot < 0) rot += 360;
+    return rot % 90 == 0 ? rot ~/ 90 : 0;
   }
 
   /// The box the reader drew the page in, the same way the interpreter picks
@@ -295,16 +305,35 @@ class PdfSignatureWriter {
   /// The content that draws [marks], in the page's user space.
   Uint8List _inkStream(
     List<double> box,
+    int quarter,
     List<PlacedInk> marks,
     Map<PlacedInk, String> names,
   ) {
     final x0 = box[0] < box[2] ? box[0] : box[2];
     final y0 = box[1] < box[3] ? box[1] : box[3];
+    final width = (box[2] - box[0]).abs();
     final height = (box[3] - box[1]).abs();
-    final top = y0 + height;
+    // One matrix carries the whole difference between the two spaces: the
+    // reader's, whose origin is the top left of the page as it is read and
+    // whose y runs down, and the page's own, whose origin is the bottom left
+    // of the box and whose y runs up. Everything after it is written in the
+    // reader's coordinates, turn and all.
+    final place = switch (quarter) {
+      1 => <double>[0, 1, 1, 0, x0, y0],
+      2 => <double>[-1, 0, 0, 1, x0 + width, y0],
+      3 => <double>[0, -1, -1, 0, x0 + width, y0 + height],
+      _ => <double>[1, 0, 0, -1, x0, y0 + height],
+    };
     final buffer = StringBuffer()
       ..writeln('Q')
-      ..writeln('q')
+      ..writeln('q');
+    for (final value in place) {
+      buffer
+        ..write(_num(value))
+        ..write(' ');
+    }
+    buffer
+      ..writeln('cm')
       ..writeln('0.067 0.067 0.067 rg');
     for (final mark in marks) {
       final name = names[mark];
@@ -312,17 +341,17 @@ class PdfSignatureWriter {
         // A picture is placed by the matrix that maps the unit square onto
         // the box it was put in: width and height along the diagonal, the
         // bottom left corner in the translation.
-        final left = x0 + mark.rect.left;
-        final bottom = top - (mark.rect.top + mark.rect.height);
+        // Height runs the other way in this space, so the picture is
+        // placed from the foot of its box with its own axis flipped back.
         buffer
           ..writeln('q')
           ..write(_num(mark.rect.width))
           ..write(' 0 0 ')
-          ..write(_num(mark.rect.height))
+          ..write(_num(-mark.rect.height))
           ..write(' ')
-          ..write(_num(left))
+          ..write(_num(mark.rect.left))
           ..write(' ')
-          ..write(_num(bottom))
+          ..write(_num(mark.rect.top + mark.rect.height))
           ..writeln(' cm')
           ..writeln('${_name(name)} Do')
           ..writeln('Q');
@@ -333,8 +362,8 @@ class PdfSignatureWriter {
         if (outline.length < 3) continue;
         for (var i = 0; i < outline.length; i++) {
           final point = outline[i];
-          final x = x0 + mark.rect.left + point.dx * mark.rect.width;
-          final y = top - (mark.rect.top + point.dy * mark.rect.height);
+          final x = mark.rect.left + point.dx * mark.rect.width;
+          final y = mark.rect.top + point.dy * mark.rect.height;
           buffer
             ..write(_num(x))
             ..write(' ')
