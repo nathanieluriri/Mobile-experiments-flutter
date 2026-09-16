@@ -58,16 +58,34 @@ const double kSpinnerStartAngle = -math.pi / 2;
 /// [turns] carries the whole animation. Passing a controller's value rather
 /// than reading a clock is what lets a test hold this at 275 ms and photograph
 /// it.
+/// How long the crinkle takes to travel once round the ring.
+const Duration kSpinnerTrace = Duration(milliseconds: 700);
+
 class SpinnerPainter extends CustomPainter {
   const SpinnerPainter({
     required this.turns,
     this.color = AppColors.accentBright,
+    this.arc = 1,
+    this.trace = 1,
   });
 
   /// How far round the loop has gone, in turns. Only the fraction shows.
   final double turns;
 
   final Color color;
+
+  /// How much of the ring is drawn at all, 0 to 1. A pull draws the ring on
+  /// as it goes, so the loop is a readout of the pull before it is a loop.
+  final double arc;
+
+  /// How far round the ring the crinkle has travelled, 0 for a plain circle
+  /// and 1 for the whole ring in the zig zag it works in.
+  ///
+  /// It is a front rather than a depth: the wave is at its full height behind
+  /// it and flat in front of it, so the shape is drawn into being rather than
+  /// swelling everywhere at once, which is what makes it read as one line
+  /// being traced.
+  final double trace;
 
   /// The mean radius inside [size]: the largest that keeps both the stroke's
   /// half width and the wave's crest inside the box.
@@ -81,13 +99,26 @@ class SpinnerPainter extends CustomPainter {
   /// squiggle travelling round the loop instead of turning with it. A wave
   /// pinned to the arc would rotate rigidly and read as a printed shape being
   /// spun, not as a line being drawn.
-  static Offset pointAt(double u, double turns, Offset centre, double mean) {
+  static Offset pointAt(
+    double u,
+    double turns,
+    Offset centre,
+    double mean, {
+    double trace = 1,
+  }) {
     final phase = turns * 2 * math.pi;
     final angle =
         kSpinnerStartAngle + phase + kSpinnerSweep * math.pi / 180 * u;
+    // Full height behind the front, nothing in front of it, over a short
+    // shoulder so the line is never kinked where the two meet. Once the front
+    // has been all the way round, the ring is the shape it works in and the
+    // front is not in it anywhere.
+    final height = trace >= 1 ? 1.0 : ((trace - u) * 4).clamp(0.0, 1.0);
     final radius =
         mean +
-        kSpinnerWave * math.sin(kSpinnerWaveCycles * 2 * math.pi * u + phase);
+        kSpinnerWave *
+            height *
+            math.sin(kSpinnerWaveCycles * 2 * math.pi * u + phase);
     return centre + Offset(math.cos(angle) * radius, math.sin(angle) * radius);
   }
 
@@ -96,9 +127,17 @@ class SpinnerPainter extends CustomPainter {
     final centre = size.center(Offset.zero);
     final mean = meanRadius(size);
     if (mean <= 0) return;
+    final drawn = arc.clamp(0.0, 1.0);
+    if (drawn <= 0) return;
     final path = Path();
     for (var i = 0; i <= kSpinnerSegments; i++) {
-      final point = pointAt(i / kSpinnerSegments, turns, centre, mean);
+      final point = pointAt(
+        i / kSpinnerSegments * drawn,
+        turns,
+        centre,
+        mean,
+        trace: trace,
+      );
       if (i == 0) {
         path.moveTo(point.dx, point.dy);
       } else {
@@ -120,5 +159,8 @@ class SpinnerPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(SpinnerPainter old) =>
-      old.turns != turns || old.color != color;
+      old.turns != turns ||
+      old.color != color ||
+      old.arc != arc ||
+      old.trace != trace;
 }

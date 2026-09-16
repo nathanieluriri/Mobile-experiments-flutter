@@ -19,6 +19,24 @@ enum OverflowMenuStyle {
 /// Flip this and rebuild to compare the two.
 const kOverflowMenuStyle = OverflowMenuStyle.pills;
 
+/// How the top of a list answers a pull.
+enum PullStyle {
+  /// The list follows the finger and the loop sits in the gap above it, the
+  /// way a list on iOS opens a space at its head.
+  follow,
+
+  /// The list stays where it is and the loop comes down over it, the way
+  /// Chrome and Gmail answer a pull on Android.
+  overlay,
+
+  /// The loop is pulled out of the top edge on a neck that thins and lets go,
+  /// which is the app's own material: the same goo the menu is peeled off.
+  goo,
+}
+
+/// Flip this and rebuild to compare the three.
+const kPullStyle = PullStyle.follow;
+
 /// Whether the desk carries the action button.
 ///
 /// Off while the three things it offered live somewhere better: a file comes

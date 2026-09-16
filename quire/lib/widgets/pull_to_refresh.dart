@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/widgets.dart';
 
+import '../config/flags.dart';
 import '../painting/spinner_painter.dart';
 import '../theme/colors.dart';
 import '../theme/easings.dart';
@@ -48,7 +49,11 @@ class PullToRefresh extends StatefulWidget {
     required this.child,
     required this.onRefresh,
     this.enabled = true,
+    this.style = kPullStyle,
   });
+
+  /// Which of the three answers to a pull this one gives.
+  final PullStyle style;
 
   final Widget child;
 
@@ -83,17 +88,22 @@ class _PullToRefreshState extends State<PullToRefresh>
   late final AnimationController _turn;
   late final AnimationController _leave;
 
+  /// The crinkle travelling round the ring, once, as the work starts.
+  late final AnimationController _trace;
+
   @override
   void initState() {
     super.initState();
     _turn = AnimationController(vsync: this, duration: kSpinnerPeriod);
     _leave = AnimationController(vsync: this, duration: kPullRetract);
+    _trace = AnimationController(vsync: this, duration: kSpinnerTrace);
   }
 
   @override
   void dispose() {
     _turn.dispose();
     _leave.dispose();
+    _trace.dispose();
     super.dispose();
   }
 
@@ -151,6 +161,9 @@ class _PullToRefreshState extends State<PullToRefresh>
       _pull = kPullRest;
     });
     _leave.value = 0;
+    // A plain circle until there is work. The zig zag is what working looks
+    // like, so it is drawn on at the moment the work starts.
+    _trace.forward(from: 0);
     _turn.repeat();
     Feel.commit.ring();
     try {
@@ -161,6 +174,7 @@ class _PullToRefreshState extends State<PullToRefresh>
         if (mounted) await _leave.forward();
         _turn.stop();
         if (mounted) {
+          _trace.value = 0;
           setState(() {
             _working = false;
             _pull = 0;
@@ -175,31 +189,46 @@ class _PullToRefreshState extends State<PullToRefresh>
   Widget build(BuildContext context) {
     return NotificationListener<ScrollNotification>(
       onNotification: _onScroll,
-      child: Stack(
-        children: <Widget>[
-          Positioned.fill(child: widget.child),
-          if (_pull > 0 || _working)
-            Positioned(
-              left: 0,
-              right: 0,
-              top: 0,
-              child: IgnorePointer(
-                child: AnimatedBuilder(
-                  animation: Listenable.merge(<Listenable>[_turn, _leave]),
-                  builder: (context, _) => _Loop(
-                    down: _shown,
-                    // Before it is working the loop is a readout of the pull,
-                    // and after it is a loop.
-                    turns: _working
-                        ? _turn.value
-                        : (_pull / kPullThreshold).clamp(0.0, 1.0) * kPullTurns,
-                    reach: (_pull / kPullThreshold).clamp(0.0, 1.0),
-                    working: _working,
+      child: AnimatedBuilder(
+        animation: Listenable.merge(<Listenable>[_turn, _leave, _trace]),
+        builder: (context, _) {
+          final down = _shown;
+          final reach = (_pull / kPullThreshold).clamp(0.0, 1.0);
+          final loop = _Loop(
+            down: down,
+            // Before it is working the loop is a readout of the pull, and
+            // after it is a loop.
+            turns: _working ? _turn.value : reach * kPullTurns,
+            reach: reach,
+            working: _working,
+            trace: _working ? _trace.value : 0,
+            style: widget.style,
+          );
+          return Stack(
+            children: <Widget>[
+              Positioned.fill(
+                child: switch (widget.style) {
+                  // The list opens a space at its head and the loop sits in
+                  // it, so what is being pulled is the list itself.
+                  PullStyle.follow => Transform.translate(
+                    offset: Offset(0, down),
+                    child: widget.child,
                   ),
-                ),
+                  // The list holds still. Only the loop moves, over the top
+                  // of it.
+                  PullStyle.overlay || PullStyle.goo => widget.child,
+                },
               ),
-            ),
-        ],
+              if (_pull > 0 || _working)
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  top: 0,
+                  child: IgnorePointer(child: loop),
+                ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -212,7 +241,15 @@ class _Loop extends StatelessWidget {
     required this.turns,
     required this.reach,
     required this.working,
+    required this.trace,
+    required this.style,
   });
+
+  /// How far the crinkle has travelled round the ring.
+  final double trace;
+
+  /// Which answer to a pull this is drawing.
+  final PullStyle style;
 
   /// How far below the top of the body the loop's centre sits.
   final double down;
@@ -229,33 +266,120 @@ class _Loop extends StatelessWidget {
     // It grows into being rather than appearing: at the first few points of
     // the pull it is a suggestion, and it is whole by the time it would fire.
     final size = kSpinnerSize * (0.55 + 0.45 * reach);
-    return Padding(
-      padding: EdgeInsets.only(
-        top: (down - kSpinnerSize / 2).clamp(0.0, kPullLimit),
-      ),
-      child: Center(
-        child: Opacity(
-          opacity: working ? 1 : reach.clamp(0.0, 1.0),
-          child: SizedBox.square(
-            dimension: kSpinnerSize,
+    final colour = working || reach >= 1
+        ? AppColors.accentBright
+        : AppColors.inkFaint;
+    final centre = (down - kSpinnerSize / 2).clamp(0.0, kPullLimit);
+    return SizedBox(
+      height: (centre + kSpinnerSize).clamp(0.0, kPullLimit + kSpinnerSize),
+      child: Stack(
+        children: <Widget>[
+          // The goo is drawn under the loop and only while the loop is still
+          // attached to the edge it is being pulled out of.
+          if (style == PullStyle.goo)
+            Positioned.fill(
+              child: CustomPaint(
+                painter: _NeckPainter(
+                  centreY: centre + kSpinnerSize / 2,
+                  radius: size / 2,
+                  colour: colour,
+                  gone: working ? 1 : reach,
+                ),
+              ),
+            ),
+          Positioned(
+            left: 0,
+            right: 0,
+            top: centre,
             child: Center(
-              child: SizedBox.square(
-                dimension: size,
-                child: CustomPaint(
-                  painter: SpinnerPainter(
-                    turns: turns,
-                    // Faint until it would fire, so the mark is a change of
-                    // colour as well as a bump.
-                    color: working || reach >= 1
-                        ? AppColors.accentBright
-                        : AppColors.inkFaint,
+              child: Opacity(
+                opacity: working ? 1 : reach.clamp(0.0, 1.0),
+                child: SizedBox.square(
+                  dimension: kSpinnerSize,
+                  child: Center(
+                    child: SizedBox.square(
+                      dimension: size,
+                      child: CustomPaint(
+                        painter: SpinnerPainter(
+                          turns: turns,
+                          // Faint until it would fire, so the mark is a change
+                          // of colour as well as a bump.
+                          color: colour,
+                          // A circle on the way down, and the zig zag once
+                          // there is work to show.
+                          arc: working ? 1 : reach,
+                          trace: trace,
+                        ),
+                      ),
+                    ),
                   ),
                 ),
               ),
             ),
           ),
-        ),
+        ],
       ),
     );
   }
+}
+
+/// The thread of goo the loop hangs from while it is being pulled out of the
+/// top edge, thinning as it goes and letting go at the mark.
+///
+/// It is the app's own material: the same waisted neck the menu's pills are
+/// peeled off the dots on, stood on its end.
+class _NeckPainter extends CustomPainter {
+  const _NeckPainter({
+    required this.centreY,
+    required this.radius,
+    required this.colour,
+    required this.gone,
+  });
+
+  /// Where the loop's own centre is, which is where the neck ends.
+  final double centreY;
+  final double radius;
+  final Color colour;
+
+  /// 0 at the edge and 1 at the mark, where the neck has thinned to nothing.
+  final double gone;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final left = 1 - gone.clamp(0.0, 1.0);
+    if (left <= 0 || centreY <= 0) return;
+    final x = size.width / 2;
+    final paint = Paint()..color = colour.withValues(alpha: 0.9 * left);
+    // A waisted thread: widest where it leaves the edge, narrowest just above
+    // the loop, which is what makes it read as one body being drawn out.
+    final path = Path();
+    const steps = 12;
+    final top = radius * 0.9 * left;
+    final waist = radius * 0.28 * left;
+    for (var i = 0; i <= steps; i++) {
+      final t = i / steps;
+      final y = centreY * t;
+      final half = top + (waist - top) * t;
+      if (i == 0) {
+        path.moveTo(x - half, y);
+      } else {
+        path.lineTo(x - half, y);
+      }
+    }
+    for (var i = steps; i >= 0; i--) {
+      final t = i / steps;
+      final y = centreY * t;
+      final half = top + (waist - top) * t;
+      path.lineTo(x + half, y);
+    }
+    path.close();
+    canvas.drawPath(path, paint);
+  }
+
+  @override
+  bool shouldRepaint(_NeckPainter old) =>
+      old.centreY != centreY ||
+      old.radius != radius ||
+      old.colour != colour ||
+      old.gone != gone;
 }
