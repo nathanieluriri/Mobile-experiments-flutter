@@ -37,17 +37,22 @@ class FolderBody extends StatelessWidget {
     required this.countIn,
     required this.onOpen,
     required this.onRemove,
+    this.onMake,
     this.padding = EdgeInsets.zero,
     this.controller,
     this.footer,
   });
 
+  /// Makes a new folder. The first row of the list, above the folders, the
+  /// way a file manager puts it where the folders are.
+  final VoidCallback? onMake;
+
   final List<String> folders;
   final int Function(String folder) countIn;
   final ValueChanged<String> onOpen;
 
-  /// Takes the folder away. What was in it goes back on the open desk, which
-  /// is what the sheet behind this says before it happens.
+  /// Asks what to do with the folder: rename it or take it away. A long
+  /// press, the way a file manager offers what can be done to a folder.
   final ValueChanged<String> onRemove;
 
   final EdgeInsets padding;
@@ -57,11 +62,15 @@ class FolderBody extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final footer = this.footer;
+    final make = onMake;
+    final lead = make == null ? 0 : 1;
     return ListView.builder(
       controller: controller,
       padding: padding,
-      itemCount: folders.length + (footer == null ? 0 : 1),
-      itemBuilder: (context, index) {
+      itemCount: lead + folders.length + (footer == null ? 0 : 1),
+      itemBuilder: (context, at) {
+        if (make != null && at == 0) return NewFolderRow(onTap: make);
+        final index = at - lead;
         if (index >= folders.length) return footer;
         final folder = folders[index];
         return _FolderRow(
@@ -72,6 +81,53 @@ class FolderBody extends StatelessWidget {
           last: index == folders.length - 1,
         );
       },
+    );
+  }
+}
+
+/// The row that makes a folder, drawn as a folder row with a plus on its
+/// plate so it reads as the first place in the list rather than a button
+/// laid over it.
+class NewFolderRow extends StatelessWidget {
+  const NewFolderRow({super.key, required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return PaperPress(
+      onTap: onTap,
+      semanticLabel: 'New folder',
+      washRadius: kListRowWashRadius,
+      child: SizedBox(
+        height: kFolderRowHeight,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: kListRowPaddingX),
+          child: Row(
+            children: [
+              Container(
+                width: kFolderPlate,
+                height: kFolderPlate,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(kFolderPlateRadius),
+                  border: Border.all(color: AppColors.hairline),
+                ),
+                child: const Icon(
+                  LucideIcons.folderPlus,
+                  size: kFolderGlyph,
+                  color: AppColors.accentBright,
+                ),
+              ),
+              const SizedBox(width: kFolderGap),
+              Text(
+                'New folder',
+                style: AppText.rowTitle.copyWith(color: AppColors.ink),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
@@ -182,11 +238,15 @@ class FolderCrumb extends StatelessWidget {
     required this.folder,
     required this.held,
     required this.onLeave,
+    this.onMore,
   });
 
   final String folder;
   final int held;
   final VoidCallback onLeave;
+
+  /// What can be done to the folder you are in: rename it or take it away.
+  final VoidCallback? onMore;
 
   @override
   Widget build(BuildContext context) {
@@ -221,6 +281,20 @@ class FolderCrumb extends StatelessWidget {
             held == 1 ? '1' : '$held',
             style: AppText.docMeta.copyWith(color: AppColors.inkFaint),
           ),
+          if (onMore != null)
+            PaperPress(
+              onTap: onMore,
+              semanticLabel: 'What can be done with $folder',
+              washRadius: kFolderPlateRadius,
+              child: const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                child: Icon(
+                  LucideIcons.ellipsis,
+                  size: 20,
+                  color: AppColors.inkSoft,
+                ),
+              ),
+            ),
         ],
       ),
     );
@@ -259,8 +333,8 @@ class EmptyFolderPanel extends StatelessWidget {
         SizedBox(
           width: kEmptyFolderWidth,
           child: Text(
-            'Move a document in from its own menu. Press and hold the folder '
-            'on the list behind this to take the folder away.',
+            'Move a document in from its own menu, under More. The dots '
+            'above rename this folder or take it away.',
             textAlign: TextAlign.center,
             style: AppText.destinationBody.copyWith(color: AppColors.inkSoft),
           ),

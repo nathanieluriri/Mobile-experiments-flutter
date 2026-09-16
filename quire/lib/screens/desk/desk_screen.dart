@@ -526,7 +526,6 @@ class _DeskScreenState extends State<DeskScreen> with TickerProviderStateMixin {
   /// Why a sheet row is offered but cannot be taken, or null when it can.
   String? _noteFor(LibraryEntry entry, DeskAction action) =>
       switch (action) {
-        DeskAction.move => 'Folders are not built yet',
         DeskAction.shareOriginal
             when entry.source == DocSource.asset && !_signedPdf(entry) =>
           'A shipped document has no file to hand over',
@@ -536,7 +535,6 @@ class _DeskScreenState extends State<DeskScreen> with TickerProviderStateMixin {
       };
 
   bool _allows(LibraryEntry entry, DeskAction action) => switch (action) {
-    DeskAction.move => false,
     DeskAction.shareOriginal =>
       entry.source == DocSource.file || _signedPdf(entry),
     DeskAction.shareUnsigned => entry.source == DocSource.file,
@@ -578,6 +576,79 @@ class _DeskScreenState extends State<DeskScreen> with TickerProviderStateMixin {
         store.moveTo(entry, name);
         _notify('${entry.title} is in $name.');
     }
+  }
+
+  /// Makes an empty folder, from the Folders list itself.
+  Future<void> _makeFolder() async {
+    final name = await showDeskSheet<String>(
+      context,
+      (context) => const RenameSheet(
+        title: '',
+        heading: 'New folder',
+        note: 'A pile on the desk. Nothing moves on the disk.',
+        action: 'Make the folder',
+      ),
+    );
+    if (name == null || !mounted) return;
+    final clean = name.trim();
+    if (clean.isEmpty) return;
+    final had = widget.store.folders.length;
+    final made = widget.store.makeFolder(clean);
+    _notify(
+      widget.store.folders.length == had
+          ? 'There is already a folder called $made.'
+          : '$made is made.',
+    );
+  }
+
+  /// What can be done to [folder]: a new name, or taking it away.
+  Future<void> _folderActions(String folder) async {
+    final picked = await showDeskSheet<String>(
+      context,
+      (context) => DeskSheet(
+        title: folder,
+        children: <Widget>[
+          DeskSheetRow(
+            label: 'Rename folder',
+            icon: LucideIcons.pencil,
+            onTap: () => Navigator.of(context).pop('rename'),
+          ),
+          DeskSheetRow(
+            label: 'Take this folder away',
+            icon: LucideIcons.folderMinus,
+            destructive: true,
+            onTap: () => Navigator.of(context).pop('remove'),
+          ),
+        ],
+      ),
+    );
+    if (!mounted) return;
+    switch (picked) {
+      case 'rename':
+        await _renameFolder(folder);
+      case 'remove':
+        await _removeFolder(folder);
+    }
+  }
+
+  Future<void> _renameFolder(String folder) async {
+    final name = await showDeskSheet<String>(
+      context,
+      (context) => RenameSheet(
+        title: folder,
+        heading: 'Rename folder',
+        note: 'Everything in it stays in it.',
+      ),
+    );
+    if (name == null || !mounted) return;
+    final renamed = widget.store.renameFolder(folder, name);
+    if (renamed == null) {
+      _notify('There is already a folder called ${name.trim()}.');
+      return;
+    }
+    setState(() {
+      if (_folder == folder) _folder = renamed;
+    });
   }
 
   /// Takes a folder away, once it has been said what that means.
@@ -881,6 +952,17 @@ class _DeskScreenState extends State<DeskScreen> with TickerProviderStateMixin {
       color: AppColors.ground,
       child: Stack(
         children: [
+          // Back inside a folder leaves the folder, the way it does in a file
+          // manager, rather than leaving the app from the middle of it.
+          PopScope(
+            canPop: _folder == null,
+            onPopInvokedWithResult: (didPop, result) {
+              if (didPop || _folder == null) return;
+              Feel.tap.ring();
+              setState(() => _folder = null);
+            },
+            child: const SizedBox.shrink(),
+          ),
           Positioned.fill(child: _shell(top, bottom, bare)),
           if (nothingMatched) _noResults(),
           if (_pill != null || _notice != null)
@@ -975,6 +1057,7 @@ class _DeskScreenState extends State<DeskScreen> with TickerProviderStateMixin {
               Feel.tap.ring();
               setState(() => _folder = null);
             },
+            onMore: () => _folderActions(_folder!),
           ),
         ],
         if (_listed) ...[
@@ -1004,13 +1087,19 @@ class _DeskScreenState extends State<DeskScreen> with TickerProviderStateMixin {
     if (_destination == DrawerDestination.folders && _folder == null) {
       final folders = widget.store.folders;
       if (folders.isEmpty) {
-        return DestinationPanel(destination: _destination);
+        return Column(
+          children: <Widget>[
+            NewFolderRow(onTap: _makeFolder),
+            DestinationPanel(destination: _destination),
+          ],
+        );
       }
       return FolderBody(
         folders: folders,
         countIn: widget.store.countIn,
         onOpen: (folder) => setState(() => _folder = folder),
-        onRemove: _removeFolder,
+        onRemove: _folderActions,
+        onMake: _makeFolder,
         controller: _scroll,
         padding: EdgeInsets.only(bottom: bottom + kBodyBottomPadding),
       );

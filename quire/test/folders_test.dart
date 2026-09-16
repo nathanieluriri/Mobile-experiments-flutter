@@ -75,4 +75,26 @@ void main() {
     desk.makeFolder('   ');
     expect(desk.folders, isEmpty);
   });
+
+  group('renaming a folder', () {
+    test('keeps what is in it', () {
+      desk.moveTo(guide, 'Press');
+      expect(desk.renameFolder('Press', 'Printing'), 'Printing');
+      expect(desk.folders, <String>['Printing']);
+      expect(desk.folderOf(guide), 'Printing');
+    });
+
+    test('will not take a name another folder has', () {
+      desk.makeFolder('Press');
+      desk.makeFolder('Bindery');
+      expect(desk.renameFolder('Bindery', ' press '), isNull);
+      expect(desk.folders, <String>['Press', 'Bindery']);
+    });
+
+    test('will not take a blank name', () {
+      desk.makeFolder('Press');
+      expect(desk.renameFolder('Press', '  '), isNull);
+      expect(desk.folders, <String>['Press']);
+    });
+  });
 }

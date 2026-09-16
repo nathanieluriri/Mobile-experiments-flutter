@@ -1194,6 +1194,30 @@ class LibraryStore extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Calls [folder] [name] instead, keeping everything that is in it.
+  ///
+  /// Returns the name it now has, or null when there is no such folder, the
+  /// name is blank, or another folder already has it: two folders answering
+  /// to one name is a filing system that cannot say where a thing is.
+  String? renameFolder(String folder, String name) {
+    final clean = name.trim();
+    final at = _folders.indexOf(folder);
+    if (at < 0 || clean.isEmpty) return null;
+    if (clean == folder) return folder;
+    for (final other in _folders) {
+      if (other != folder && other.toLowerCase() == clean.toLowerCase()) {
+        return null;
+      }
+    }
+    _folders[at] = clean;
+    for (final key in _inFolder.keys.toList()) {
+      if (_inFolder[key] == folder) _inFolder[key] = clean;
+    }
+    _scheduleSave();
+    notifyListeners();
+    return clean;
+  }
+
   /// Takes a folder away. What was in it goes back on the open desk rather
   /// than anywhere near the bin: a folder is a place to put documents, and
   /// removing the place must never remove the documents.
