@@ -257,10 +257,28 @@ class _ReaderHostState extends State<ReaderHost> with TickerProviderStateMixin {
       PageRouteBuilder<SignatureMark>(
         transitionDuration: kPadArrival,
         reverseTransitionDuration: kPadArrival,
-        pageBuilder: (context, animation, secondary) => SignScreen(
-          onBack: () => Navigator.of(context).pop(),
-          onCommit: (mark) => Navigator.of(context).pop(mark),
-        ),
+        pageBuilder: (context, animation, secondary) {
+          final library = widget.library;
+          if (library == null) {
+            return SignScreen(
+              onBack: () => Navigator.of(context).pop(),
+              onCommit: (mark) => Navigator.of(context).pop(mark),
+            );
+          }
+          // The same pad the desk opens, with the same signatures kept on it.
+          return ListenableBuilder(
+            listenable: library,
+            builder: (context, _) => SignScreen(
+              recent: library.recentSignatures,
+              onForget: library.forgetSignature,
+              onBack: () => Navigator.of(context).pop(),
+              onCommit: (mark) {
+                library.useSignature(savedOf(mark));
+                Navigator.of(context).pop(mark);
+              },
+            ),
+          );
+        },
         // Up from the bottom edge, the way a pad is put down over a page.
         transitionsBuilder: (context, animation, secondary, child) =>
             SlideTransition(

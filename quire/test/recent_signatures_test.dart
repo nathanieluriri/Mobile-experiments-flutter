@@ -11,6 +11,8 @@ import 'package:quire/services/recent_signatures.dart';
 
 import 'sign_test.dart' show scriptStrokes;
 import 'support/golden.dart';
+import 'package:quire/screens/reader/reader_host.dart';
+import 'support/fixtures.dart';
 
 /// A drawn signature, nudged by [shift] so each one is a different mark.
 SavedSignature _drawn([double shift = 0]) {
@@ -132,6 +134,33 @@ void main() {
       await tester.longPress(find.bySemanticsLabel('Use recent signature 1'));
       await settle(tester);
       expect(forgotten, same(kept.single));
+    });
+  });
+
+  group('signing from inside a document', () {
+    testWidgets('offers the same recent signatures as the desk', (
+      tester,
+    ) async {
+      final library = LibraryStore();
+      addTearDown(library.dispose);
+      library.useSignature(_drawn());
+      final store = await storeFor(kPressLease);
+      await pumpScreen(
+        tester,
+        MaterialApp(
+          debugShowCheckedModeBanner: false,
+          home: ReaderHost(store: store, library: library),
+        ),
+      );
+      await settle(tester);
+      await tester.tap(
+        find.bySemanticsLabel('What can be done with this document'),
+      );
+      await settle(tester);
+      await tester.tap(find.text('Sign this page'));
+      await settle(tester);
+
+      expect(find.text('RECENT SIGNATURES'), findsOneWidget);
     });
   });
 }
