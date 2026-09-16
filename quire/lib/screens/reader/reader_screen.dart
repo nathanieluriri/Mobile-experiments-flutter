@@ -888,7 +888,10 @@ class _ReaderScreenState extends State<ReaderScreen>
                         onFind: widget.onFind,
                         onMenu: widget.onMenu,
                         menuOpen: widget.menuOpen,
-                        notice: widget.notice,
+                        // Under a lock the band stays gone even with
+                        // something to say, since saying it would bring every
+                        // button in the band back with it.
+                        notice: lock.holdsBack ? null : widget.notice,
                         placing: widget.placing,
                         onConfirm: widget.onConfirmPlacement,
                         onCancel: widget.onCancelPlacement,

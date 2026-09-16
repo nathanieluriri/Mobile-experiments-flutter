@@ -9,6 +9,8 @@ import 'package:quire/services/document_store.dart';
 
 import 'support/fixtures.dart';
 import 'support/golden.dart';
+import 'package:quire/painting/signature_painter.dart';
+import 'sign_test.dart' show scriptStrokes;
 
 Widget _host(DocumentStore store) => MaterialApp(
   debugShowCheckedModeBanner: false,
@@ -246,6 +248,45 @@ void main() {
         tester.widget<UnlockChip>(find.byType(UnlockChip)).progress,
         1,
       );
+    });
+  });
+
+  group('a lock put on while the band has something to say', () {
+    testWidgets('keeps the band and its buttons off the screen', (
+      tester,
+    ) async {
+      final store = await storeFor(kFieldGuide);
+      store.placeSignature(
+        PlacedSignature(
+          pageIndex: 0,
+          rect: const Rect.fromLTWH(200, 300, 200, 80),
+          strokes: SignatureMark.of(scriptStrokes()).outlines,
+        ),
+      );
+      await pumpScreen(tester, _host(store));
+      await settle(tester);
+
+      // With no desk behind it the signed copy has nowhere to go, which is a
+      // reason for the band to speak.
+      await tester.tap(
+        find.bySemanticsLabel('What can be done with this document'),
+      );
+      await settle(tester);
+      await tester.tap(find.text('Share the signed copy'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(
+        tester.widget<ReaderChrome>(find.byType(ReaderChrome)).notice,
+        isNotNull,
+      );
+
+      store.lock = ReaderLock.back;
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      final band = tester.widget<ReaderChrome>(find.byType(ReaderChrome));
+      expect(band.notice, isNull);
+      expect(band.hidden, 1);
+      await settle(tester);
     });
   });
 }
