@@ -63,14 +63,16 @@ class FolioChip extends StatelessWidget {
     return Opacity(
       opacity: 1 - hidden,
       child: Container(
-        width: kFolioChipWidth,
         height: kFolioChipHeight,
+        constraints: const BoxConstraints(minWidth: kFolioChipWidth),
+        padding: const EdgeInsets.symmetric(horizontal: kSpace12),
         decoration: BoxDecoration(
           color: fill,
           borderRadius: BorderRadius.circular(kPillRadius),
           border: AppEdges.all(context),
         ),
         child: Row(
+          mainAxisSize: MainAxisSize.min,
           mainAxisAlignment: MainAxisAlignment.center,
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [

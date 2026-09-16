@@ -847,11 +847,14 @@ class _ReaderScreenState extends State<ReaderScreen>
                                 ),
                               if (readable && !lock.holdsBack)
                                 Positioned(
-                                  left:
-                                      kSheetLeft +
-                                      kSheetWidth -
-                                      kFolioChipInset -
-                                      kFolioChipWidth,
+                                  // Held by its right edge, so a longer label
+                                  // grows the chip into the page and not off
+                                  // the side of it.
+                                  right:
+                                      kScreenWidth -
+                                      kSheetLeft -
+                                      kSheetWidth +
+                                      kFolioChipInset,
                                   top:
                                       kReadableBottom -
                                       kFolioChipInset -

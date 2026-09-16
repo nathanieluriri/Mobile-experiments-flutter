@@ -281,6 +281,22 @@ class _SheetViewState extends State<SheetView>
   /// the fore edge scrub and the riffle.
   void _onStore() {
     if (_syncing || !mounted) return;
+    final holding = _sheetHolding(widget.store.position);
+    if (holding != _sheetIndex) {
+      // The sheet is turned with its scroll already where the row is, so the
+      // move the turn itself makes lands on the same row rather than on
+      // wherever that sheet was last left.
+      final rows =
+          (widget.store.position - _rowOffset(holding)) * kTableRowHeight;
+      _sheet.rememberOffset(holding, rows);
+      _landing = widget.store.position;
+      final stale = _scrolls[holding];
+      if (stale != null && !stale.hasClients) {
+        _scrolls.remove(holding)?.dispose();
+      }
+      _sheet.sheet = holding;
+      return;
+    }
     final scroll = _scrolls[_sheetIndex];
     if (scroll == null || !scroll.hasClients) return;
     final target =
@@ -291,6 +307,29 @@ class _SheetViewState extends State<SheetView>
   }
 
   QuireDocument? get _document => widget.store.document;
+
+  /// The row a jump to another sheet was aimed at, held until the reader
+  /// scrolls by hand.
+  ///
+  /// A short sheet cannot scroll the row to its top, so the list settles
+  /// with some earlier row there. Without this, that settling would be read
+  /// as the reader moving and would put them on that earlier row, and the
+  /// place they jumped to would be lost the moment they arrived.
+  int? _landing;
+
+  /// The sheet that [row] of the whole document is on.
+  int _sheetHolding(int row) {
+    final document = _document;
+    if (document == null || document.sections.isEmpty) return 0;
+    var below = 0;
+    for (var s = 0; s < document.sections.length; s++) {
+      for (final block in document.sections[s].blocks) {
+        if (block is TableBlock) below += block.rows.length;
+      }
+      if (row < below) return s;
+    }
+    return document.sections.length - 1;
+  }
 
   int get _sheetIndex {
     final sections = _document?.sections.length ?? 0;
@@ -333,7 +372,15 @@ class _SheetViewState extends State<SheetView>
     _sheet.rememberOffset(index, notification.metrics.pixels);
     if (_sheet.selected != null) _sheet.selected = null;
     final row = (notification.metrics.pixels / kTableRowHeight).floor();
-    _moveTo(_rowOffset(index) + (row < 0 ? 0 : row));
+    final top = _rowOffset(index) + (row < 0 ? 0 : row);
+    final landing = _landing;
+    if (landing != null && notification.dragDetails == null) {
+      final showing =
+          (notification.metrics.viewportDimension / kTableRowHeight).floor();
+      if (landing >= top && landing < top + showing) return false;
+    }
+    _landing = null;
+    _moveTo(top);
     return false;
   }
 

@@ -6,6 +6,7 @@ import 'package:quire/services/document_store.dart';
 
 import 'support/fixtures.dart';
 import 'support/golden.dart';
+import 'package:quire/screens/reader/bodies/sheet_body.dart';
 
 Widget _host(DocumentStore store) => MaterialApp(
   debugShowCheckedModeBanner: false,
@@ -80,6 +81,38 @@ void main() {
       expect(find.text('Page 3'), findsNothing);
       expect(find.byType(DogEarsSheet), findsOneWidget);
       expect(store.position, 0);
+    });
+  });
+
+  group('dog ears in a spreadsheet', () {
+    testWidgets('a jump to a row on another sheet turns to that sheet', (
+      tester,
+    ) async {
+      final store = await storeFor(kPressRunCosts);
+      store.toggleDogEar(28);
+      await pumpScreen(tester, _host(store));
+      await settle(tester);
+      await _openMenu(tester);
+      await tester.tap(find.text('Dog ears'));
+      await settle(tester);
+      await tester.tap(find.text('Row 29'));
+      await settle(tester);
+
+      expect(SheetController.of(store).sheet, 1);
+      expect(store.position, 28);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('the folio chip holds a long count and the tick', (
+      tester,
+    ) async {
+      final store = await storeFor(kSubscribers);
+      store
+        ..position = 23
+        ..toggleDogEar(23);
+      await pumpScreen(tester, _host(store));
+      await settle(tester);
+      expect(tester.takeException(), isNull);
     });
   });
 }
