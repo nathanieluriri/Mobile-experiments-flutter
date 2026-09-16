@@ -148,10 +148,15 @@ class DeskSheetRow extends StatelessWidget {
     this.note,
     this.destructive = false,
     this.enabled = true,
+    this.trailing,
   });
 
   final String label;
   final String? note;
+
+  /// A second, smaller control at the end of the row, for a list whose rows
+  /// can be both gone to and taken away.
+  final Widget? trailing;
   final IconData icon;
   final VoidCallback onTap;
   final bool destructive;
@@ -204,6 +209,7 @@ class DeskSheetRow extends StatelessWidget {
                     ],
                   ),
                 ),
+                ?trailing,
               ],
             ),
           ),

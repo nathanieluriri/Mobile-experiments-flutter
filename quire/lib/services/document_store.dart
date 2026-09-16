@@ -551,6 +551,16 @@ class DocumentStore extends ChangeNotifier {
     return '${(progress * 100).round()}%';
   }
 
+  /// What [unit] is called where a reader would look for it: a page, a row,
+  /// or for prose, how far through the document it sits.
+  String unitName(int unit) {
+    if (isPdf) return 'Page ${unit + 1}';
+    if (isGrid) return 'Row ${unit + 1}';
+    final count = unitCount;
+    if (count <= 1) return 'The start';
+    return '${((unit + 1) / count * 100).round()}% through';
+  }
+
   /// The pages the reader has caught a corner on.
   Set<int> get dogEared => Set<int>.unmodifiable(_dogEared);
 

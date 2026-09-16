@@ -28,6 +28,7 @@ import 'page_frames.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../desk/desk_sheet.dart';
 import 'reader_menu.dart';
+import 'dog_ears_sheet.dart';
 import 'view_sheet.dart';
 import 'reader_screen.dart';
 import 'sheet_surface.dart';
@@ -216,6 +217,7 @@ class _ReaderHostState extends State<ReaderHost> with TickerProviderStateMixin {
         widget.store.dogEared.contains(widget.store.position)
             ? ReaderAction.undogEar
             : ReaderAction.dogEar,
+        if (widget.store.dogEared.isNotEmpty) ReaderAction.dogEars,
         ReaderAction.find,
         ReaderAction.view,
         ReaderAction.lock,
@@ -229,6 +231,8 @@ class _ReaderHostState extends State<ReaderHost> with TickerProviderStateMixin {
       case ReaderAction.dogEar:
       case ReaderAction.undogEar:
         widget.store.toggleDogEar(widget.store.position);
+      case ReaderAction.dogEars:
+        _dogEars();
       case ReaderAction.shareSigned:
         _shareSigned();
       case ReaderAction.find:
@@ -310,6 +314,16 @@ class _ReaderHostState extends State<ReaderHost> with TickerProviderStateMixin {
     // No line in the band: the band is the first thing either lock takes
     // away. The chip at the bottom introduces itself instead.
     widget.store.lock = wanted;
+  }
+
+  /// The list of dog ears, and a jump to the one picked.
+  Future<void> _dogEars() async {
+    final unit = await showDeskSheet<int>(
+      context,
+      (context) => DogEarsSheet(store: widget.store),
+    );
+    if (unit == null || !mounted) return;
+    widget.store.position = unit;
   }
 
   /// Writes the signed PDF and hands it to the phone's share sheet.
