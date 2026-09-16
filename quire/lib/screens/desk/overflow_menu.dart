@@ -44,9 +44,9 @@ enum DeskAction {
     icon: LucideIcons.share,
     place: DeskMenuPlace.sheet,
   ),
-  share(
-    label: 'Share the signed copy',
-    icon: LucideIcons.share2,
+  shareUnsigned(
+    label: 'Share the unsigned original',
+    icon: LucideIcons.fileX,
     place: DeskMenuPlace.sheet,
   ),
   dogEar(
@@ -104,7 +104,10 @@ enum DeskAction {
         DeskAction.deleteForever => binned,
         DeskAction.duplicate => !binned && canCopy,
         DeskAction.shareOriginal => !binned,
-        DeskAction.share =>
+        // Sharing a signed PDF shares it signed, the way it looks on the
+        // desk. The file as it came in is still there, under a name that
+        // cannot be mistaken for it.
+        DeskAction.shareUnsigned =>
           !binned && signed && entry.format == DocFormat.pdf,
         DeskAction.dogEar => !binned,
         DeskAction.move => !binned,

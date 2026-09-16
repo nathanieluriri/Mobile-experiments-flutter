@@ -432,8 +432,6 @@ class _DeskScreenState extends State<DeskScreen> with TickerProviderStateMixin {
         widget.onOpen?.call(entry, _actingRect);
       case DeskAction.sign:
         widget.onSign?.call(entry);
-      case DeskAction.share:
-        _shareSigned(entry);
       case DeskAction.dogEar:
         final store = widget.store.storeFor(entry);
         store.toggleDogEar(store.position);
@@ -442,6 +440,8 @@ class _DeskScreenState extends State<DeskScreen> with TickerProviderStateMixin {
       case DeskAction.duplicate:
         _duplicate(entry);
       case DeskAction.shareOriginal:
+        _signedPdf(entry) ? _shareSigned(entry) : _shareOriginal(entry);
+      case DeskAction.shareUnsigned:
         _shareOriginal(entry);
       case DeskAction.details:
         _details(entry);
@@ -462,6 +462,12 @@ class _DeskScreenState extends State<DeskScreen> with TickerProviderStateMixin {
         widget.store.deleteForever(entry);
     }
   }
+
+  /// True when [entry] is a PDF carrying a signature, which is when sharing
+  /// the file means sharing it signed.
+  bool _signedPdf(LibraryEntry entry) =>
+      entry.format == DocFormat.pdf &&
+      (widget.store.peek(entry)?.signed ?? false);
 
   /// Writes the signed PDF and hands it to the phone's share sheet.
   ///
@@ -521,14 +527,19 @@ class _DeskScreenState extends State<DeskScreen> with TickerProviderStateMixin {
   String? _noteFor(LibraryEntry entry, DeskAction action) =>
       switch (action) {
         DeskAction.move => 'Folders are not built yet',
-        DeskAction.shareOriginal when entry.source == DocSource.asset =>
+        DeskAction.shareOriginal
+            when entry.source == DocSource.asset && !_signedPdf(entry) =>
+          'A shipped document has no file to hand over',
+        DeskAction.shareUnsigned when entry.source == DocSource.asset =>
           'A shipped document has no file to hand over',
         _ => null,
       };
 
   bool _allows(LibraryEntry entry, DeskAction action) => switch (action) {
     DeskAction.move => false,
-    DeskAction.shareOriginal => entry.source == DocSource.file,
+    DeskAction.shareOriginal =>
+      entry.source == DocSource.file || _signedPdf(entry),
+    DeskAction.shareUnsigned => entry.source == DocSource.file,
     _ => true,
   };
 

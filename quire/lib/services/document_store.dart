@@ -628,10 +628,19 @@ class DocumentStore extends ChangeNotifier {
   Future<Map<int, PdfImage>> signaturePictures() async {
     final out = <int, PdfImage>{};
     for (var i = 0; i < _signatures.length; i++) {
-      final picture = _signatures[i].picture;
+      final mark = _signatures[i];
+      var picture = mark.picture;
+      // A mark read back from an earlier run may not have been decoded yet,
+      // and skipping it would write a file without it.
+      final bytes = mark.encoded;
+      if (picture == null && bytes != null) {
+        picture = await decodePicture(bytes);
+      }
       if (picture == null) continue;
       final planes = await picturePlanes(picture);
-      if (planes == null) continue;
+      if (planes == null) {
+        throw const PdfWriteError('A signature picture could not be read.');
+      }
       out[i] = PdfImage(
         width: planes.width,
         height: planes.height,

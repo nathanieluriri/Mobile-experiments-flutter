@@ -103,6 +103,13 @@ class PdfSignatureWriter {
     if (file.startxref <= 0) {
       throw const PdfWriteError('This file has no cross reference to add to.');
     }
+    for (final mark in marks) {
+      // A mark with nothing to draw would come out as a file that says it is
+      // signed and is not, which is worse than no file at all.
+      if (mark.image == null && !mark.outlines.any((o) => o.length >= 3)) {
+        throw const PdfWriteError('A signature has no ink to write.');
+      }
+    }
     return PdfSignatureWriter._(file)._write(marks);
   }
 
