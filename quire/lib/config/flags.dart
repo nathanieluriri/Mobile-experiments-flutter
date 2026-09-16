@@ -35,7 +35,7 @@ enum PullStyle {
 }
 
 /// Flip this and rebuild to compare the three.
-const kPullStyle = PullStyle.follow;
+const kPullStyle = PullStyle.goo;
 
 /// Whether the desk carries the action button.
 ///
