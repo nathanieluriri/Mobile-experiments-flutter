@@ -115,4 +115,25 @@ void main() {
       expect(tester.takeException(), isNull);
     });
   });
+
+  group('dog ears near the foot of a short sheet', () {
+    for (final row in <int>[70, 50]) {
+      testWidgets('a jump to row ${row + 1} of the CSV stays on it', (
+        tester,
+      ) async {
+        final store = await storeFor(kSubscribers);
+        store.toggleDogEar(row);
+        await pumpScreen(tester, _host(store));
+        await settle(tester);
+        await _openMenu(tester);
+        await tester.tap(find.text('Dog ears'));
+        await settle(tester);
+        await tester.tap(find.text('Row ${row + 1}'));
+        await settle(tester);
+
+        expect(store.position, row);
+        expect(store.dogEared.contains(store.position), isTrue);
+      });
+    }
+  });
 }

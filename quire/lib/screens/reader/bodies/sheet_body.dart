@@ -299,6 +299,10 @@ class _SheetViewState extends State<SheetView>
     }
     final scroll = _scrolls[_sheetIndex];
     if (scroll == null || !scroll.hasClients) return;
+    // Held for the same reason as a jump to another sheet: a row near the
+    // foot cannot be scrolled to the top, and the row that is left there is
+    // not where the reader asked to be.
+    _landing = widget.store.position;
     final target =
         ((widget.store.position - _rowOffset(_sheetIndex)) * kTableRowHeight)
             .clamp(0.0, scroll.position.maxScrollExtent);
@@ -377,7 +381,11 @@ class _SheetViewState extends State<SheetView>
     if (landing != null && notification.dragDetails == null) {
       final showing =
           (notification.metrics.viewportDimension / kTableRowHeight).floor();
-      if (landing >= top && landing < top + showing) return false;
+      // At the foot every row below the top is on screen, whatever the
+      // header and the padding leave of the viewport.
+      final atFoot = notification.metrics.pixels >=
+          notification.metrics.maxScrollExtent - 0.5;
+      if (landing >= top && (atFoot || landing < top + showing)) return false;
     }
     _landing = null;
     _moveTo(top);
