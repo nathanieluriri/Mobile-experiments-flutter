@@ -315,8 +315,9 @@ void main() {
         expect(await topOfFirstItem(tester), closeTo(rest, 1));
         expect(loop(tester), isNotNull);
         if (style == PullStyle.goo) {
-          // The neck is the app's own material, so it is worth a picture.
-          await capture(tester, 'pull__goo');
+          // The goo is the app's own material, so it is worth pictures: on
+          // the way out of the edge, at work, and on the way back into it.
+          await capture(tester, 'pull__goo_coming');
         }
         await drag.up();
         await settle(tester);
@@ -420,6 +421,49 @@ void main() {
       }
       await drag.up();
       await settle(tester);
+    });
+  });
+
+  group('the goo through the whole pull', () {
+    testWidgets('comes out of the edge, works loose, and melts back', (
+      tester,
+    ) async {
+      final held = Completer<void>();
+      await pumpScreen(
+        tester,
+        _list(onRefresh: () => held.future, style: PullStyle.goo),
+      );
+      await settle(tester);
+
+      final drag = await tester.startGesture(const Offset(200, 300));
+      await drag.moveBy(const Offset(0, 100));
+      await tester.pump();
+      await drag.up();
+      await tester.pump();
+      await pumpMs(tester, 300);
+      await capture(tester, 'pull__goo_working');
+
+      // While it works, what it is over has gone quiet, so the goo reads as
+      // being in front of the list rather than drawn into it.
+      final hush = tester.widgetList<ColoredBox>(find.byType(ColoredBox)).where(
+        (box) => box.color.a > 0 && box.color.a < 1,
+      );
+      expect(hush, isNotEmpty, reason: 'the list is hushed under the goo');
+
+      held.complete();
+      await tester.pump();
+      await pumpMs(tester, kPullHold.inMilliseconds + 90);
+      await capture(tester, 'pull__goo_going');
+
+      await settle(tester);
+      expect(loop(tester), isNull);
+      // And nothing is left over the list once it has gone.
+      expect(
+        tester.widgetList<ColoredBox>(find.byType(ColoredBox)).where(
+          (box) => box.color.a > 0 && box.color.a < 1,
+        ),
+        isEmpty,
+      );
     });
   });
 }

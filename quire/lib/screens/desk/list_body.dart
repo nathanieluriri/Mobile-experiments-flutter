@@ -201,7 +201,14 @@ class _ListBodyState extends State<ListBody>
         if ((_to[entry.path] ?? 0) > 0) entry,
     ];
     if (settled.length == _rows.length) return;
-    setState(() => _rows = settled);
+    final dropped = <String>{
+      for (final entry in _rows) entry.path,
+    }..removeAll(<String>{for (final entry in settled) entry.path});
+    setState(() {
+      _rows = settled;
+      // Nothing is drawing them any more, so nothing has to be told not to.
+      _hidden.removeAll(dropped);
+    });
   }
 
   /// Watches the desk for documents arriving and leaving.
@@ -277,17 +284,18 @@ class _ListBodyState extends State<ListBody>
           _snapshots.remove(path)?.dispose();
           return;
         }
-        setState(() {
-          _hidden.remove(path);
-          _running.remove(path);
-        });
+        setState(() => _running.remove(path));
         if (_waiting.remove(path)) {
+          setState(() => _hidden.remove(path));
           // It was put back while it was still coming apart. Now that the run
           // has landed, it can gather out of the same pixels.
           _materialize(path);
           return;
         }
-        // The dust has landed. Only now is the slot allowed to close.
+        // The dust has landed. Only now is the slot allowed to close, and
+        // the row stays hidden while it does: a row drawn again over its own
+        // closing slot is the document flashing back for a moment after it
+        // has already come apart.
         _sync();
         // And a snapshot nobody is being offered back any more has nothing
         // left to do.

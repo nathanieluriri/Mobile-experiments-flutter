@@ -1,7 +1,7 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/widgets.dart';
-
 
 import '../config/flags.dart';
 import '../painting/spinner_painter.dart';
@@ -33,6 +33,20 @@ const double kPullTurns = 0.75;
 
 /// How far the goo swells past the loop it is carrying.
 const double kNeckHug = 5.0;
+
+/// How far the goo's edge breathes in and out, as a share of its radius.
+const double kGooWobble = 0.055;
+
+/// How many lobes that breathing has. Three reads as a body settling rather
+/// than as a cog turning.
+const int kGooLobes = 3;
+
+/// How much of the list the goo takes the light off while it works, so what
+/// it is over reads as being under it.
+///
+/// The app draws no shadows, so depth is a difference in value: the list goes
+/// quiet, the goo does not, and the eye puts the goo in front.
+const double kPullHush = 0.66;
 
 /// A list you pull down to read again.
 ///
@@ -112,9 +126,8 @@ class _PullToRefreshState extends State<PullToRefresh>
   }
 
   /// How far down the loop is drawn, and how much of it there is.
-  double get _shown => _working
-      ? kPullRest * (1 - easeOutCubic.transform(_leave.value))
-      : _pull;
+  double get _shown =>
+      _working ? kPullRest * (1 - easeOutCubic.transform(_leave.value)) : _pull;
 
   bool _onScroll(ScrollNotification notification) {
     if (!widget.enabled || _working) return false;
@@ -223,6 +236,7 @@ class _PullToRefreshState extends State<PullToRefresh>
         builder: (context, _) {
           final down = _shown;
           final reach = (_pull / kPullThreshold).clamp(0.0, 1.0);
+          final goo = widget.style == PullStyle.goo;
           final loop = _Loop(
             down: down,
             // Before it is working the loop is a readout of the pull, and
@@ -230,9 +244,20 @@ class _PullToRefreshState extends State<PullToRefresh>
             turns: _working ? _turn.value : reach * kPullTurns,
             reach: reach,
             working: _working,
-            trace: _working ? _trace.value : 0,
+            // The goo does the talking in its own style, so the ring inside
+            // it stays a plain circle rather than crinkling as well.
+            trace: _working && !goo ? _trace.value : 0,
+            // 1 while it is still part of the top edge, 0 once it has been
+            // pulled clear, and back to 1 as it is taken up again: the goo
+            // comes out of the edge, works loose of it, and melts back into
+            // it, rather than appearing and vanishing.
+            attach: _working ? _leave.value : 1 - reach,
             style: widget.style,
           );
+          // The hush comes up with the work and goes with the retract.
+          final hush = goo && _working
+              ? kPullHush * _trace.value * (1 - _leave.value)
+              : 0.0;
           return Stack(
             children: <Widget>[
               Positioned.fill(
@@ -248,6 +273,14 @@ class _PullToRefreshState extends State<PullToRefresh>
                   PullStyle.overlay || PullStyle.goo => widget.child,
                 },
               ),
+              if (hush > 0)
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: ColoredBox(
+                      color: AppColors.ground.withValues(alpha: hush),
+                    ),
+                  ),
+                ),
               if (_pull > 0 || _working)
                 Positioned(
                   left: 0,
@@ -271,11 +304,15 @@ class _Loop extends StatelessWidget {
     required this.reach,
     required this.working,
     required this.trace,
+    required this.attach,
     required this.style,
   });
 
   /// How far the crinkle has travelled round the ring.
   final double trace;
+
+  /// How much of the goo is still part of the top edge: 1 joined, 0 clear.
+  final double attach;
 
   /// Which answer to a pull this is drawing.
   final PullStyle style;
@@ -295,7 +332,8 @@ class _Loop extends StatelessWidget {
     // It grows into being rather than appearing: at the first few points of
     // the pull it is a suggestion, and it is whole by the time it would fire.
     final size = kSpinnerSize * (0.55 + 0.45 * reach);
-    final held = style == PullStyle.goo && !working && reach < 1;
+    // In the goo style the ring is inside the goo the whole way through.
+    final held = style == PullStyle.goo;
     final colour = held
         // Inside the goo, so it is drawn in the colour that sits on the
         // accent rather than in one that would disappear into it.
@@ -308,8 +346,8 @@ class _Loop extends StatelessWidget {
     // has not moved, so the loop comes down over it.
     final centre = switch (style) {
       PullStyle.follow => ((down - kSpinnerSize) / 2).clamp(0.0, kPullLimit),
-      PullStyle.overlay || PullStyle.goo =>
-        (down - kSpinnerSize / 2).clamp(0.0, kPullLimit),
+      PullStyle.overlay ||
+      PullStyle.goo => (down - kSpinnerSize / 2).clamp(0.0, kPullLimit),
     };
     return SizedBox(
       height: (centre + kSpinnerSize).clamp(0.0, kPullLimit + kSpinnerSize),
@@ -320,10 +358,12 @@ class _Loop extends StatelessWidget {
           if (style == PullStyle.goo)
             Positioned.fill(
               child: CustomPaint(
-                painter: _NeckPainter(
+                painter: _GooPainter(
                   centreY: centre + kSpinnerSize / 2,
-                  radius: size / 2,
-                  gone: working ? 1 : reach,
+                  radius: size / 2 + kNeckHug,
+                  attach: attach,
+                  phase: turns,
+                  working: working,
                 ),
               ),
             ),
@@ -363,84 +403,114 @@ class _Loop extends StatelessWidget {
   }
 }
 
-/// The drop of goo the loop is being pulled out of the top edge in.
+/// The goo the loop rides in: drawn out of the top edge, worked loose of it,
+/// and taken back into it.
 ///
-/// One body rather than a run of circles: it leaves the edge at its full
-/// width, narrows to a waist, and swells again round the loop, which rides
-/// inside it until the pull reaches the mark and the neck lets go. It is the
-/// app's own material, in [AppColors.accent], the same goo the menu's pills
-/// are peeled off the dots on.
-class _NeckPainter extends CustomPainter {
-  const _NeckPainter({
+/// One body at every moment. While it is attached it leaves the edge at its
+/// full width, necks down to a waist, and swells again round the loop. Once
+/// it is clear it keeps breathing, because goo that held perfectly still
+/// while the app was working would have set.
+class _GooPainter extends CustomPainter {
+  const _GooPainter({
     required this.centreY,
     required this.radius,
-    required this.gone,
+    required this.attach,
+    required this.phase,
+    required this.working,
   });
 
-  /// Where the loop's own centre is, which is where the drop ends.
+  /// Where the loop's own centre is, which is the middle of the body.
   final double centreY;
 
-  /// The loop's radius, which is what the drop swells to round it.
+  /// How big that body is round the loop.
   final double radius;
 
-  /// 0 at the edge and 1 at the mark, where the neck has thinned to nothing
-  /// and the loop is clear of it.
-  final double gone;
+  /// 1 while the goo is still part of the top edge, 0 once it is clear.
+  final double attach;
+
+  /// What turn the loop is on, which is what the breathing is timed to.
+  final double phase;
+
+  /// True while the app is working, when the goo breathes at its fullest.
+  final bool working;
 
   @override
   void paint(Canvas canvas, Size size) {
-    final left = 1 - gone.clamp(0.0, 1.0);
-    if (left <= 0 || centreY <= 0) return;
+    if (centreY <= 0 || radius <= 0) return;
     final x = size.width / 2;
-    final head = radius * 1.15;
-    final hold = radius + kNeckHug;
-    // The waist is what thins as the pull goes on, so the drop necks down
-    // before it lets go rather than simply fading out.
-    final waist = radius * (0.24 + 0.5 * left);
-    final path = Path()
+    final paint = Paint()..color = AppColors.accent;
+    final joined = attach.clamp(0.0, 1.0);
+    if (joined > 0) {
+      canvas.drawPath(_neck(x), paint);
+    }
+    canvas.drawPath(_body(x), paint);
+  }
+
+  /// The run of goo from the edge down to the body, waisted in the middle so
+  /// the two read as one thing being pulled apart rather than as two shapes.
+  Path _neck(double x) {
+    final joined = attach.clamp(0.0, 1.0);
+    final head = radius * (0.45 + 0.7 * joined);
+    final waist = radius * (0.12 + 0.46 * joined);
+    final meet = centreY - radius * 0.72;
+    return Path()
       ..moveTo(x - head, 0)
       ..cubicTo(
         x - head,
-        centreY * 0.34,
+        meet * 0.42,
         x - waist,
-        centreY * 0.32,
+        meet * 0.34,
         x - waist,
-        centreY * 0.55,
+        meet * 0.62,
       )
       ..cubicTo(
         x - waist,
-        centreY - hold * 0.9,
-        x - hold,
-        centreY - hold * 0.8,
-        x - hold,
+        meet * 0.92,
+        x - radius * 0.9,
+        meet,
+        x - radius,
         centreY,
       )
-      ..arcToPoint(
-        Offset(x + hold, centreY),
-        radius: Radius.circular(hold),
-        clockwise: false,
-      )
+      ..lineTo(x + radius, centreY)
       ..cubicTo(
-        x + hold,
-        centreY - hold * 0.8,
+        x + radius * 0.9,
+        meet,
         x + waist,
-        centreY - hold * 0.9,
+        meet * 0.92,
         x + waist,
-        centreY * 0.55,
+        meet * 0.62,
       )
-      ..cubicTo(
-        x + waist,
-        centreY * 0.32,
-        x + head,
-        centreY * 0.34,
-        x + head,
-        0,
-      )
+      ..cubicTo(x + waist, meet * 0.34, x + head, meet * 0.42, x + head, 0)
       ..close();
-    canvas.drawPath(path, Paint()..color = AppColors.accent);
+  }
+
+  /// The body round the loop, breathing in and out.
+  Path _body(double x) {
+    final swell = kGooWobble * (working ? 1 : 0.45);
+    final turn = phase * 2 * math.pi;
+    final path = Path();
+    const steps = 60;
+    for (var i = 0; i <= steps; i++) {
+      final angle = i / steps * 2 * math.pi;
+      final r = radius * (1 + swell * math.sin(kGooLobes * angle + turn));
+      final point = Offset(
+        x + math.cos(angle) * r,
+        centreY + math.sin(angle) * r,
+      );
+      if (i == 0) {
+        path.moveTo(point.dx, point.dy);
+      } else {
+        path.lineTo(point.dx, point.dy);
+      }
+    }
+    return path..close();
   }
 
   @override
-  bool shouldRepaint(_NeckPainter old) =>
-      old.centreY != centreY || old.radius != radius || old.gone != gone;
+  bool shouldRepaint(_GooPainter old) =>
+      old.centreY != centreY ||
+      old.radius != radius ||
+      old.attach != attach ||
+      old.phase != phase ||
+      old.working != working;
 }

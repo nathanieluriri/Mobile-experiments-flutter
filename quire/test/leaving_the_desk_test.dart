@@ -293,4 +293,48 @@ void main() {
       expect(find.byType(DocumentRow), findsNothing);
     });
   });
+
+  group('the space closing behind a document', () {
+    testWidgets('never shows the row again on its way shut', (tester) async {
+      final library = await deskStore();
+      final entries = ValueNotifier<List<LibraryEntry>>(library.visible);
+      addTearDown(entries.dispose);
+      await pumpScreen(
+        tester,
+        bodyApp(
+          entries,
+          (shown) => DeskListBody(library: library, entries: shown),
+        ),
+      );
+      await settle(tester);
+
+      final removed = library.visible[1];
+      library.remove(removed);
+      entries.value = library.visible;
+      await tester.pump();
+
+      double shownAt(String path) => tester
+          .widgetList<Opacity>(
+            find.descendant(
+              of: find.byKey(ValueKey<String>(path)),
+              matching: find.byType(Opacity),
+            ),
+          )
+          .first
+          .opacity;
+
+      // Hidden the moment its pixels leave, and hidden every frame after,
+      // including the frames its slot spends closing. A row that came back
+      // for those frames would flash where it had already come apart.
+      for (var waited = 0; waited < 5000; waited += 100) {
+        if (find.byKey(ValueKey<String>(removed.path)).evaluate().isEmpty) {
+          break;
+        }
+        expect(shownAt(removed.path), 0, reason: 'seen again at $waited ms');
+        await pumpMs(tester, 100);
+      }
+      await settle(tester);
+      expect(find.byType(DocumentRow), findsNWidgets(5));
+    });
+  });
 }

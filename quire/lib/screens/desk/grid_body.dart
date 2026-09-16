@@ -192,7 +192,14 @@ class _GridBodyState extends State<GridBody>
         if ((_to[entry.path] ?? 0) > 0) entry,
     ];
     if (settled.length == _cards.length) return;
-    setState(() => _cards = settled);
+    final dropped = <String>{
+      for (final entry in _cards) entry.path,
+    }..removeAll(<String>{for (final entry in settled) entry.path});
+    setState(() {
+      _cards = settled;
+      // Nothing is drawing them any more, so nothing has to be told not to.
+      _hidden.removeAll(dropped);
+    });
   }
 
   /// Watches the desk for documents arriving and leaving.
@@ -251,17 +258,18 @@ class _GridBodyState extends State<GridBody>
           _snapshots.remove(path)?.dispose();
           return;
         }
-        setState(() {
-          _hidden.remove(path);
-          _running.remove(path);
-        });
+        setState(() => _running.remove(path));
         if (_waiting.remove(path)) {
+          setState(() => _hidden.remove(path));
           // It was put back while it was still coming apart. Now that the run
           // has landed, it can gather out of the same pixels.
           _materialize(path);
           return;
         }
-        // Only now does the grid close over the space the card held.
+        // Only now does the grid close over the space the card held, and the
+        // card stays hidden while it does: a card drawn again over its own
+        // closing cell is the document flashing back for a moment after it
+        // has already come apart.
         _sync();
         _dropUnclaimed();
       },
