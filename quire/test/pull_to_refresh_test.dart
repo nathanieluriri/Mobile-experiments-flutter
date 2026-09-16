@@ -25,6 +25,8 @@ Widget _list({
   required Future<void> Function() onRefresh,
   bool enabled = true,
   PullStyle style = PullStyle.follow,
+  int items = 30,
+  ScrollPhysics physics = const ClampingScrollPhysics(),
 }) => App(
   routes: <String, WidgetBuilder>{
     kDeskRoute: (context) => ColoredBox(
@@ -34,8 +36,8 @@ Widget _list({
         style: style,
         onRefresh: onRefresh,
         child: ListView.builder(
-          physics: const ClampingScrollPhysics(),
-          itemCount: 30,
+          physics: physics,
+          itemCount: items,
           itemExtent: 60,
           itemBuilder: (context, i) => SizedBox(
             height: 60,
@@ -312,9 +314,112 @@ void main() {
         // reports the overscroll this widget reads.
         expect(await topOfFirstItem(tester), closeTo(rest, 1));
         expect(loop(tester), isNotNull);
+        if (style == PullStyle.goo) {
+          // The neck is the app's own material, so it is worth a picture.
+          await capture(tester, 'pull__goo');
+        }
         await drag.up();
         await settle(tester);
       });
     }
+  });
+
+  group('a pull the list itself cannot carry', () {
+    testWidgets('works on a list shorter than the screen', (tester) async {
+      var ran = 0;
+      await pumpScreen(
+        tester,
+        _list(
+          items: 3,
+          onRefresh: () async => ran++,
+          // What the desk's own bodies use, so a short desk can be pulled.
+          physics: const AlwaysScrollableScrollPhysics(
+            parent: ClampingScrollPhysics(),
+          ),
+        ),
+      );
+      await settle(tester);
+
+      final drag = await tester.startGesture(const Offset(200, 300));
+      await drag.moveBy(const Offset(0, 120));
+      await tester.pump();
+      expect(loop(tester), isNotNull, reason: 'a short list still pulls');
+      await drag.up();
+      await settle(tester);
+      expect(ran, 1);
+    });
+
+    testWidgets('works where the list runs past its own top', (tester) async {
+      var ran = 0;
+      await pumpScreen(
+        tester,
+        _list(
+          onRefresh: () async => ran++,
+          // Bouncing physics never overscroll: the pull is in the offset.
+          physics: const BouncingScrollPhysics(),
+        ),
+      );
+      await settle(tester);
+
+      final drag = await tester.startGesture(const Offset(200, 300));
+      await drag.moveBy(const Offset(0, 144));
+      await tester.pump();
+      expect(loop(tester), isNotNull, reason: 'the offset is the pull');
+      await drag.up();
+      await settle(tester);
+      expect(ran, 1);
+    });
+  });
+
+  group('the list put away while the loop is still up', () {
+    testWidgets('takes nothing down with it', (tester) async {
+      final held = Completer<void>();
+      await pumpScreen(tester, _list(onRefresh: () => held.future));
+      await settle(tester);
+
+      final drag = await tester.startGesture(const Offset(200, 300));
+      await drag.moveBy(const Offset(0, 100));
+      await tester.pump();
+      await drag.up();
+      await tester.pump();
+      expect(loop(tester), isNotNull);
+
+      // The work finishes and, before the loop has been taken back up, the
+      // body it lives in is replaced, which is what a refresh that empties
+      // the desk does.
+      held.complete();
+      await tester.pump();
+      await pumpScreen(tester, const SizedBox.shrink());
+      await pumpMs(tester, 600);
+      expect(tester.takeException(), isNull);
+      await settle(tester);
+    });
+  });
+
+  group('where the loop sits', () {
+    testWidgets('stays clear of the first row while the list follows', (
+      tester,
+    ) async {
+      await pumpScreen(tester, _list(onRefresh: () async {}));
+      await settle(tester);
+
+      final drag = await tester.startGesture(const Offset(200, 300));
+      for (final pull in <double>[20, 40, 40]) {
+        await drag.moveBy(Offset(0, pull));
+        await tester.pump();
+        final ring = tester.getRect(
+          find.byWidgetPredicate(
+            (widget) => widget is CustomPaint && widget.painter is SpinnerPainter,
+          ),
+        );
+        expect(
+          ring.bottom,
+          lessThanOrEqualTo(tester.getRect(find.text('0')).top + 1),
+          reason: 'the loop is in the space, not over the list',
+        );
+      }
+      await drag.up();
+      await settle(tester);
+    });
   });
 }

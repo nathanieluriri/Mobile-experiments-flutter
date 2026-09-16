@@ -369,6 +369,10 @@ class _GridBodyState extends State<GridBody>
         final inside = constraints.maxWidth - widget.padding.horizontal;
         final card = (inside - kGridGap * (kGridColumns - 1)) / kGridColumns;
         return SingleChildScrollView(
+          // Scrollable even when everything fits, so a short desk can still
+          // be pulled at the top. Without this the view refuses the drag
+          // outright and the pull has nothing to report.
+          physics: const AlwaysScrollableScrollPhysics(),
           controller: widget.controller,
           padding: widget.padding,
           child: AnimatedBuilder(
