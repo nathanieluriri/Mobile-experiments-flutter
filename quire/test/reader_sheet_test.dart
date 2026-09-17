@@ -9,6 +9,8 @@ import 'package:quire/painting/spine_glyph_painter.dart';
 import 'package:quire/screens/reader/bodies/cell_bar.dart';
 import 'package:quire/screens/reader/bodies/parse_strip.dart';
 import 'package:quire/screens/reader/bodies/sheet_body.dart';
+import 'package:quire/screens/reader/bodies/sheet_geometry.dart';
+import 'package:quire/screens/reader/bodies/sheet_grid.dart';
 import 'package:quire/screens/reader/bodies/sheet_tabs.dart';
 import 'package:quire/screens/reader/bodies/spine_table.dart';
 import 'package:quire/screens/reader/reader_screen.dart';
@@ -19,26 +21,7 @@ import 'support/fixtures.dart';
 import 'support/golden.dart';
 
 void main() {
-  group('the geometry a spine table is laid out on', () {
-    test('the bundled sheets fill the sheet exactly', () {
-      // Section 6.4 names these results, and they are what makes the table a
-      // static composition rather than something that has to be measured.
-      final runs = columnWidths(9);
-      expect(runs.open, 236);
-      expect(runs.spine, 12);
-      expect(kRowHeaderWidth + runs.open + 8 * runs.spine, kSheetWidth);
-
-      final paper = columnWidths(6);
-      expect(paper.open, 272);
-      expect(paper.spine, 12);
-      expect(kRowHeaderWidth + paper.open + 5 * paper.spine, kSheetWidth);
-
-      final summary = columnWidths(3);
-      expect(summary.open, 276);
-      expect(summary.spine, 28);
-      expect(kRowHeaderWidth + summary.open + 2 * summary.spine, kSheetWidth);
-    });
-
+  group('how a spreadsheet names itself', () {
     test('columns are lettered the way a spreadsheet letters them', () {
       expect(columnLetter(0), 'A');
       expect(columnLetter(8), 'I');
@@ -52,24 +35,6 @@ void main() {
     test('a cell reference names its sheet, its letter and its file row', () {
       expect(cellReference('Runs', 6, 2), 'Runs!G3');
       expect(cellReference('Summary', 1, 13), 'Summary!B14');
-    });
-
-    test('a sheet that fits never scrolls sideways', () {
-      final widths = spineWidths(9, open: 6);
-      expect(widths[6], 236);
-      expect(widths[0], 12);
-      expect(openOffset(widths, 6), 0);
-    });
-
-    test('a sheet too wide for the phone scrolls exactly its overflow', () {
-      // Section 6.4's worked hypothetical: 30 columns give open 160 and spine
-      // 12, a total of 548, which is 176 wider than the sheet.
-      final wide = columnWidths(30);
-      expect(wide.open, 160);
-      expect(wide.spine, 12);
-      final widths = spineWidths(30, open: 0);
-      expect(widths.reduce((a, b) => a + b), 508);
-      expect(openOffset(widths, 29), 176);
     });
   });
 
@@ -170,17 +135,13 @@ void main() {
   });
 
   group('the sheet body on screen', () {
-    testWidgets('a workbook opens on its first sheet with column A open', (
-      tester,
-    ) async {
+    testWidgets('a workbook opens on its first sheet', (tester) async {
       final store = await storeFor(kPressRunCosts);
       await _pumpSheet(tester, store);
       expect(find.byType(SheetTabs), findsOneWidget);
       expect(find.byType(ParseStrip), findsNothing);
+      expect(find.byType(SheetGrid), findsOneWidget);
       expect(SheetController.of(store).sheet, 0);
-      expect(SheetController.of(store).openColumn, 0);
-      expect(find.text('Job code'), findsOneWidget);
-      expect(find.text('QP-2601-01'), findsOneWidget);
     });
 
     testWidgets('a CSV carries the strip instead of the tabs', (tester) async {
@@ -191,106 +152,89 @@ void main() {
       expect(find.text('CSV · COMMA · 70 ROWS · 6 COLUMNS'), findsOneWidget);
     });
 
-    testWidgets('tapping a spine opens it and folds the old column away', (
+    testWidgets('tapping a cell rings it and raises the bar', (tester) async {
+      final store = await storeFor(kPressRunCosts);
+      await _pumpSheet(tester, store);
+      expect(find.byType(CellBar), findsNothing);
+
+      await tester.tapAt(_cellCentre(tester, store, row: 2, column: 1));
+      await settle(tester);
+      expect(SheetController.of(store).selected, const SheetCell(2, 1));
+      expect(find.byType(CellBar), findsOneWidget);
+      expect(find.text('Runs!B3'), findsOneWidget);
+    });
+
+    testWidgets('the bar prints the formula a cell was worked out by', (
       tester,
     ) async {
       final store = await storeFor(kPressRunCosts);
       await _pumpSheet(tester, store);
-      await tester.tapAt(_spineCentre(6));
+      // Chosen rather than tapped: G is off the right of the phone until the
+      // grid is pushed, and what is being tested here is the bar.
+      SheetController.of(store).selected = const SheetCell(2, 6);
       await settle(tester);
-      expect(SheetController.of(store).openColumn, 6);
-      expect(find.text('Total'), findsOneWidget);
-      expect(find.text('QP-2601-01'), findsNothing);
-    });
-
-    testWidgets('tapping a cell rings it and raises the bar', (tester) async {
-      final store = await storeFor(kPressRunCosts);
-      await _pumpSheet(tester, store);
-      await tester.tapAt(_spineCentre(6));
-      await settle(tester);
-      expect(find.byType(CellBar), findsNothing);
-      await tester.tapAt(const Offset(200, 223));
-      await settle(tester);
-      expect(SheetController.of(store).selected, const SheetCell(2, 6));
-      expect(find.byType(CellBar), findsOneWidget);
       expect(find.text('Runs!G3'), findsOneWidget);
       expect(find.text('D3*E3+F3'), findsOneWidget);
     });
 
-    testWidgets('the bar leaves when the reader scrolls the grid', (
+    testWidgets('the bar leaves when the reader pushes the grid', (
       tester,
     ) async {
       final store = await storeFor(kPressRunCosts);
       await _pumpSheet(tester, store);
-      await tester.tapAt(const Offset(160, 223));
+      await tester.tapAt(_cellCentre(tester, store, row: 2, column: 1));
       await settle(tester);
       expect(find.byType(CellBar), findsOneWidget);
-      await tester.drag(find.byType(SpineTable), const Offset(0, -120));
+
+      await tester.drag(
+        find.byType(SheetGrid),
+        const Offset(0, -120),
+        warnIfMissed: false,
+      );
       await settle(tester);
-      expect(find.byType(CellBar), findsNothing);
       expect(SheetController.of(store).selected, isNull);
+      expect(find.byType(CellBar), findsNothing);
     });
 
-    testWidgets('switching sheets changes the grid and the underline', (
-      tester,
-    ) async {
+    testWidgets('switching sheets changes the grid', (tester) async {
       final store = await storeFor(kPressRunCosts);
       await _pumpSheet(tester, store);
       await tester.tap(find.text('Paper'));
       await settle(tester);
       expect(SheetController.of(store).sheet, 1);
-      expect(find.text('Stock name'), findsOneWidget);
-      expect(find.text('Abbey Cream Wove'), findsWidgets);
+      await capture(tester, 'reader__sheet_second');
     });
 
-    testWidgets('scrolling the grid moves the reader down the document', (
+    testWidgets('pushing the grid moves the reader down the document', (
       tester,
     ) async {
       final store = await storeFor(kSubscribers);
       await _pumpSheet(tester, store);
       expect(store.position, 0);
-      await tester.drag(find.byType(SpineTable), _tenRows);
+
+      await tester.drag(
+        find.byType(SheetGrid),
+        const Offset(0, -kGridRowHeight * 10),
+        warnIfMissed: false,
+      );
       await settle(tester);
       expect(store.position, 10);
       expect(store.positionLabel, '11 / 71');
-    });
-
-    testWidgets('a cell with a newline in it still stands one row tall', (
-      tester,
-    ) async {
-      final store = await storeFor(kSubscribers);
-      // The wrapped cell is in Notes, the last column, so it has to be the
-      // open one before there is anything to measure.
-      SheetController.of(store).openColumn = 5;
-      await _pumpSheet(tester, store);
-      await tester.drag(find.byType(SpineTable), _tenRows);
-      await settle(tester);
-      final cell = find.textContaining('Two addresses on file');
-      expect(cell, findsOneWidget);
-      expect(tester.getSize(cell).height, lessThanOrEqualTo(kTableRowHeight));
     });
 
     testWidgets('the back of a sheet holds the formulas, not the values', (
       tester,
     ) async {
       final store = await storeFor(kPressRunCosts);
-      SheetController.of(store).openColumn = 6;
       await pumpScreen(
         tester,
         MaterialApp(
           debugShowCheckedModeBanner: false,
-          home: Align(
-            alignment: Alignment.topLeft,
-            child: SizedBox(
-              width: kSheetWidth,
-              height: kSheetHeight,
-              child: _Back(store: store),
-            ),
-          ),
+          home: _Back(store: store),
         ),
       );
-      expect(find.text('=D3*E3+F3'), findsOneWidget);
-      expect(find.text('£589.00'), findsNothing);
+      await settle(tester);
+      await capture(tester, 'reader__sheet_back');
     });
   });
 
@@ -299,14 +243,6 @@ void main() {
       final store = await storeFor(kPressRunCosts);
       await _pumpSheet(tester, store);
       await capture(tester, 'reader__sheet_xlsx');
-    });
-
-    testWidgets('reader__sheet_column_open', (tester) async {
-      final store = await storeFor(kPressRunCosts);
-      await _pumpSheet(tester, store);
-      await tester.tapAt(_spineCentre(6));
-      await settle(tester);
-      await capture(tester, 'reader__sheet_column_open');
     });
 
     testWidgets('reader__sheet_tabs', (tester) async {
@@ -320,9 +256,7 @@ void main() {
     testWidgets('reader__sheet_cell_bar', (tester) async {
       final store = await storeFor(kPressRunCosts);
       await _pumpSheet(tester, store);
-      await tester.tapAt(_spineCentre(6));
-      await settle(tester);
-      await tester.tapAt(const Offset(200, 223));
+      SheetController.of(store).selected = const SheetCell(2, 6);
       await settle(tester);
       await capture(tester, 'reader__sheet_cell_bar');
     });
@@ -341,22 +275,6 @@ void main() {
       await capture(tester, 'reader__csv_ragged');
     });
 
-    testWidgets('column__t0000', (tester) async {
-      final store = await storeFor(kPressRunCosts);
-      await _pumpSheet(tester, store);
-      await tester.tapAt(_spineCentre(6));
-      await pumpMs(tester, 0);
-      await capture(tester, 'column__t0000');
-    });
-
-    testWidgets('column__t0240', (tester) async {
-      final store = await storeFor(kPressRunCosts);
-      await _pumpSheet(tester, store);
-      await tester.tapAt(_spineCentre(6));
-      await pumpMs(tester, 0);
-      await pumpMs(tester, 240);
-      await capture(tester, 'column__t0240');
-    });
   });
 }
 
@@ -374,27 +292,29 @@ Future<void> _pumpSheet(WidgetTester tester, DocumentStore store) async {
   );
 }
 
-/// A drag that scrolls the grid exactly ten rows.
-///
-/// The first stretch of any drag is spent on the touch slop and never reaches
-/// the list, so the distance asked for is ten rows plus that slop.
-const Offset _tenRows = Offset(0, -(10 * kTableRowHeight + kDragSlopDefault));
-
-/// The middle of spine [column] on the Runs sheet, in screen coordinates,
-/// while column A is the open one.
-Offset _spineCentre(int column) {
-  final widths = spineWidths(9, open: 0);
-  var x = kSheetLeft + kRowHeaderWidth;
-  for (var c = 0; c < column; c++) {
-    x += widths[c];
-  }
-  return Offset(x + widths[column] / 2, 300);
+/// The middle of a cell on screen, worked out from the sheet's own geometry,
+/// since a file states its own column widths and row heights and the grid
+/// draws them as stated.
+Offset _cellCentre(
+  WidgetTester tester,
+  DocumentStore store, {
+  required int row,
+  required int column,
+}) {
+  final table = store.document!.sections[SheetController.of(store).sheet].blocks
+      .whereType<TableBlock>()
+      .first;
+  final geometry = SheetGeometry.of(table);
+  final grid = tester.getRect(find.byType(SheetGrid));
+  return grid.topLeft +
+      Offset(
+        kRowHeaderWidth + geometry.leftOf(column) + geometry.widthOf(column) / 2,
+        kGridHeaderHeight + geometry.topOf(row) + geometry.heightOf(row) / 2,
+      );
 }
 
-/// A small CSV whose last three rows do not match its header.
-///
-/// The bundled file is clean, so raggedness needs a file of its own rather
-/// than a damaged copy of a real one.
+/// A CSV whose rows do not all match its header, so the strip has something
+/// to count.
 Uint8List _raggedCsv() => Uint8List.fromList(
   utf8.encode(
     'Town,Copies,Tier,Note\n'

@@ -1,6 +1,4 @@
 import 'dart:math' as math;
-import 'dart:ui' show lerpDouble;
-
 import 'package:flutter/widgets.dart';
 
 import '../../../format/csv_parser.dart';
@@ -13,6 +11,8 @@ import '../sheet_surface.dart';
 import 'cell_bar.dart';
 import 'page_states.dart';
 import 'parse_strip.dart';
+import 'sheet_geometry.dart';
+import 'sheet_grid.dart';
 import 'sheet_tabs.dart';
 import 'spine_table.dart';
 
@@ -71,6 +71,13 @@ class SheetController extends ChangeNotifier {
   /// Where a sheet was left scrolled to.
   double offsetOf(int sheet) => _offsets[sheet] ?? 0;
   void rememberOffset(int sheet, double value) => _offsets[sheet] = value;
+
+  /// Where a sheet was left pushed to, across and down both. A workbook is
+  /// one document and a reader who steps to another sheet and back expects to
+  /// find the column they were reading, not column A.
+  final Map<int, Offset> _pans = <int, Offset>{};
+  Offset panOf(int sheet) => _pans[sheet] ?? Offset.zero;
+  void rememberPan(int sheet, Offset value) => _pans[sheet] = value;
 
   /// The ringed cell, or null when the cell bar is down.
   SheetCell? get selected => _selected;
@@ -154,13 +161,11 @@ class SheetView extends StatefulWidget {
   State<SheetView> createState() => _SheetViewState();
 }
 
-class _SheetViewState extends State<SheetView>
-    with TickerProviderStateMixin {
+class _SheetViewState extends State<SheetView> with TickerProviderStateMixin {
   /// Both are built in [initState] rather than lazily on first use, because a
   /// sheet with no grid on it never reaches the part of the build that would
   /// touch them, and a controller that first exists inside [dispose] is a
   /// ticker created against a tree that has already gone.
-  late final AnimationController _column;
   late final AnimationController _bar;
 
   /// The bar rises on its spring and leaves on a plain ease, because arriving
@@ -171,14 +176,10 @@ class _SheetViewState extends State<SheetView>
     clampOvershoot: true,
   );
 
-  final Map<int, ScrollController> _scrolls = <int, ScrollController>{};
-
   late SheetController _sheet;
 
   /// The column that is open and the one it took over from, which is the whole
   /// state the open animation runs on.
-  int _open = 0;
-  int _from = 0;
 
   /// The sheet that was showing last frame, so a workbook can move the reader
   /// when they step to another one.
@@ -197,8 +198,6 @@ class _SheetViewState extends State<SheetView>
   @override
   void initState() {
     super.initState();
-    _column = AnimationController(vsync: this, duration: kColumnOpen, value: 1)
-      ..addListener(_repaint);
     _bar = AnimationController(
       vsync: this,
       duration: kCellBarIn,
@@ -207,7 +206,6 @@ class _SheetViewState extends State<SheetView>
     _sheet = SheetController.of(widget.store);
     _sheet.addListener(_onController);
     widget.store.addListener(_onStore);
-    _open = _from = _sheet.openColumn;
     _shown = _sheetIndex;
     if (_sheet.selected != null) _bar.value = 1;
     _readParseFacts();
@@ -217,10 +215,6 @@ class _SheetViewState extends State<SheetView>
   void dispose() {
     _sheet.removeListener(_onController);
     widget.store.removeListener(_onStore);
-    for (final scroll in _scrolls.values) {
-      scroll.dispose();
-    }
-    _column.dispose();
     _bar.dispose();
     super.dispose();
   }
@@ -250,12 +244,6 @@ class _SheetViewState extends State<SheetView>
       // with the tab that is lit.
       _moveTo(_rowOffset(sheet) + _rowsScrolled(sheet));
     }
-    final next = _sheet.openColumn;
-    if (next != _open) {
-      _from = _open;
-      _open = next;
-      _column.forward(from: 0);
-    }
     if (_sheet.selected != null) {
       _bar.forward();
     } else {
@@ -265,8 +253,15 @@ class _SheetViewState extends State<SheetView>
   }
 
   /// How far down a sheet was left, in whole rows.
-  int _rowsScrolled(int index) =>
-      (_sheet.offsetOf(index) / kTableRowHeight).floor();
+  ///
+  /// Worked out from the pan rather than from a scroll position, because the
+  /// grid has none: it is painted at an offset and the offset is the state.
+  int _rowsScrolled(int index) {
+    final table = _tableOn(index);
+    if (table == null) return 0;
+    final geometry = SheetGeometry.of(table);
+    return geometry.rowAt(_sheet.panOf(index).dy + geometry.frozenHeight);
+  }
 
   /// Puts the reader at [row] of the whole document without the store's own
   /// notification bouncing back as a jump.
@@ -286,28 +281,32 @@ class _SheetViewState extends State<SheetView>
       // The sheet is turned with its scroll already where the row is, so the
       // move the turn itself makes lands on the same row rather than on
       // wherever that sheet was last left.
-      final rows =
-          (widget.store.position - _rowOffset(holding)) * kTableRowHeight;
-      _sheet.rememberOffset(holding, rows);
-      _landing = widget.store.position;
-      final stale = _scrolls[holding];
-      if (stale != null && !stale.hasClients) {
-        _scrolls.remove(holding)?.dispose();
+      final table = _tableOn(holding);
+      if (table != null) {
+        final geometry = SheetGeometry.of(table);
+        final row = widget.store.position - _rowOffset(holding);
+        _sheet.rememberPan(
+          holding,
+          Offset(
+            _sheet.panOf(holding).dx,
+            (geometry.topOf(row) - geometry.frozenHeight).clamp(
+              0.0,
+              double.infinity,
+            ),
+          ),
+        );
       }
+      _landing = widget.store.position;
       _sheet.sheet = holding;
       return;
     }
-    final scroll = _scrolls[_sheetIndex];
-    if (scroll == null || !scroll.hasClients) return;
-    // Held for the same reason as a jump to another sheet: a row near the
-    // foot cannot be scrolled to the top, and the row that is left there is
-    // not where the reader asked to be.
+    // The grid is asked to bring the row into view rather than told where to
+    // scroll to: it knows its own row heights and its own frozen panes, and
+    // it will not move at all if the row is already on screen.
     _landing = widget.store.position;
-    final target =
-        ((widget.store.position - _rowOffset(_sheetIndex)) * kTableRowHeight)
-            .clamp(0.0, scroll.position.maxScrollExtent);
-    if ((scroll.position.pixels - target).abs() < 0.5) return;
-    scroll.jumpTo(target);
+    final row = widget.store.position - _rowOffset(_sheetIndex);
+    if (row < 0) return;
+    setState(() => _reveal = SheetCell(row, _sheet.selected?.column ?? 0));
   }
 
   QuireDocument? get _document => widget.store.document;
@@ -362,10 +361,14 @@ class _SheetViewState extends State<SheetView>
     return null;
   }
 
-  ScrollController _scrollFor(int index) => _scrolls.putIfAbsent(
-    index,
-    () => ScrollController(initialScrollOffset: _sheet.offsetOf(index)),
-  );
+  /// The grid on sheet [index], or null for a sheet that holds none.
+  TableBlock? _tableOn(int index) {
+    final document = _document;
+    if (document == null || index < 0 || index >= document.sections.length) {
+      return null;
+    }
+    return _tableIn(document.sections[index]);
+  }
 
   bool _onScroll(ScrollNotification notification) {
     // A tab strip sliding sideways and a value being read across are not the
@@ -379,11 +382,12 @@ class _SheetViewState extends State<SheetView>
     final top = _rowOffset(index) + (row < 0 ? 0 : row);
     final landing = _landing;
     if (landing != null && notification.dragDetails == null) {
-      final showing =
-          (notification.metrics.viewportDimension / kTableRowHeight).floor();
+      final showing = (notification.metrics.viewportDimension / kTableRowHeight)
+          .floor();
       // At the foot every row below the top is on screen, whatever the
       // header and the padding leave of the viewport.
-      final atFoot = notification.metrics.pixels >=
+      final atFoot =
+          notification.metrics.pixels >=
           notification.metrics.maxScrollExtent - 0.5;
       if (landing >= top && (atFoot || landing < top + showing)) return false;
     }
@@ -392,16 +396,37 @@ class _SheetViewState extends State<SheetView>
     return false;
   }
 
+  /// How far the body has to start below its own top to clear the band.
+  double _under = 0;
+
+  /// Measures that gap once the body has been laid out, and again if the
+  /// reader ever puts the body somewhere else.
+  void _measureBand() {
+    final box = context.findRenderObject();
+    if (box is! RenderBox || !box.hasSize) return;
+    // The padding is inside this body, so the body's own top does not move
+    // when it changes: measuring it again would otherwise chase itself.
+    final top = box.localToGlobal(Offset.zero).dy;
+    final want = math.max(0.0, kHeadBandTop + kHeadBandHeight - top);
+    if ((want - _under).abs() < 0.5) return;
+    setState(() => _under = want);
+  }
+
+  /// The cell the grid is being asked to bring into view, if any.
+  ///
+  /// It is a cell rather than a row because the grid moves in two directions
+  /// and a row on its own says nothing about which way it went.
+  SheetCell? _reveal;
+
   void _jumpToRow(int row) {
-    final scroll = _scrolls[_sheetIndex];
-    if (scroll == null || !scroll.hasClients) return;
-    scroll.jumpTo(
-      (row * kTableRowHeight).clamp(0.0, scroll.position.maxScrollExtent),
-    );
+    setState(() => _reveal = SheetCell(row, _sheet.selected?.column ?? 0));
   }
 
   @override
   Widget build(BuildContext context) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _measureBand();
+    });
     final document = _document;
     if (document == null || document.sections.isEmpty) {
       return _emptySheet();
@@ -415,83 +440,82 @@ class _SheetViewState extends State<SheetView>
     // front is giving.
     if (table == null) return _emptySheet();
 
-    final columns = _columnCount(table);
-    _sheet.startOn(index, math.min(table.frozenColumns, columns - 1));
-    final rest = columnWidths(columns);
-    final t = easeOutCubic.transform(_column.value);
-    final widths = <double>[
-      for (var c = 0; c < columns; c++)
-        if (c == _open)
-          lerpDouble(rest.spine, rest.open, t)!
-        else if (c == _from)
-          lerpDouble(rest.open, rest.spine, t)!
-        else
-          rest.spine,
-    ];
-    final offset = lerpDouble(
-      openOffset(spineWidths(columns, open: _from), _from),
-      openOffset(spineWidths(columns, open: _open), _open),
-      t,
-    )!;
     final facts = _facts;
     final selected = _sheet.selected;
 
     return NotificationListener<ScrollNotification>(
       onNotification: _onScroll,
-      child: Stack(
-        children: [
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              if (document.sections.length > 1)
-                SheetTabs(
-                  names: <String>[
-                    for (final section in document.sections) section.title,
-                  ],
-                  active: index,
-                  onSelect: (next) => _sheet.sheet = next,
-                ),
-              if (facts != null)
-                ParseStrip(
-                  facts: facts,
-                  onJumpToRagged: () {
-                    final first = facts.firstRagged;
-                    if (first != null) _jumpToRow(first - 1);
-                  },
-                ),
-              Expanded(
-                child: AnimatedSwitcher(
-                  duration: kSheetTabCross,
-                  switchInCurve: easeOutQuad,
-                  switchOutCurve: easeOutQuad,
-                  child: SpineTable(
-                    key: ValueKey<int>(index),
-                    table: table,
-                    widths: widths,
-                    scales: columnScales(table, from: _bodyFrom(table)),
-                    offset: offset,
-                    scroll: _scrollFor(index),
-                    locked: widget.store.lock.holdsPage,
-                    face: widget.face,
-                    selected: selected,
-                    matches: widget.matches,
-                    raggedRows: facts?.raggedRows ?? const <int>{},
-                    onCellTap: (cell) => _sheet.selected =
-                        cell == selected ? null : cell,
-                    onSpineTap: (column) => _sheet.openColumn = column,
+      // The band floats over the top of the reader, and a grid whose letters
+      // are under it is a grid whose columns cannot be read. So the sheet
+      // begins below the band and stays there, the way a spreadsheet keeps
+      // its own toolbar above its letters. How far down that is depends on
+      // where the reader put this body, which is why it is measured rather
+      // than assumed.
+      child: Padding(
+        padding: EdgeInsets.only(top: _under),
+        child: Stack(
+          children: [
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                if (facts != null)
+                  ParseStrip(
+                    facts: facts,
+                    onJumpToRagged: () {
+                      final first = facts.firstRagged;
+                      if (first != null) _jumpToRow(first - 1);
+                    },
+                  ),
+                Expanded(
+                  child: AnimatedSwitcher(
+                    duration: kSheetTabCross,
+                    switchInCurve: easeOutQuad,
+                    switchOutCurve: easeOutQuad,
+                    child: SheetGrid(
+                      key: ValueKey<int>(index),
+                      table: table,
+                      selected: selected,
+                      locked: widget.store.lock.holdsPage,
+                      face: widget.face,
+                      matches: widget.matches,
+                      raggedRows: facts?.raggedRows ?? const <int>{},
+                      reveal: _reveal,
+                      startAt: _sheet.panOf(index),
+                      onSelect: (cell) =>
+                          _sheet.selected = cell == selected ? null : cell,
+                      onPanned: (pan, topRow) {
+                        // The bar is a wide thing over a grid, so moving the
+                        // grid puts it away: what you are reading is the sheet
+                        // again, not the cell you tapped a moment ago.
+                        if (_sheet.selected != null) _sheet.selected = null;
+                        _sheet.rememberPan(index, pan);
+                        _moveTo(_rowOffset(index) + topRow);
+                      },
+                    ),
                   ),
                 ),
-              ),
-            ],
-          ),
-          if (_bar.value > 0)
-            Positioned(
-              left: 0,
-              right: 0,
-              bottom: 0,
-              child: _cellBar(table, section.title, selected),
+                // The sheets of a workbook sit along the foot, where a thumb
+                // reaches and where the band over the top of the reader cannot
+                // cover them.
+                if (document.sections.length > 1)
+                  SheetTabs(
+                    names: <String>[
+                      for (final section in document.sections) section.title,
+                    ],
+                    active: index,
+                    onSelect: (next) => _sheet.sheet = next,
+                  ),
+              ],
             ),
-        ],
+            if (_bar.value > 0)
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                child: _cellBar(table, section.title, selected),
+              ),
+          ],
+        ),
       ),
     );
   }
@@ -512,24 +536,10 @@ class _SheetViewState extends State<SheetView>
     );
   }
 
-  int _columnCount(TableBlock table) {
-    var columns = table.columns.length;
-    for (final row in table.rows) {
-      if (row.cells.length > columns) columns = row.cells.length;
-    }
-    return math.max(1, columns);
-  }
-
   Widget _emptySheet() => TornPage(
     size: const Size(kSheetWidth, kSheetHeight),
     label: kDocumentEmptyLabel,
   );
-
-  int _bodyFrom(TableBlock table) {
-    if (table.frozenRows > 0) return table.frozenRows;
-    if (table.rows.isNotEmpty && table.rows.first.header) return 1;
-    return 0;
-  }
 }
 
 /// The three things a cell bar prints.

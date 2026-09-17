@@ -225,6 +225,48 @@ const kCellPaddingX = 8.0;
 const kSheetTabHeight = 28.0;
 const kParseStripHeight = 20.0;
 const kCellBarHeight = 40.0;
+
+// The grid a spreadsheet is read on: letters across the top, numbers down the
+// side, and the sheet itself pannable under both.
+
+/// The band of column letters, and the spine of row numbers.
+const kGridHeaderHeight = 34.0;
+
+/// What a column is when the file does not say, and the bounds a file's own
+/// width is held between. A column three screens wide cannot be read across;
+/// one four points wide cannot be read at all.
+const kGridColumnWidth = 118.0;
+const kGridColumnMin = 40.0;
+const kGridColumnMax = 320.0;
+
+/// The same for a row.
+const kGridRowHeight = 34.0;
+const kGridRowMin = 22.0;
+const kGridRowMax = 160.0;
+
+/// Room round a cell's own text.
+const kGridCellPadX = 8.0;
+
+/// The corner a cell wears when somebody has said something about it.
+const kGridCommentMark = 7.0;
+
+/// The ring round the chosen cell, and the two handles on its corners.
+const kGridRingWidth = 2.0;
+const kGridHandle = 5.0;
+
+/// How long the ring takes to travel from one cell to the next.
+const kGridRingMove = Duration(milliseconds: 260);
+
+/// How far the ring swells at the middle of its travel, so it reads as one
+/// thing moving rather than two things appearing.
+const kGridRingSwell = 3.0;
+
+/// The speed a flick has to beat before the grid carries on without the
+/// finger.
+const kGridFlingFrom = 120.0;
+
+/// How far a fling carries, as a fraction kept each second.
+const double kGridFriction = 0.015;
 const kSpineBarMax = 10.0;
 const kSpineBarHeight = 2.0;
 const kSpineDot = 4.0;
