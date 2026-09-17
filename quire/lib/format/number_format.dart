@@ -216,6 +216,42 @@ String formatCell(Object? value, String code, {bool date1904 = false}) {
 /// A double read straight out of a file carries its binary noise, so 0.1 plus
 /// 0.2 is stored as 0.30000000000000004. A spreadsheet shows 0.3, and printing
 /// the noise would be printing something the file's author never saw.
+/// The colour a format gives [value], from the section the value falls in:
+/// `[Red]` and the other named colours, and `[Color1]` to `[Color56]` from the
+/// numbered palette. Null when the section names none.
+int? formatColour(Object? value, String code, {List<int>? palette}) {
+  if (value is! num || code.isEmpty || code == 'General') return null;
+  final sections = formatSections(code);
+  final n = value.toDouble();
+  final section = n < 0 && sections.length >= 2
+      ? sections[1]
+      : n == 0 && sections.length >= 3
+      ? sections[2]
+      : sections[0];
+  for (final block in RegExp(r'\[([^\]]+)\]').allMatches(section)) {
+    final name = block.group(1)!.toLowerCase();
+    final named = _namedColours[name];
+    if (named != null) return named;
+    final numbered = RegExp(r'^color\s*(\d+)$').firstMatch(name);
+    if (numbered != null && palette != null) {
+      final index = int.parse(numbered.group(1)!) + 7;
+      if (index >= 0 && index < palette.length) return palette[index];
+    }
+  }
+  return null;
+}
+
+const _namedColours = <String, int>{
+  'black': 0xFF000000,
+  'blue': 0xFF0000FF,
+  'cyan': 0xFF00FFFF,
+  'green': 0xFF00FF00,
+  'magenta': 0xFFFF00FF,
+  'red': 0xFFFF0000,
+  'white': 0xFFFFFFFF,
+  'yellow': 0xFFFFFF00,
+};
+
 String _general(Object v) {
   if (v is! num) return v.toString();
   final d = v.toDouble();

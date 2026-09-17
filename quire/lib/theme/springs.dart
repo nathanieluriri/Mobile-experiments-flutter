@@ -183,6 +183,7 @@ class SpringValue {
   final Tolerance tolerance;
 
   SpringSimulation? _run;
+  SpringDescription? _spring;
   double _began = 0;
   double _to;
 
@@ -208,6 +209,7 @@ class SpringValue {
   /// Sets off for [target] on [spring] from wherever it is at [now].
   void sendTo(double target, double now, SpringDescription spring) {
     if (target == _to) return;
+    _spring = spring;
     _run = SpringSimulation(
       spring,
       valueAt(now),
@@ -224,6 +226,31 @@ class SpringValue {
   void jumpTo(double value) {
     _run = null;
     _to = value;
+  }
+
+  /// Moves where it is and where it is going by [delta] together, keeping the
+  /// motion exactly as it was: the same speed, the same distance still to go.
+  /// For a value measured from something that has itself moved.
+  void shiftBy(double delta, double now) {
+    if (delta == 0) return;
+    final run = _run;
+    final spring = _spring;
+    if (run == null || spring == null || restingAt(now)) {
+      jumpTo(valueAt(now) + delta);
+      return;
+    }
+    final at = valueAt(now) + delta;
+    final speed = velocityAt(now);
+    _to += delta;
+    _run = SpringSimulation(
+      spring,
+      at,
+      _to,
+      speed,
+      tolerance: tolerance,
+      snapToEnd: true,
+    );
+    _began = now;
   }
 }
 

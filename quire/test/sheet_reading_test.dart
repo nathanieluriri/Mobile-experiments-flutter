@@ -6,8 +6,10 @@ import 'package:archive/archive.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:quire/format/number_format.dart';
-import 'package:quire/format/xlsx_parser.dart' show XlsxParser, xlsxToDocument;
+import 'package:quire/format/xlsx_parser.dart'
+    show XlsxParser, kIndexedColours, xlsxToDocument;
 import 'package:quire/model/document.dart';
+import 'package:quire/painting/cell_goo_painter.dart';
 import 'package:quire/painting/grid_painter.dart';
 import 'package:quire/painting/tab_goo_painter.dart';
 import 'package:quire/screens/reader/bodies/cell_bar.dart';
@@ -336,6 +338,188 @@ void main() {
       }
       expect(_body(tester).offset, caught);
       expect(SheetController.of(store).selected, isNull);
+    });
+  });
+
+  group('what the whole sheet does together', () {
+    testWidgets('a hop between a frozen header and the body flows', (
+      tester,
+    ) async {
+      const frozen =
+          '<sheetViews><sheetView workbookViewId="0"><pane ySplit="1" '
+          'topLeftCell="A2" activePane="bottomLeft" state="frozen"/>'
+          '</sheetView></sheetViews>';
+      final store = _store(
+        _book(<(String, String)>[('Long', '$frozen${_rows(150)}')]),
+      );
+      await _pumpBody(tester, store);
+      await settle(tester);
+      // A header row that is frozen, and the body pushed a long way down.
+      final grid = find.byType(SheetGrid);
+      for (var i = 0; i < 3; i++) {
+        await tester.drag(grid, const Offset(0, -800), warnIfMissed: false);
+        await settle(tester);
+      }
+      final sheet = SheetController.of(store);
+      sheet.selected = const SheetCell(80, 1);
+      await settle(tester);
+      sheet.selected = const SheetCell(0, 1);
+      await tester.pump();
+      CellGooPainter? goo() => tester
+          .widgetList<CustomPaint>(find.byType(CustomPaint))
+          .map((paint) => paint.painter)
+          .whereType<CellGooPainter>()
+          .firstOrNull;
+      Offset? last;
+      var litBefore = _body(tester).litStrength;
+      for (var frame = 0; frame < 90; frame++) {
+        await tester.pump(const Duration(milliseconds: 16));
+        final body = goo()?.goo.body.center;
+        if (body != null && last != null) {
+          expect((body - last).distance, lessThan(40), reason: 'frame $frame');
+        }
+        last = body ?? last;
+        final lit = _body(tester).litStrength;
+        expect((lit - litBefore).abs(), lessThan(0.12), reason: 'frame $frame');
+        litBefore = lit;
+        final painter = _body(tester);
+        // A ring still at full strength is never a shrunken square.
+        if (painter.ring != null && painter.ringStrength > 0.9) {
+          expect(painter.ring!.width, greaterThan(60), reason: 'frame $frame');
+        }
+      }
+    });
+
+    testWidgets('a find wash fades in and out', (tester) async {
+      Widget app(Set<SheetCell> matches) => MaterialApp(
+        debugShowCheckedModeBanner: false,
+        home: ColoredBox(
+          color: AppColors.ground,
+          child: SheetGrid(
+            table: TableBlock(<DocRow>[
+              DocRow(<DocCell>[
+                DocCell(<DocBlock>[
+                  ParagraphBlock(<DocSpan>[DocSpan('found')]),
+                ]),
+              ]),
+            ], grid: true),
+            selected: null,
+            matches: matches,
+            onSelect: (_) {},
+          ),
+        ),
+      );
+      await pumpScreen(tester, app(const <SheetCell>{}));
+      await settle(tester);
+      final seen = <double>[];
+      await pumpScreen(tester, app(<SheetCell>{const SheetCell(0, 0)}));
+      for (var i = 0; i < 30; i++) {
+        await tester.pump(const Duration(milliseconds: 16));
+        seen.add(_body(tester).matchStrength);
+      }
+      await pumpScreen(tester, app(const <SheetCell>{}));
+      for (var i = 0; i < 60; i++) {
+        await tester.pump(const Duration(milliseconds: 16));
+        seen.add(_body(tester).matchStrength);
+      }
+      for (var i = 1; i < seen.length; i++) {
+        expect((seen[i] - seen[i - 1]).abs(), lessThan(0.25), reason: '$i');
+      }
+      expect(seen[29], greaterThan(0.95));
+      expect(seen.last, lessThan(0.05));
+    });
+
+    testWidgets('turning sheet while the last one coasts keeps the reader', (
+      tester,
+    ) async {
+      final store = _store(
+        _book(<(String, String)>[
+          ('First', _rows(200)),
+          ('Second', _rows(200)),
+        ]),
+      );
+      await _pumpBody(tester, store);
+      await settle(tester);
+      await tester.fling(
+        find.byType(SheetGrid),
+        const Offset(0, -300),
+        3000,
+        warnIfMissed: false,
+      );
+      for (var i = 0; i < 20; i++) {
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      final sheet = SheetController.of(store);
+      sheet.sheet = 1;
+      await tester.pump(const Duration(milliseconds: 48));
+      sheet.selected = const SheetCell(3, 1);
+      await settle(tester);
+      expect(sheet.sheet, 1);
+      expect(sheet.selected, const SheetCell(3, 1));
+      expect(store.position, greaterThanOrEqualTo(200));
+    });
+
+    testWidgets('the bar reads a rounded number as it is stored', (
+      tester,
+    ) async {
+      final store = _store(
+        _book(
+          <(String, String)>[
+            (
+              'Pi',
+              '<sheetData><row r="1"><c r="A1" s="1"><v>3.14159265358979</v>'
+                  '</c></row></sheetData>',
+            ),
+          ],
+          styles:
+              '<numFmts count="1"><numFmt numFmtId="164" formatCode="0.00"/>'
+              '</numFmts><fonts count="1"><font/></fonts>'
+              '<fills count="1"><fill/></fills>'
+              '<cellXfs count="2"><xf/><xf numFmtId="164"/></cellXfs>',
+        ),
+      );
+      await _pumpBody(tester, store);
+      await settle(tester);
+      SheetController.of(store).selected = const SheetCell(0, 0);
+      await settle(tester);
+      expect(
+        tester.widget<CellBar>(find.byType(CellBar)).value,
+        '3.14159265358979',
+      );
+    });
+
+    test('a number format gives its colour to the value it colours', () {
+      expect(formatColour(-5, '0.00;[Red]0.00'), 0xFFFF0000);
+      expect(formatColour(5, '0.00;[Red]0.00'), isNull);
+      expect(
+        formatColour(-5, '[Blue]0;[Color10]0', palette: kIndexedColours),
+        kIndexedColours[17],
+      );
+    });
+
+    testWidgets('find goes back to a match it has already been to', (
+      tester,
+    ) async {
+      final store = await storeFor(kPressRunCosts);
+      await _pumpHost(tester, store);
+      await settle(tester);
+      await tester.tap(find.bySemanticsLabel('Find in document'));
+      await settle(tester);
+      await tester.enterText(find.byType(EditableText).last, 'Little Ouse');
+      await settle(tester);
+      final sheet = SheetController.of(store);
+      final found = sheet.selected;
+      expect(found, isNotNull);
+      await tester.drag(
+        find.byType(SheetGrid),
+        const Offset(0, 600),
+        warnIfMissed: false,
+      );
+      await settle(tester);
+      expect(sheet.selected, isNull);
+      await tester.testTextInput.receiveAction(TextInputAction.search);
+      await settle(tester);
+      expect(sheet.selected, found);
     });
   });
 

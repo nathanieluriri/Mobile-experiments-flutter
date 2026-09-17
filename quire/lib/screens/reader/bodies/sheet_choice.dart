@@ -46,6 +46,7 @@ class ChoiceFrame {
     this.ringStrength = 0,
     this.lit,
     this.litRound = 0,
+    this.litStrength = 1,
   });
 
   /// The goo, and how much of it shows. Null once the choice is at rest,
@@ -61,6 +62,10 @@ class ChoiceFrame {
   /// how round its ends are.
   final Rect? lit;
   final double litRound;
+
+  /// How much of the lit stretch shows, which is less than all of it only
+  /// while it fades from one place to another it cannot crawl to.
+  final double litStrength;
 }
 
 /// The chosen cell, as something with weight.
@@ -98,6 +103,17 @@ class SheetChoice {
   final _top = SpringValue(0);
   final _right = SpringValue(0);
   final _bottom = SpringValue(0);
+  final _litStrength = SpringValue(1, tolerance: SpringValue.shareTolerance);
+
+  /// The size of a ring melting where it was, apart from the body's, which
+  /// may be condensing somewhere else altogether.
+  final _meltWidth = SpringValue(0);
+  final _meltHeight = SpringValue(0);
+
+  /// Where the lit stretch is to go once it has faded out where it was, for
+  /// a move it cannot crawl: to a far cell, or across the edge of a frozen
+  /// pane, which the bands cannot be seen to cross.
+  Rect? _litSwapTo;
 
   /// True while the lit stretch is showing: a cell is chosen, or one has
   /// just been let go and its letter and number are still drawing in.
@@ -120,10 +136,6 @@ class SheetChoice {
   double _radius = kCellGooBodyMax / 2;
   final _radiusNow = SpringValue(kCellGooBodyMax / 2);
 
-  /// The size of the ring when it began to melt, which it only ever draws in
-  /// from.
-  Size _ringHomeSize = Size.zero;
-
   /// The cell chosen, in the sheet's own space.
   Rect? get cell => _cell;
 
@@ -145,6 +157,9 @@ class SheetChoice {
     _right,
     _bottom,
     _radiusNow,
+    _litStrength,
+    _meltWidth,
+    _meltHeight,
   ];
 
   static Rect _inset(Rect cell) => Rect.fromCenter(
@@ -179,6 +194,8 @@ class SheetChoice {
     _bottom.jumpTo(cell.bottom);
     _radius = _radiusFor(body);
     _radiusNow.jumpTo(_radius);
+    _litStrength.jumpTo(1);
+    _litSwapTo = null;
     _litShown = true;
     _moving = false;
   }
@@ -196,18 +213,46 @@ class SheetChoice {
   }
 
   /// Chooses [cell], or lets the choice go when it is null, at [now].
-  void choose(Rect? cell, double now) {
+  ///
+  /// The goo is measured from the pane of the cell it is going to, since a
+  /// frozen pane and the pane that scrolls put the same cell in different
+  /// places. [rebase] is how far that measure moves from the last cell's
+  /// pane to this one's, and the goo is carried across by it so that it is
+  /// in the same place on screen as it was. [acrossPanes] is true when the
+  /// two cells are either side of a frozen pane's edge, which the lit letters
+  /// and numbers cannot be seen to crawl across.
+  void choose(
+    Rect? cell,
+    double now, {
+    Offset rebase = Offset.zero,
+    bool acrossPanes = false,
+  }) {
     final was = _cell;
     if (cell == was) return;
     // Where things are, read before the choice changes, since what is lit at
-    // rest is the cell that was chosen.
-    final head = Offset(_headX.valueAt(now), _headY.valueAt(now));
+    // rest is the cell that was chosen. The lit stretch and a ring melting
+    // stay in the sheet's own space, in the pane of the cell they belong to,
+    // so they are read before the goo is carried across to the new pane.
     final litNow = _litAt(now);
     if (_set || !_moving) {
       final ring = _ringAt(now);
-      _ringHome = ring?.center ?? head;
-      _ringHomeSize = ring?.size ?? Size.zero;
+      _ringHome =
+          ring?.center ?? Offset(_headX.valueAt(now), _headY.valueAt(now));
+      _meltWidth.jumpTo(ring?.width ?? 0);
+      _meltHeight.jumpTo(ring?.height ?? 0);
+      final drop = kChoiceDropFloor + 2 * kGridGooInset;
+      _meltWidth.sendTo(drop, now, AppSprings.gooRise);
+      _meltHeight.sendTo(drop, now, AppSprings.gooRise);
     }
+    for (final (value, by) in <(SpringValue, double)>[
+      (_headX, rebase.dx),
+      (_headY, rebase.dy),
+      (_tailX, rebase.dx),
+      (_tailY, rebase.dy),
+    ]) {
+      value.shiftBy(by, now);
+    }
+    final head = Offset(_headX.valueAt(now), _headY.valueAt(now));
     _cell = cell;
     _set = false;
 
@@ -223,6 +268,8 @@ class SheetChoice {
       _tailY.sendTo(coast.dy, now, AppSprings.gooTail);
       _ring.sendTo(0, now, AppSprings.gooRise);
       _fill.sendTo(1, now, AppSprings.gooRise);
+      _litSwapTo = null;
+      _litStrength.sendTo(1, now, AppSprings.gooSet);
       if (litNow != null) {
         final middle = litNow.center;
         _left.sendTo(middle.dx, now, AppSprings.litTrail);
@@ -280,14 +327,9 @@ class SheetChoice {
       _height.jumpTo(kChoiceDropFloor);
       _corner.jumpTo(kChoiceDropFloor / 2);
       _fill.jumpTo(0);
-      final shifted = cell.shift(-way * kChoiceReach);
-      _left.jumpTo(shifted.left);
-      _right.jumpTo(shifted.right);
-      _top.jumpTo(shifted.top);
-      _bottom.jumpTo(shifted.bottom);
-      litFrom = shifted;
       _condensed = true;
       distance = kChoiceReach;
+      acrossPanes = true;
     }
 
     // A spring's top speed grows with the distance it has to go, so a long
@@ -310,14 +352,23 @@ class SheetChoice {
     _fill.sendTo(1, now, AppSprings.gooRise);
 
     // The lit stretch crawls: the edge on the side the choice is going
-    // leads, the other follows it in.
-    final from = litFrom ?? Rect.fromCenter(center: goal, width: 0, height: 0);
-    final across = cell.center.dx - from.center.dx;
-    final down = cell.center.dy - from.center.dy;
-    _left.sendTo(cell.left, now, across > 0 ? trail : lead);
-    _right.sendTo(cell.right, now, across < 0 ? trail : lead);
-    _top.sendTo(cell.top, now, down > 0 ? trail : lead);
-    _bottom.sendTo(cell.bottom, now, down < 0 ? trail : lead);
+    // leads, the other follows it in. Where it cannot be seen to crawl, it
+    // fades out where it is and fades in at the new cell instead.
+    if (acrossPanes && litFrom != null) {
+      _litSwapTo = cell;
+      _litStrength.sendTo(0, now, AppSprings.gooRise);
+    } else {
+      _litSwapTo = null;
+      _litStrength.sendTo(1, now, AppSprings.gooSet);
+      final from =
+          litFrom ?? Rect.fromCenter(center: goal, width: 0, height: 0);
+      final across = cell.center.dx - from.center.dx;
+      final down = cell.center.dy - from.center.dy;
+      _left.sendTo(cell.left, now, across > 0 ? trail : lead);
+      _right.sendTo(cell.right, now, across < 0 ? trail : lead);
+      _top.sendTo(cell.top, now, down > 0 ? trail : lead);
+      _bottom.sendTo(cell.bottom, now, down < 0 ? trail : lead);
+    }
     _moving = true;
     step(now);
   }
@@ -328,6 +379,15 @@ class SheetChoice {
   void step(double now) {
     if (!_moving) return;
     final cell = _cell;
+    final swap = _litSwapTo;
+    if (swap != null && _litStrength.valueAt(now) < 0.03) {
+      _left.jumpTo(swap.left);
+      _right.jumpTo(swap.right);
+      _top.jumpTo(swap.top);
+      _bottom.jumpTo(swap.bottom);
+      _litStrength.sendTo(1, now, AppSprings.gooSet);
+      _litSwapTo = null;
+    }
     final w = _width.valueAt(now);
     final h = _height.valueAt(now);
     if (cell != null) {
@@ -401,12 +461,12 @@ class SheetChoice {
       ),
     );
     if (_set) return body;
-    // Melting where it was, it only draws in: it never grows back with a
-    // body spreading into some other cell.
+    // Melting where it was, on a size of its own: it draws in to a drop
+    // however the body is spreading, or condensing somewhere else.
     return Rect.fromCenter(
       center: _ringHome,
-      width: math.min(body.width, _ringHomeSize.width),
-      height: math.min(body.height, _ringHomeSize.height),
+      width: math.max(0.0, _meltWidth.valueAt(now)),
+      height: math.max(0.0, _meltHeight.valueAt(now)),
     );
   }
 
@@ -470,6 +530,7 @@ class SheetChoice {
       ringStrength: strength,
       lit: lit,
       litRound: kGridLitRound * (edgeSpeed / 240).clamp(0.0, 1.0),
+      litStrength: _litStrength.valueAt(now).clamp(0.0, 1.0),
     );
   }
 }

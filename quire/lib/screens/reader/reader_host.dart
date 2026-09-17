@@ -539,9 +539,17 @@ class _ReaderHostState extends State<ReaderHost> with TickerProviderStateMixin {
         widget.store.position = _unitOf(find.matches[find.current]);
       }
     }
-    _ringMatch(find);
+    // Sent to the match again, by the search key or a chevron: a grid goes
+    // back to it even if it has been there before.
+    final again = find.reveals != _revealed;
+    _revealed = find.reveals;
+    _ringMatch(find, again: again);
     setState(() {});
   }
+
+  /// How many times find had sent the reader to its match when it last
+  /// spoke.
+  int _revealed = 0;
 
   /// The match last ringed in a spreadsheet, so typing another letter that
   /// finds the same cell does not ring it again.
@@ -551,7 +559,7 @@ class _ReaderHostState extends State<ReaderHost> with TickerProviderStateMixin {
   /// on is ringed as well as scrolled to, so the grid goes across to it as
   /// well as down, and the cell bar reads it out in full. That includes the
   /// first match, which the find lands on without being stepped to.
-  void _ringMatch(FindController find) {
+  void _ringMatch(FindController find, {bool again = false}) {
     if (!widget.store.isGrid || find.matches.isEmpty) {
       _ringed = null;
       return;
@@ -560,9 +568,17 @@ class _ReaderHostState extends State<ReaderHost> with TickerProviderStateMixin {
     if (match.path.length < 3) return;
     final cell = SheetCell(match.path[1], match.path[2]);
     final found = (sheet: match.section, cell: cell);
-    if (found == _ringed) return;
-    _ringed = found;
     final sheets = SheetController.of(widget.store);
+    // Typing on while the same cell stays found leaves it be, even when the
+    // reader has let it go since. Asked for again, it is gone back to.
+    final changed = found != _ringed;
+    _ringed = found;
+    if (!changed && !again) return;
+    final standing = sheets.sheet == match.section && sheets.selected == cell;
+    if (standing && !again) return;
+    // Asked for again while still chosen: chosen afresh, which brings it
+    // back into view wherever the grid has been taken since.
+    if (standing) sheets.selected = null;
     // The sheet the match is on, which is not the sheet showing when the
     // first match of a find is on another one.
     if (match.section != sheets.sheet) {

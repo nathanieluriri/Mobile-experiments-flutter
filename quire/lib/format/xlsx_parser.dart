@@ -745,7 +745,11 @@ class XlsxParser {
       vertical: styleIndex >= 0 && styleIndex < _xfVertical.length
           ? _xfVertical[styleIndex]
           : DocVerticalAlign.bottom,
-      color: fontId < _fontColor.length ? _fontColor[fontId] : null,
+      // A colour the number format gives this value, `[Red]` on a negative,
+      // outranks the font's, as it does in the program that wrote it.
+      color:
+          formatColour(raw, code, palette: kIndexedColours) ??
+          (fontId < _fontColor.length ? _fontColor[fontId] : null),
       background: background,
       align: styleIndex >= 0 && styleIndex < _xfAlign.length
           ? _xfAlign[styleIndex]

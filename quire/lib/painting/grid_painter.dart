@@ -38,7 +38,9 @@ class GridPainter extends CustomPainter {
     this.face = SheetFace.front,
     this.textScale = 1,
     this.litRound = 0,
+    this.litStrength = 1,
     this.ringStrength = 1,
+    this.matchStrength = 1,
   });
 
   final TableBlock table;
@@ -62,6 +64,9 @@ class GridPainter extends CustomPainter {
   /// it is stretched out between two places.
   final double litRound;
 
+  /// How much of the lit stretch shows.
+  final double litStrength;
+
   /// Where the ring is at this moment, in the sheet's own space, which is not
   /// the chosen cell's own rectangle while it is still travelling.
   final Rect? ring;
@@ -70,8 +75,10 @@ class GridPainter extends CustomPainter {
   /// one once it has opened out of it.
   final double ringStrength;
 
-  /// Cells the find lit.
+  /// Cells the find lit, and how much of their wash shows, which fades in
+  /// as a find lights them and out as it is put away.
   final Set<SheetCell> matches;
+  final double matchStrength;
 
   /// Cells carrying a discussion, which wear the corner mark.
   final Set<SheetCell> commented;
@@ -181,8 +188,14 @@ class GridPainter extends CustomPainter {
     if (fill != null) {
       canvas.drawRect(rect, Paint()..color = Color(fill));
     }
-    if (matches.contains(cell)) {
-      canvas.drawRect(rect, Paint()..color = AppColors.foundWash);
+    if (matchStrength > 0 && matches.contains(cell)) {
+      canvas.drawRect(
+        rect,
+        Paint()
+          ..color = AppColors.foundWash.withValues(
+            alpha: AppColors.foundWash.a * matchStrength.clamp(0.0, 1.0),
+          ),
+      );
     }
   }
 
@@ -563,7 +576,10 @@ class GridPainter extends CustomPainter {
         band,
         Radius.circular(math.min(litRound, band.shortestSide / 2)),
       ),
-      Paint()..color = AppColors.accentMuted,
+      Paint()
+        ..color = AppColors.accentMuted.withValues(
+          alpha: AppColors.accentMuted.a * litStrength.clamp(0.0, 1.0),
+        ),
     );
   }
 
@@ -575,7 +591,10 @@ class GridPainter extends CustomPainter {
     return (under / length).clamp(0.0, 1.0);
   }
 
-  /// A letter or a number, darkening as the lit stretch comes over it.
+  /// A letter or a number, darkening and gaining weight as the lit stretch
+  /// comes over it. The two weights are laid one over the other in the share
+  /// the stretch covers, so the weight changes as smoothly as the colour
+  /// rather than in a single frame.
   void _label(
     Canvas canvas,
     String text,
@@ -583,28 +602,42 @@ class GridPainter extends CustomPainter {
     required double lit,
     bool damaged = false,
   }) {
-    final painter = TextPainter(
-      text: TextSpan(
-        text: text,
-        style: AppText.micro.copyWith(
-          color: damaged
-              ? AppColors.damage
-              : Color.lerp(AppColors.inkFaint, AppColors.ink, lit),
-          fontWeight: lit >= 0.5 ? FontWeight.w600 : FontWeight.w500,
+    final shown = (lit * litStrength).clamp(0.0, 1.0);
+    void set(FontWeight weight, double alpha) {
+      if (alpha <= 0) return;
+      final base = damaged
+          ? AppColors.damage
+          : Color.lerp(AppColors.inkFaint, AppColors.ink, shown)!;
+      final painter = TextPainter(
+        text: TextSpan(
+          text: text,
+          style: AppText.micro.copyWith(
+            color: base.withValues(alpha: base.a * alpha),
+            fontWeight: weight,
+          ),
         ),
-      ),
-      textDirection: TextDirection.ltr,
-      maxLines: 1,
-      textScaler: TextScaler.linear(textScale),
-    )..layout(maxWidth: rect.width);
-    painter.paint(
-      canvas,
-      Offset(
-        rect.center.dx - painter.width / 2,
-        rect.center.dy - painter.height / 2,
-      ),
-    );
-    painter.dispose();
+        textDirection: TextDirection.ltr,
+        maxLines: 1,
+        textScaler: TextScaler.linear(textScale),
+      )..layout(maxWidth: rect.width);
+      painter.paint(
+        canvas,
+        Offset(
+          rect.center.dx - painter.width / 2,
+          rect.center.dy - painter.height / 2,
+        ),
+      );
+      painter.dispose();
+    }
+
+    if (shown <= 0) {
+      set(FontWeight.w500, 1);
+    } else if (shown >= 1) {
+      set(FontWeight.w600, 1);
+    } else {
+      set(FontWeight.w500, 1 - shown);
+      set(FontWeight.w600, shown);
+    }
   }
 
   @override
@@ -615,9 +648,11 @@ class GridPainter extends CustomPainter {
       old.offset != offset ||
       old.lit != lit ||
       old.litRound != litRound ||
+      old.litStrength != litStrength ||
       old.ring != ring ||
       old.ringStrength != ringStrength ||
       old.matches != matches ||
+      old.matchStrength != matchStrength ||
       old.commented != commented ||
       old.face != face ||
       old.textScale != textScale;

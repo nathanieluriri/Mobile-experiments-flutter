@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'dart:ui' as ui;
 
+import 'package:flutter/foundation.dart' show setEquals;
 import 'package:flutter/physics.dart';
 import 'package:flutter/scheduler.dart' show Ticker;
 import 'package:flutter/widgets.dart';
@@ -139,6 +140,18 @@ class SheetGridState extends State<SheetGrid> with TickerProviderStateMixin {
   /// The choice of cell, and the clock it moves on, in seconds. The clock
   /// only runs while something is moving.
   late final SheetChoice _choice = SheetChoice(_rectOf(widget.selected));
+
+  /// The cell the goo is measured from: the one chosen, or the one last
+  /// chosen while it is being let go.
+  late SheetCell? _anchor = widget.selected;
+
+  /// The cells a find has lit, kept while their wash fades out after the find
+  /// is put away, and how much of the wash shows.
+  late Set<SheetCell> _matchesShown = widget.matches;
+  late final SpringValue _matchFade = SpringValue(
+    widget.matches.isEmpty ? 0 : 1,
+    tolerance: SpringValue.shareTolerance,
+  );
   late final Ticker _ticker;
   double _now = 0;
   double _started = 0;
@@ -198,7 +211,34 @@ class SheetGridState extends State<SheetGrid> with TickerProviderStateMixin {
       }
     }
     if (oldWidget.selected != widget.selected) {
-      _choice.choose(_rectOf(widget.selected), _now);
+      final from = _anchor;
+      final to = widget.selected;
+      // The goo is carried from the last cell's pane to the new one's, so
+      // that where it is on screen does not change as it changes panes.
+      final rebase = to == null ? Offset.zero : _shiftOf(to) - _shiftOf(from);
+      final acrossPanes =
+          from != null &&
+          to != null &&
+          ((from.row < _geometry.frozenRows) !=
+                  (to.row < _geometry.frozenRows) ||
+              (from.column < _geometry.frozenColumns) !=
+                  (to.column < _geometry.frozenColumns));
+      _choice.choose(
+        _rectOf(to),
+        _now,
+        rebase: rebase,
+        acrossPanes: acrossPanes,
+      );
+      if (to != null) _anchor = to;
+      _run();
+    }
+    if (!setEquals(oldWidget.matches, widget.matches)) {
+      if (widget.matches.isNotEmpty) {
+        _matchesShown = widget.matches;
+        _matchFade.sendTo(1, _now, AppSprings.gooRise);
+      } else {
+        _matchFade.sendTo(0, _now, AppSprings.gooSet);
+      }
       _run();
     }
     final reveal = widget.reveal;
@@ -238,8 +278,10 @@ class SheetGridState extends State<SheetGrid> with TickerProviderStateMixin {
 
   // ------------------------------------------------------------- the choice
 
+  bool get _stirring => _choice.moving || !_matchFade.restingAt(_now);
+
   void _run() {
-    if (!_choice.moving || _ticker.isActive) return;
+    if (!_stirring || _ticker.isActive) return;
     _started = _now;
     _ticker.start();
   }
@@ -247,8 +289,21 @@ class SheetGridState extends State<SheetGrid> with TickerProviderStateMixin {
   void _tick(Duration elapsed) {
     _now = _started + elapsed.inMicroseconds / Duration.microsecondsPerSecond;
     _choice.step(_now);
-    if (!_choice.moving) _ticker.stop();
+    if (_matchFade.restingAt(_now) && _matchFade.target == 0) {
+      _matchesShown = const <SheetCell>{};
+    }
+    if (!_stirring) _ticker.stop();
     if (mounted) setState(() {});
+  }
+
+  /// How far the pane [cell] is in has been pushed: the whole pan for a cell
+  /// in the part that scrolls, none of it on an axis the cell is frozen on.
+  Offset _shiftOf(SheetCell? cell) {
+    if (cell == null) return Offset.zero;
+    return Offset(
+      cell.column < _geometry.frozenColumns ? 0 : _pan.dx,
+      cell.row < _geometry.frozenRows ? 0 : _pan.dy,
+    );
   }
 
   // -------------------------------------------------------------- the pan
@@ -515,77 +570,104 @@ class SheetGridState extends State<SheetGrid> with TickerProviderStateMixin {
         final frame = _choice.frameAt(_now);
         final across = frozenW + _pan.dx;
         final down = frozenH + _pan.dy;
-        final grid = Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+        final grid = Stack(
+          fit: StackFit.expand,
           children: <Widget>[
-            SizedBox(
-              height: kGridHeaderHeight,
-              child: Row(
-                children: <Widget>[
-                  _paint(
-                    GridPane.corner,
-                    Offset.zero,
-                    frame,
-                    width: kRowHeaderWidth,
-                  ),
-                  if (frozenW > 0)
-                    _paint(
-                      GridPane.letters,
-                      Offset.zero,
-                      frame,
-                      width: frozenW,
-                    ),
-                  Expanded(
-                    child: _paint(GridPane.letters, Offset(across, 0), frame),
-                  ),
-                ],
-              ),
-            ),
-            if (frozenH > 0)
-              SizedBox(
-                height: frozenH,
-                child: Row(
-                  children: <Widget>[
-                    _paint(
-                      GridPane.numbers,
-                      Offset.zero,
-                      frame,
-                      width: kRowHeaderWidth,
-                    ),
-                    if (frozenW > 0)
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: <Widget>[
+                SizedBox(
+                  height: kGridHeaderHeight,
+                  child: Row(
+                    children: <Widget>[
                       _paint(
-                        GridPane.cells,
+                        GridPane.corner,
                         Offset.zero,
                         frame,
-                        width: frozenW,
+                        width: kRowHeaderWidth,
                       ),
-                    Expanded(
-                      child: _paint(GridPane.cells, Offset(across, 0), frame),
-                    ),
-                  ],
+                      if (frozenW > 0)
+                        _paint(
+                          GridPane.letters,
+                          Offset.zero,
+                          frame,
+                          width: frozenW,
+                        ),
+                      Expanded(
+                        child: _paint(
+                          GridPane.letters,
+                          Offset(across, 0),
+                          frame,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-            Expanded(
-              child: Row(
-                children: <Widget>[
-                  _paint(
-                    GridPane.numbers,
-                    Offset(0, down),
-                    frame,
-                    width: kRowHeaderWidth,
-                  ),
-                  if (frozenW > 0)
-                    _paint(
-                      GridPane.cells,
-                      Offset(0, down),
-                      frame,
-                      width: frozenW,
+                if (frozenH > 0)
+                  SizedBox(
+                    height: frozenH,
+                    child: Row(
+                      children: <Widget>[
+                        _paint(
+                          GridPane.numbers,
+                          Offset.zero,
+                          frame,
+                          width: kRowHeaderWidth,
+                        ),
+                        if (frozenW > 0)
+                          _paint(
+                            GridPane.cells,
+                            Offset.zero,
+                            frame,
+                            width: frozenW,
+                          ),
+                        Expanded(
+                          child: _paint(
+                            GridPane.cells,
+                            Offset(across, 0),
+                            frame,
+                          ),
+                        ),
+                      ],
                     ),
-                  Expanded(
-                    child: _paint(GridPane.cells, Offset(across, down), frame),
                   ),
-                ],
-              ),
+                Expanded(
+                  child: Row(
+                    children: <Widget>[
+                      _paint(
+                        GridPane.numbers,
+                        Offset(0, down),
+                        frame,
+                        width: kRowHeaderWidth,
+                      ),
+                      if (frozenW > 0)
+                        _paint(
+                          GridPane.cells,
+                          Offset(0, down),
+                          frame,
+                          width: frozenW,
+                        ),
+                      Expanded(
+                        child: _paint(
+                          GridPane.cells,
+                          Offset(across, down),
+                          frame,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            // One body of goo over every pane of cells, measured from the
+            // pane of the cell it is going to, so it is seen to cross the
+            // edge of a frozen pane rather than vanish at it.
+            Positioned(
+              left: kRowHeaderWidth,
+              top: kGridHeaderHeight,
+              right: 0,
+              bottom: 0,
+              child: _goo(frame),
             ),
           ],
         );
@@ -605,13 +687,11 @@ class SheetGridState extends State<SheetGrid> with TickerProviderStateMixin {
     );
   }
 
-  /// The goo that carries the choice, over one pane of cells.
+  /// The goo that carries the choice, over all the cells.
   ///
   /// Blurred and cut at a threshold, which is what makes its shapes one body
-  /// with a neck. It is laid over every pane of cells, frozen ones included,
-  /// so a choice in a header row is carried the same way as one in the body
-  /// of the sheet.
-  Widget _goo(Offset at, ChoiceFrame frame) {
+  /// with a neck.
+  Widget _goo(ChoiceFrame frame) {
     final goo = frame.goo;
     if (goo == null || frame.fill <= 0) return const SizedBox.shrink();
     return IgnorePointer(
@@ -628,7 +708,7 @@ class SheetGridState extends State<SheetGrid> with TickerProviderStateMixin {
               ),
               child: CustomPaint(
                 painter: CellGooPainter(
-                  goo: goo.shift(-at),
+                  goo: goo.shift(-_shiftOf(_anchor)),
                   colour: AppColors.accentMuted,
                 ),
                 size: Size.infinite,
@@ -643,7 +723,7 @@ class SheetGridState extends State<SheetGrid> with TickerProviderStateMixin {
   /// One pane, clipped to itself so a cell half in it is half drawn rather
   /// than spilling into the pane beside it.
   Widget _paint(GridPane pane, Offset at, ChoiceFrame frame, {double? width}) {
-    Widget paint = ClipRect(
+    final paint = ClipRect(
       child: CustomPaint(
         painter: GridPainter(
           table: widget.table,
@@ -652,9 +732,11 @@ class SheetGridState extends State<SheetGrid> with TickerProviderStateMixin {
           offset: at,
           lit: frame.lit,
           litRound: frame.litRound,
+          litStrength: frame.litStrength,
           ring: pane == GridPane.cells ? frame.ring : null,
           ringStrength: frame.ringStrength,
-          matches: widget.matches,
+          matches: _matchesShown,
+          matchStrength: _matchFade.valueAt(_now).clamp(0.0, 1.0),
           commented: widget.commented,
           raggedRows: widget.raggedRows,
           face: widget.face,
@@ -663,12 +745,6 @@ class SheetGridState extends State<SheetGrid> with TickerProviderStateMixin {
         size: Size.infinite,
       ),
     );
-    if (pane == GridPane.cells && frame.goo != null) {
-      paint = Stack(
-        fit: StackFit.expand,
-        children: <Widget>[paint, _goo(at, frame)],
-      );
-    }
     return width == null ? paint : SizedBox(width: width, child: paint);
   }
 }

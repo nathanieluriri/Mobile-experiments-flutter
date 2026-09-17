@@ -1,5 +1,3 @@
-
-
 import '../../../model/document.dart';
 import '../../../painting/spine_glyph_painter.dart';
 import '../../../theme/metrics.dart';
@@ -151,6 +149,22 @@ DocCell? cellAt(TableBlock table, int row, int column) {
 /// It is deliberately not the number format engine's answer: the front already
 /// shows that. The back shows what is actually in the file, which is how a
 /// reader finds out that a column of dates is really a column of numbers.
+/// A stored number to every digit it holds and no further: fifteen
+/// significant digits, which is all a spreadsheet keeps, with the noise a
+/// double carries past them left off.
+String storedNumber(num value) {
+  final d = value.toDouble();
+  if (d.isInfinite) return d.toString();
+  if (d == d.roundToDouble() && d.abs() < 1e15) return d.toInt().toString();
+  var text = d.toStringAsPrecision(15);
+  if (text.contains('e')) return text.toUpperCase();
+  if (text.contains('.')) {
+    text = text.replaceFirst(RegExp(r'0+$'), '');
+    if (text.endsWith('.')) text = text.substring(0, text.length - 1);
+  }
+  return text;
+}
+
 String rawValueOf(DocCell cell) {
   final formula = cell.formula;
   if (formula != null && formula.isNotEmpty) return '=$formula';
@@ -166,9 +180,7 @@ String rawValueOf(DocCell cell) {
           '-${value.day.toString().padLeft(2, '0')}';
     case final num value:
       final text = value.toString();
-      return text.endsWith('.0')
-          ? text.substring(0, text.length - 2)
-          : text;
+      return text.endsWith('.0') ? text.substring(0, text.length - 2) : text;
     default:
       return flattenCell(raw.toString());
   }

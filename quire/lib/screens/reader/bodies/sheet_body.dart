@@ -634,6 +634,9 @@ class _SheetViewState extends State<SheetView> with TickerProviderStateMixin {
                       onSelect: (cell) =>
                           _sheet.selected = cell == selected ? null : cell,
                       onPanned: (pan, topRow, byHand) {
+                        // A sheet already turned away from, still gliding as
+                        // it fades, is not where the reader is.
+                        if (index != _sheetIndex) return;
                         // The bar is a wide thing over a grid, so moving the
                         // grid by hand puts it away: what you are reading is
                         // the sheet again, not the cell you tapped a moment
@@ -731,9 +734,17 @@ class _BarText {
 
   static _BarText of(TableBlock table, String sheetName, SheetCell at) {
     final cell = cellAt(table, at.row, at.column);
+    final raw = cell?.raw;
     return _BarText(
       cellReference(sheetName, at.column, at.row),
-      cell == null ? '' : flattenCell(cell.text),
+      // A number is read out as it is stored, to every digit it has, the
+      // way a spreadsheet's own formula bar reads it: the grid already shows
+      // it rounded, and a bar that rounded it too would hide the rest of it.
+      cell == null
+          ? ''
+          : raw is num && !raw.isNaN && cell.numeric
+          ? storedNumber(raw)
+          : flattenCell(cell.text),
       cell?.formula,
       cell?.comment,
       cell?.commentBy,
