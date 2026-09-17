@@ -21,9 +21,53 @@ import '../../widgets/press_fade.dart';
 /// button in either of those values reads as a hole punched through the page
 /// rather than as a control resting on it.
 
-/// Where the head band goes when it leaves: far enough up that the whole band,
-/// the part behind the status bar included, is off the screen.
+/// How far the head band travels as it leaves: its own height, so its lower
+/// edge goes up to the foot of the status bar and no further.
+///
+/// The part of the band behind the status bar does not travel. It fades where
+/// it is, since it is ground behind the clock whichever way the band is going,
+/// and a band that slid its whole height would have its lower edge running
+/// ahead of anything a body holds under it, such as a grid's letters, and open
+/// a gap between the two.
 const kHeadBandHidden = -kHeadBandHeight;
+
+/// Where the head band is over the top of the reader at this moment.
+///
+/// A body whose content passes under the band has no need of it. A body that
+/// holds something of its own at the top of the sheet, which is a grid and its
+/// letters, reads it to keep that thing directly under the band's lower edge,
+/// wherever the edge is, so that the letters go up as the band goes and are
+/// pushed down as it comes back rather than leaving room for a band that is
+/// not there.
+///
+/// It is handed down rather than worked out by the body, because a body lies
+/// on a sheet that starts at the top of the glass and does not see the
+/// phone's status bar at all: only the reader knows where that ends.
+class ReaderBand extends InheritedWidget {
+  const ReaderBand({
+    super.key,
+    required this.top,
+    required this.shown,
+    required super.child,
+  });
+
+  /// Where the phone's status bar ends, which is what the band hangs from.
+  final double top;
+
+  /// How much of the band is in: 0 with it gone, 1 with it all the way in.
+  final double shown;
+
+  /// Where the band's lower edge is.
+  double get edge => top + kHeadBandHeight * shown;
+
+  /// The band over [context], or null for a body shown on its own.
+  static ReaderBand? maybeOf(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<ReaderBand>();
+
+  @override
+  bool updateShouldNotify(ReaderBand oldWidget) =>
+      oldWidget.top != top || oldWidget.shown != shown;
+}
 
 /// The size of the glyph inside a 38.5 header button.
 const kChromeIcon = 20.0;
@@ -119,126 +163,136 @@ class ReaderChrome extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // A band that could leave while a signature is loose would take the only
-    // way of setting it down with it.
-    final gone = placing || notice != null ? 0.0 : hidden;
+    // The reader holds the band in while a signature is loose or while it has
+    // something to say, and brings it in on its own spring, so what is drawn
+    // here is only ever where the band is.
+    final gone = hidden;
     // Where the phone says its own chrome ends, rather than where the design
     // guessed it would.
     final safeTop = MediaQuery.paddingOf(context).top;
     final bandHeight = safeTop + kHeadBandHeight;
     final rowTop = safeTop + (kHeadBandHeight - kHeaderButtonSize) / 2;
-    final shift = -bandHeight * gone;
+    final shift = kHeadBandHidden * gone;
     final fade = 1 - gone;
-    return SizedBox(
-      width: kScreenWidth,
-      height: kScreenHeight,
-      child: Stack(
-        children: [
-          Positioned(
-            left: 0,
-            right: 0,
-            top: shift,
-            height: bandHeight,
-            child: Opacity(
-              opacity: fade,
-              child: const DecoratedBox(
-                decoration: BoxDecoration(
-                  color: AppColors.ground,
-                  border: Border(
-                    bottom: BorderSide(color: AppColors.hairline, width: 1),
+    // Gone, the band's buttons are faded out behind the status bar rather
+    // than off the glass, and a button nobody can see must not be the thing a
+    // finger at the top of the screen lands on.
+    return IgnorePointer(
+      ignoring: gone >= 1,
+      child: SizedBox(
+        width: kScreenWidth,
+        height: kScreenHeight,
+        child: Stack(
+          children: [
+            Positioned(
+              left: 0,
+              right: 0,
+              top: shift,
+              height: bandHeight,
+              child: Opacity(
+                opacity: fade,
+                child: const DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: AppColors.ground,
+                    border: Border(
+                      bottom: BorderSide(color: AppColors.hairline, width: 1),
+                    ),
+                  ),
+                  child: SizedBox.expand(),
+                ),
+              ),
+            ),
+            // The corner button sits exactly where the desk's own does, at the
+            // desk's own size, because it is the desk's own button: it arrives
+            // as the three lines the desk had and turns into the arrow in
+            // place. A button eight points to the side of the one it is
+            // continuing is two buttons, and the turn reads as one of them
+            // appearing over the other rather than as either of them becoming
+            // anything.
+            Positioned(
+              left: kTopBarPaddingX,
+              top: safeTop + kMenuButtonTop + shift,
+              child: Opacity(
+                opacity: fade,
+                child: _HeaderButton(
+                  size: kBurgerTarget,
+                  icon: placing ? LucideIcons.x : null,
+                  onTap: placing ? onCancel : onBack,
+                  semanticLabel: placing
+                      ? 'Put the signature away'
+                      : 'Back to the desk',
+                  // Not a glyph but the desk's own, part way through its turn.
+                  child: placing ? null : HamburgerGlyph(progress: backMorph),
+                ),
+              ),
+            ),
+            Positioned(
+              left: 0,
+              right: 0,
+              top: safeTop + shift,
+              height: kHeadBandHeight,
+              child: Opacity(
+                opacity: fade,
+                child: IgnorePointer(
+                  child: switch ((placing, notice)) {
+                    (true, _) => const _BandLabel('Place your signature'),
+                    (_, final String said) => _BandLabel(said),
+                    _ => _Title(title, back: showingBack),
+                  },
+                ),
+              ),
+            ),
+            if (placing)
+              Positioned(
+                left: kScreenWidth - kScreenPadding - kHeaderButtonSize,
+                top: rowTop,
+                child: _HeaderButton(
+                  icon: LucideIcons.check,
+                  accent: true,
+                  onTap: onConfirm,
+                  semanticLabel: 'Set the signature into the page',
+                ),
+              )
+            else ...[
+              Positioned(
+                left:
+                    kScreenWidth -
+                    kScreenPadding -
+                    kHeaderButtonSize * 2 -
+                    kChromeButtonGap,
+                top: rowTop + shift,
+                child: Opacity(
+                  opacity: fade,
+                  child: _HeaderButton(
+                    icon: LucideIcons.search,
+                    onTap: gone >= 1 ? null : onFind,
+                    semanticLabel: 'Find in document',
                   ),
                 ),
-                child: SizedBox.expand(),
               ),
-            ),
-          ),
-          // The corner button sits exactly where the desk's own does, at the
-          // desk's own size, because it is the desk's own button: it arrives
-          // as the three lines the desk had and turns into the arrow in place.
-          // A button eight points to the side of the one it is continuing is
-          // two buttons, and the turn reads as one of them appearing over the
-          // other rather than as either of them becoming anything.
-          Positioned(
-            left: kTopBarPaddingX,
-            top: safeTop + kMenuButtonTop + shift,
-            child: Opacity(
-              opacity: fade,
-              child: _HeaderButton(
-                size: kBurgerTarget,
-                icon: placing ? LucideIcons.x : null,
-                onTap: placing ? onCancel : onBack,
-                semanticLabel:
-                    placing ? 'Put the signature away' : 'Back to the desk',
-                // Not a glyph but the desk's own, part way through its turn.
-                child: placing ? null : HamburgerGlyph(progress: backMorph),
-              ),
-            ),
-          ),
-          Positioned(
-            left: 0,
-            right: 0,
-            top: safeTop + shift,
-            height: kHeadBandHeight,
-            child: Opacity(
-              opacity: fade,
-              child: IgnorePointer(
-                child: switch ((placing, notice)) {
-                  (true, _) => const _BandLabel('Place your signature'),
-                  (_, final String said) => _BandLabel(said),
-                  _ => _Title(title, back: showingBack),
-                },
-              ),
-            ),
-          ),
-          if (placing)
-            Positioned(
-              left: kScreenWidth - kScreenPadding - kHeaderButtonSize,
-              top: rowTop,
-              child: _HeaderButton(
-                icon: LucideIcons.check,
-                accent: true,
-                onTap: onConfirm,
-                semanticLabel: 'Set the signature into the page',
-              ),
-            )
-          else ...[
-            Positioned(
-              left: kScreenWidth -
-                  kScreenPadding -
-                  kHeaderButtonSize * 2 -
-                  kChromeButtonGap,
-              top: rowTop + shift,
-              child: Opacity(
-                opacity: fade,
-                child: _HeaderButton(
-                  icon: LucideIcons.search,
-                  onTap: gone >= 1 ? null : onFind,
-                  semanticLabel: 'Find in document',
-                ),
-              ),
-            ),
-            Positioned(
-              left: kScreenWidth - kScreenPadding - kHeaderButtonSize,
-              top: rowTop + shift,
-              child: Opacity(
-                opacity: fade,
-                child: _HeaderButton(
-                  onTap: gone >= 1 ? null : onMenu,
-                  semanticLabel: 'What can be done with this document',
-                  // The dots are drawn rather than set, because they are not
-                  // a glyph here: they draw together into the one dot the
-                  // menu's goo is pulled out of, the way the desk's do.
-                  child: CustomPaint(
-                    painter: OverflowDotsPainter(
-                      t: menuOpen,
-                      colour: AppColors.ink,
+              Positioned(
+                left: kScreenWidth - kScreenPadding - kHeaderButtonSize,
+                top: rowTop + shift,
+                child: Opacity(
+                  opacity: fade,
+                  child: _HeaderButton(
+                    onTap: gone >= 1 ? null : onMenu,
+                    semanticLabel: 'What can be done with this document',
+                    // The dots are drawn rather than set, because they are not
+                    // a glyph here: they draw together into the one dot the
+                    // menu's goo is pulled out of, the way the desk's do.
+                    child: CustomPaint(
+                      painter: OverflowDotsPainter(
+                        t: menuOpen,
+                        colour: AppColors.ink,
+                      ),
                     ),
                   ),
                 ),
               ),
-            ),
+            ],
           ],
-        ],
+        ),
       ),
     );
   }
@@ -295,7 +349,8 @@ class _HeaderButton extends StatelessWidget {
           color: accent ? AppColors.accent : null,
           borderRadius: BorderRadius.circular(kHeaderButtonRadius),
         ),
-        child: child ??
+        child:
+            child ??
             Center(
               child: Icon(
                 icon,

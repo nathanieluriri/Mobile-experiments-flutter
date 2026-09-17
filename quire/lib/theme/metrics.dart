@@ -300,6 +300,15 @@ const kGridFlingFrom = 120.0;
 
 /// How far a fling carries, as a fraction kept each second.
 const double kGridFriction = 0.015;
+
+/// How far into a sheet the band coming in starts to cover rows rather than
+/// carry them down with the letters.
+///
+/// A sheet at its top is carried: there is no row above its first for the
+/// letters to be laid over. A sheet a band's height in or more keeps its rows
+/// where they are. In between it is carried in part, so the two meet without
+/// a step between them.
+const kGridTopCarry = kHeadBandHeight;
 const kSpineBarMax = 10.0;
 const kSpineBarHeight = 2.0;
 const kSpineDot = 4.0;
@@ -474,8 +483,9 @@ const kCloseDocument = Duration(milliseconds: 300);
 /// The fold sweeping to the opposite corner, on the pageSettle spring.
 const kFlipCommit = Duration(milliseconds: 380);
 
-/// Chrome leaving on a scroll.
-const kChromeOut = Duration(milliseconds: 180);
+/// Chrome coming in, for a controller a spring drives, which only falls back
+/// to it when it is stopped. The reader's band itself moves on
+/// the band spring in AppSprings.
 const kChromeIn = Duration(milliseconds: 180);
 
 /// One highlighter stroke.

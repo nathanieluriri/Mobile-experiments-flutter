@@ -16,6 +16,7 @@ import '../../../theme/colors.dart';
 import '../../../theme/feedback.dart';
 import '../../../theme/metrics.dart';
 import '../../../theme/springs.dart';
+import '../sheet_surface.dart' show ReadingMoved;
 import 'sheet_choice.dart';
 import 'sheet_geometry.dart';
 import 'spine_table.dart' show SheetCell, SheetFace;
@@ -67,6 +68,7 @@ class SheetGrid extends StatefulWidget {
     this.onPanned,
     this.startAt = Offset.zero,
     this.coveredBelow = 0,
+    this.pushedDown = 0,
   });
 
   final TableBlock table;
@@ -107,6 +109,12 @@ class SheetGrid extends StatefulWidget {
   /// bar showing the chosen cell, so a cell brought into view is brought
   /// clear of it rather than under it.
   final double coveredBelow;
+
+  /// How far the band over the reader has pushed the grid down, which is as
+  /// far as it is in. The grid is given that much less room at its top, and
+  /// keeps the rows the reader is looking at where they were as the room
+  /// comes and goes.
+  final double pushedDown;
 
   @override
   State<SheetGrid> createState() => SheetGridState();
@@ -169,13 +177,11 @@ class SheetGridState extends State<SheetGrid> with TickerProviderStateMixin {
         ),
       );
     _glideY = AnimationController.unbounded(vsync: this)
-      ..addListener(
-        () => _pushTo(
-          Offset(_pan.dx, _glideY.value),
-          byHand: !_showing,
-          over: true,
-        ),
-      );
+      ..addListener(() {
+        final from = _pan.dy;
+        _pushTo(Offset(_pan.dx, _glideY.value), byHand: !_showing, over: true);
+        if (!_showing) _carried(from, _pan.dy);
+      });
     _ticker = createTicker(_tick);
     // A grid made for a cell that has already been asked for, such as a find
     // landing on another sheet, goes to it as soon as it has been laid out.
@@ -210,6 +216,8 @@ class SheetGridState extends State<SheetGrid> with TickerProviderStateMixin {
         _choice.settleOn(_rectOf(oldWidget.selected));
       }
     }
+    final drop = widget.pushedDown - oldWidget.pushedDown;
+    if (drop != 0) _bandMoved(drop);
     if (oldWidget.selected != widget.selected) {
       final from = _anchor;
       final to = widget.selected;
@@ -345,6 +353,71 @@ class SheetGridState extends State<SheetGrid> with TickerProviderStateMixin {
       ),
       over: true,
     );
+    // Which way the hand is taking the reading, whatever the sheet's end
+    // lets it move: a pull down against the top is a reader going back for
+    // something as surely as a push down the middle of the sheet is.
+    if (push.dy != 0) ReadingMoved(push.dy).dispatch(context);
+  }
+
+  /// A flick carrying the sheet on is the reading moving as much as the hand
+  /// that threw it, for as long as it is inside the sheet. Its catch at an end
+  /// and a sheet going back from a pull are the sheet finding its end again,
+  /// which says nothing about which way the reader is going.
+  void _carried(double from, double to) {
+    final end = _limit.dy;
+    if (to == from || from < 0 || to < 0 || from > end || to > end) return;
+    ReadingMoved(to - from).dispatch(context);
+  }
+
+  /// The band over the reader has come further in by [drop], pushing the
+  /// grid down, or gone by that much when [drop] is negative, letting it up.
+  ///
+  /// The letters go with the band. The rows under them stay where they are
+  /// on the glass: the letters slide down over the top rows as the band comes
+  /// in and uncover them as it goes, the way the band slides over a page,
+  /// rather than every row under the reader's eye jumping by the band's
+  /// height each time the reader changes direction. A sheet at its top has no
+  /// row above its first to uncover, so there the rows are carried with the
+  /// letters, and a sheet a little way in is carried in part.
+  void _bandMoved(double drop) {
+    // A glide on its way to show a cell is aimed at a place under the
+    // letters, wherever the letters are, and goes on there.
+    if (_showing && (_glideX.isAnimating || _glideY.isAnimating)) return;
+    final at = _pan.dy;
+    if (at <= 0) return;
+    final next = drop > 0
+        ? at + drop * math.min(1.0, at / kGridTopCarry)
+        : math.max(0.0, at + drop);
+    if (next == at) return;
+    final speed = _glideY.isAnimating ? _glideY.velocity : null;
+    _pan = Offset(_pan.dx, next);
+    if (speed != null) {
+      // A flick still carrying the sheet carries on from where its rows are
+      // now, at the speed it had, inside the room the grid is about to have.
+      _glideY.animateWith(
+        _EdgeGlide(position: next, velocity: speed, end: _limit.dy + drop),
+      );
+    }
+    _tellPanLater();
+  }
+
+  bool _telling = false;
+
+  /// Says where the sheet is once this frame is built. The band moves the
+  /// sheet in the middle of a build, and the reader's place in the document
+  /// cannot be moved while the screen showing it is still being built.
+  void _tellPanLater() {
+    if (_telling) return;
+    _telling = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _telling = false;
+      if (!mounted) return;
+      widget.onPanned?.call(
+        _pan,
+        _geometry.rowAt(math.max(0, _pan.dy) + _frozen.height),
+        false,
+      );
+    });
   }
 
   /// A push past either end of the sheet gives way less the further it goes,
@@ -558,15 +631,11 @@ class SheetGridState extends State<SheetGrid> with TickerProviderStateMixin {
           math.max(0, height - kGridHeaderHeight - frozenH),
         );
         final frozen = Size(frozenW, frozenH);
-        if (view != _view || frozen != _frozen) {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (!mounted) return;
-            setState(() {
-              _view = view;
-              _frozen = frozen;
-            });
-          });
-        }
+        // Taken as the grid is laid out rather than a frame later, so a grid
+        // whose room is changing, as the band over it comes and goes, is held
+        // inside the room it has now and not the room it had.
+        _view = view;
+        _frozen = frozen;
         final frame = _choice.frameAt(_now);
         final across = frozenW + _pan.dx;
         final down = frozenH + _pan.dy;

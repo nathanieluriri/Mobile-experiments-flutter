@@ -1,16 +1,17 @@
-import 'dart:math' as math;
 import 'package:flutter/scheduler.dart' show Ticker;
 import 'package:flutter/widgets.dart';
 
 import '../../../format/csv_parser.dart';
 import '../../../model/document.dart';
 import '../../../services/document_store.dart';
+import '../../../theme/colors.dart';
 import '../../../theme/easings.dart';
 import '../../../theme/metrics.dart';
 import '../../../theme/springs.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../desk/desk_sheet.dart';
+import '../reader_chrome.dart' show ReaderBand;
 import '../sheet_surface.dart';
 import 'cell_bar.dart';
 import 'page_states.dart';
@@ -505,22 +506,6 @@ class _SheetViewState extends State<SheetView> with TickerProviderStateMixin {
     return false;
   }
 
-  /// How far the body has to start below its own top to clear the band.
-  double _under = 0;
-
-  /// Measures that gap once the body has been laid out, and again if the
-  /// reader ever puts the body somewhere else.
-  void _measureBand() {
-    final box = context.findRenderObject();
-    if (box is! RenderBox || !box.hasSize) return;
-    // The padding is inside this body, so the body's own top does not move
-    // when it changes: measuring it again would otherwise chase itself.
-    final top = box.localToGlobal(Offset.zero).dy;
-    final want = math.max(0.0, kHeadBandTop + kHeadBandHeight - top);
-    if ((want - _under).abs() < 0.5) return;
-    setState(() => _under = want);
-  }
-
   /// Every sheet in the workbook, for a file with more of them than the foot
   /// of a phone can hold.
   Future<void> _allSheets(QuireDocument document, int showing) async {
@@ -569,9 +554,6 @@ class _SheetViewState extends State<SheetView> with TickerProviderStateMixin {
 
   @override
   Widget build(BuildContext context) {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _measureBand();
-    });
     final document = _document;
     if (document == null || document.sections.isEmpty) {
       return _emptySheet();
@@ -587,106 +569,126 @@ class _SheetViewState extends State<SheetView> with TickerProviderStateMixin {
 
     final facts = _facts;
     final selected = _sheet.selected;
+    // The band floats over the top of the reader, and a grid whose letters
+    // are under it is a grid whose columns cannot be read. So the letters
+    // stand directly under the band's lower edge, wherever that edge is at
+    // this moment: pushed down as the band comes in and going back up as it
+    // leaves, until they are under the status bar with nothing between. A
+    // sheet that kept the band's room while the band was away would be a
+    // strip of nothing over the top of the reading.
+    final band = ReaderBand.maybeOf(context);
+    final drop = kHeadBandHeight * (band?.shown ?? 1);
+    final head = (band?.top ?? MediaQuery.paddingOf(context).top) + drop;
 
     return NotificationListener<ScrollNotification>(
       onNotification: _onScroll,
-      // The band floats over the top of the reader, and a grid whose letters
-      // are under it is a grid whose columns cannot be read. So the sheet
-      // begins below the band and stays there, the way a spreadsheet keeps
-      // its own toolbar above its letters. How far down that is depends on
-      // where the reader put this body, which is why it is measured rather
-      // than assumed.
-      child: Padding(
-        padding: EdgeInsets.only(top: _under),
-        child: Stack(
-          children: [
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Behind the status bar and the band is ground, the band's own, so
+          // the head of the screen is one ground whether the band is in or
+          // out and the band's leaving is seen only in what it carries.
+          SizedBox(
+            height: head,
+            child: const ColoredBox(color: AppColors.ground),
+          ),
+          Expanded(
+            child: Stack(
               children: [
-                if (facts != null)
-                  ParseStrip(
-                    facts: facts,
-                    onJumpToRagged: () {
-                      final first = facts.firstRagged;
-                      if (first != null) _jumpToRow(first - 1);
-                    },
-                  ),
-                Expanded(
-                  child: AnimatedSwitcher(
-                    duration: kSheetTabCross,
-                    switchInCurve: easeInOutQuad,
-                    switchOutCurve: easeInOutQuad,
-                    child: SheetGrid(
-                      key: ValueKey<int>(index),
-                      table: table,
-                      selected: selected,
-                      // What the bar covers is where a cell brought into
-                      // view must not end up.
-                      coveredBelow: selected == null
-                          ? 0
-                          : CellBar.heightFor(commented: _commented(selected)),
-                      locked: widget.store.lock.holdsPage,
-                      face: widget.face,
-                      matches: _matchesOn(index),
-                      raggedRows: facts?.raggedRows ?? const <int>{},
-                      reveal: _reveal,
-                      startAt: _sheet.panOf(index),
-                      onSelect: (cell) =>
-                          _sheet.selected = cell == selected ? null : cell,
-                      onPanned: (pan, topRow, byHand) {
-                        // A sheet already turned away from, still gliding as
-                        // it fades, is not where the reader is.
-                        if (index != _sheetIndex) return;
-                        // The bar is a wide thing over a grid, so moving the
-                        // grid by hand puts it away: what you are reading is
-                        // the sheet again, not the cell you tapped a moment
-                        // ago. A move the grid made itself, to bring a cell
-                        // into view, leaves the choice that asked for it.
-                        if (byHand && _sheet.selected != null) {
-                          _sheet.selected = null;
-                        }
-                        _sheet.rememberPan(index, pan);
-                        // A jump the grid is carrying out, or has carried
-                        // out as far as a short sheet lets it, leaves the
-                        // reader on the row they jumped to, whichever row
-                        // the grid ends up with at its top. Only a hand
-                        // moves them on from it.
-                        if (byHand) _landing = null;
-                        if (_landing != null) return;
-                        _moveTo(_rowOffset(index) + topRow);
-                      },
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    if (facts != null)
+                      ParseStrip(
+                        facts: facts,
+                        onJumpToRagged: () {
+                          final first = facts.firstRagged;
+                          if (first != null) _jumpToRow(first - 1);
+                        },
+                      ),
+                    Expanded(
+                      child: AnimatedSwitcher(
+                        duration: kSheetTabCross,
+                        switchInCurve: easeInOutQuad,
+                        switchOutCurve: easeInOutQuad,
+                        child: SheetGrid(
+                          key: ValueKey<int>(index),
+                          table: table,
+                          selected: selected,
+                          pushedDown: drop,
+                          // What the bar covers is where a cell brought into
+                          // view must not end up.
+                          coveredBelow: selected == null
+                              ? 0
+                              : CellBar.heightFor(
+                                  commented: _commented(selected),
+                                ),
+                          locked: widget.store.lock.holdsPage,
+                          face: widget.face,
+                          matches: _matchesOn(index),
+                          raggedRows: facts?.raggedRows ?? const <int>{},
+                          reveal: _reveal,
+                          startAt: _sheet.panOf(index),
+                          onSelect: (cell) =>
+                              _sheet.selected = cell == selected ? null : cell,
+                          onPanned: (pan, topRow, byHand) {
+                            // A sheet already turned away from, still gliding
+                            // as it fades, is not where the reader is.
+                            if (index != _sheetIndex) return;
+                            // The bar is a wide thing over a grid, so moving
+                            // the grid by hand puts it away: what you are
+                            // reading is the sheet again, not the cell you
+                            // tapped a moment ago. A move the grid made itself,
+                            // to bring a cell into view, leaves the choice that
+                            // asked for it.
+                            if (byHand && _sheet.selected != null) {
+                              _sheet.selected = null;
+                            }
+                            _sheet.rememberPan(index, pan);
+                            // A jump the grid is carrying out, or has carried
+                            // out as far as a short sheet lets it, leaves the
+                            // reader on the row they jumped to, whichever row
+                            // the grid ends up with at its top. Only a hand
+                            // moves them on from it.
+                            if (byHand) _landing = null;
+                            if (_landing != null) return;
+                            _moveTo(_rowOffset(index) + topRow);
+                          },
+                        ),
+                      ),
                     ),
-                  ),
+                    // The sheets of a workbook sit along the foot, where a
+                    // thumb reaches and where the band over the top of the
+                    // reader cannot cover them.
+                    if (document.sections.length > 1)
+                      SheetTabs(
+                        names: <String>[
+                          for (final section in document.sections)
+                            section.title,
+                        ],
+                        active: index,
+                        onSelect: (next) => _sheet.sheet = next,
+                        onAll: () => _allSheets(document, index),
+                        locked: widget.store.lock.holdsPage,
+                      ),
+                  ],
                 ),
-                // The sheets of a workbook sit along the foot, where a thumb
-                // reaches and where the band over the top of the reader cannot
-                // cover them.
-                if (document.sections.length > 1)
-                  SheetTabs(
-                    names: <String>[
-                      for (final section in document.sections) section.title,
-                    ],
-                    active: index,
-                    onSelect: (next) => _sheet.sheet = next,
-                    onAll: () => _allSheets(document, index),
-                    locked: widget.store.lock.holdsPage,
+                // The bar rises out of the top of the sheets bar rather than
+                // over it, so every sheet stays a tap away while a cell is
+                // being read.
+                if (_rise.valueAt(_barNow) > 0.001 || !_rise.restingAt(_barNow))
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    bottom: document.sections.length > 1 ? kSheetTabHeight : 0,
+                    child: ClipRect(
+                      child: _cellBar(table, section.title, selected),
+                    ),
                   ),
               ],
             ),
-            // The bar rises out of the top of the sheets bar rather than
-            // over it, so every sheet stays a tap away while a cell is being
-            // read.
-            if (_rise.valueAt(_barNow) > 0.001 || !_rise.restingAt(_barNow))
-              Positioned(
-                left: 0,
-                right: 0,
-                bottom: document.sections.length > 1 ? kSheetTabHeight : 0,
-                child: ClipRect(
-                  child: _cellBar(table, section.title, selected),
-                ),
-              ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }

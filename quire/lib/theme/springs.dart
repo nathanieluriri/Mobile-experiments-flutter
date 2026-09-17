@@ -127,6 +127,21 @@ abstract final class AppSprings {
     ratio: 1,
   );
 
+  /// The reader's band going as the reading moves on and coming back when it
+  /// turns round, and whatever a body holds under the band going up and down
+  /// with it, such as a grid's letters.
+  ///
+  /// A spring rather than a timed slide, because the band is sent back half
+  /// way through leaving whenever a reader changes direction, and a spring
+  /// sent back sets off from where it is at the speed it has. It never goes
+  /// past where it is going: a band is held at the top of the screen, and a
+  /// spring cut off there would stop dead.
+  static final band = SpringDescription.withDampingRatio(
+    mass: 1,
+    stiffness: 160,
+    ratio: 1,
+  );
+
   /// The navigation drawer coming in and going out, and with it the hamburger
   /// morphing into an arrow. One spring drives both, so the glyph is a readout
   /// of where the panel is rather than an animation of its own that happens to

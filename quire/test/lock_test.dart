@@ -69,7 +69,10 @@ void main() {
 
       expect(find.byType(ForeEdge), findsNothing);
       expect(find.byType(FolioChip), findsNothing);
-      // The band is still built, and it is entirely off the top of the screen.
+      // The band is still built. It leaves on its spring, so anything held
+      // under it goes up with it rather than jumping, and then nothing of it
+      // shows.
+      await settle(tester);
       final band = tester.widget<ReaderChrome>(find.byType(ReaderChrome));
       expect(band.hidden, 1);
     });
@@ -92,15 +95,10 @@ void main() {
       // And then it goes, rather than sitting on the page.
       await tester.pump(kUnlockChipHold);
       await tester.pump(kUnlockChipFade);
-      expect(
-        tester.widget<UnlockChip>(find.byType(UnlockChip)).progress,
-        0,
-      );
+      expect(tester.widget<UnlockChip>(find.byType(UnlockChip)).progress, 0);
     });
 
-    testWidgets('a tap on the page asks for the way out again', (
-      tester,
-    ) async {
+    testWidgets('a tap on the page asks for the way out again', (tester) async {
       final store = await storeFor(kFieldGuide);
       await pumpScreen(tester, _host(store));
       await settle(tester);
@@ -109,18 +107,12 @@ void main() {
       await tester.pump(kUnlockChipFade);
       await tester.pump(kUnlockChipHold);
       await tester.pump(kUnlockChipFade);
-      expect(
-        tester.widget<UnlockChip>(find.byType(UnlockChip)).progress,
-        0,
-      );
+      expect(tester.widget<UnlockChip>(find.byType(UnlockChip)).progress, 0);
 
       await tester.tapAt(const Offset(200, 500));
       await tester.pump();
       await tester.pump(kUnlockChipFade);
-      expect(
-        tester.widget<UnlockChip>(find.byType(UnlockChip)).progress,
-        1,
-      );
+      expect(tester.widget<UnlockChip>(find.byType(UnlockChip)).progress, 1);
     });
 
     testWidgets('the chip takes the lock off', (tester) async {
@@ -244,10 +236,7 @@ void main() {
       await tester.tapAt(const Offset(200, 500));
       await tester.pump(kUnlockChipFade);
       expect(tester.widget<ReaderChrome>(find.byType(ReaderChrome)).hidden, 1);
-      expect(
-        tester.widget<UnlockChip>(find.byType(UnlockChip)).progress,
-        1,
-      );
+      expect(tester.widget<UnlockChip>(find.byType(UnlockChip)).progress, 1);
     });
   });
 
@@ -282,11 +271,16 @@ void main() {
 
       store.lock = ReaderLock.back;
       await tester.pump();
-      await tester.pump(const Duration(milliseconds: 300));
+      // The line goes the moment the lock is on, and the band goes on its
+      // spring, taking no touch on the way.
+      expect(
+        tester.widget<ReaderChrome>(find.byType(ReaderChrome)).notice,
+        isNull,
+      );
+      await settle(tester);
       final band = tester.widget<ReaderChrome>(find.byType(ReaderChrome));
       expect(band.notice, isNull);
       expect(band.hidden, 1);
-      await settle(tester);
     });
   });
 }

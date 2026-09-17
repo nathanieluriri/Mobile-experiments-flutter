@@ -90,6 +90,21 @@ abstract class ReaderBody extends StatelessWidget {
   Widget build(BuildContext context) => buildFront(context);
 }
 
+/// A reader's hand moving a body that does not scroll in Flutter's sense.
+///
+/// A page or a run of prose is a scroll view, and the shell hears it move
+/// through the scroll notifications it sends, which is what takes the band away
+/// as the reading goes on and brings it back when the reader turns round. A
+/// grid is painted at an offset and sends none, so it says the same thing this
+/// way instead, and the band answers it exactly as it answers a scroll.
+class ReadingMoved extends Notification {
+  const ReadingMoved(this.by);
+
+  /// How far on into the document the hand took the reading, in points, and
+  /// negative for back towards its start.
+  final double by;
+}
+
 /// The layer a signature is placed on: above the sheet, below the chrome.
 ///
 /// The shell owns where it sits and what it sits between, and it is empty

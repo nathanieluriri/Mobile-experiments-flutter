@@ -308,9 +308,8 @@ class _AppState extends State<App> with WidgetsBindingObserver {
       // The loop, not the ground, for the one frame the navigator has yet to
       // hand anything over: an app with nothing on screen is loading, and a
       // bare ground would say it had nothing to show.
-      builder: (context, child) => _Fitted(
-        child: DissolveScope(child: child ?? const QuireLoading()),
-      ),
+      builder: (context, child) =>
+          _Fitted(child: DissolveScope(child: child ?? const QuireLoading())),
     );
   }
 
@@ -333,8 +332,7 @@ class _AppState extends State<App> with WidgetsBindingObserver {
         settings: settings,
         builder:
             builder ??
-            (context) =>
-                store is DocumentStore ? _pad(store) : const _Ground(),
+            (context) => store is DocumentStore ? _pad(store) : const _Ground(),
       );
     }
     return MaterialPageRoute<void>(
@@ -460,11 +458,36 @@ class _Ground extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const ColoredBox(
-      color: AppColors.ground,
-      child: SizedBox.expand(),
-    );
+    return const ColoredBox(color: AppColors.ground, child: SizedBox.expand());
   }
+}
+
+/// How many device points one design point takes on a screen of [size]: as
+/// many as let the whole design fit, and no more.
+double fittedScale(Size size) =>
+    math.min(size.width / kScreenWidth, size.height / kScreenHeight);
+
+/// The phone's own insets, [insets] in device points, as the design frame on a
+/// screen of [size] meets them.
+///
+/// Two rulers differ. The insets are in device points and the frame is in
+/// design points, so they are divided by the scale. And they are measured from
+/// the screen's edge while the frame is not at the screen's edge: on a phone
+/// taller than the design, the frame is centred and starts some way below the
+/// top of the glass, part of the way down the status bar. Only the part of the
+/// status bar that is over the frame is over anything the app lays out, so a
+/// band that reserved the whole of it would leave that much dead ground
+/// between the clock and whatever sits under it. The same holds at every edge.
+EdgeInsets insetsInFrame(Size size, EdgeInsets insets) {
+  final scale = fittedScale(size);
+  final across = (size.width - kScreenWidth * scale) / 2;
+  final down = (size.height - kScreenHeight * scale) / 2;
+  return EdgeInsets.fromLTRB(
+    math.max(0.0, insets.left - across) / scale,
+    math.max(0.0, insets.top - down) / scale,
+    math.max(0.0, insets.right - across) / scale,
+    math.max(0.0, insets.bottom - down) / scale,
+  );
 }
 
 /// Maps the design's fixed [kScreenWidth] by [kScreenHeight] space onto
@@ -489,19 +512,8 @@ class _Fitted extends StatelessWidget {
     final query = MediaQuery.of(context);
     final size = query.size;
     if (size.isEmpty) return child;
-    final scale = math.min(
-      size.width / kScreenWidth,
-      size.height / kScreenHeight,
-    );
-    // The device's own insets are in device points, so they have to be taken
-    // back into design points before anything laid out in design space reads
-    // them, or a notch would be measured against the wrong ruler.
-    final padding = EdgeInsets.fromLTRB(
-      query.padding.left / scale,
-      query.padding.top / scale,
-      query.padding.right / scale,
-      query.padding.bottom / scale,
-    );
+    final scale = fittedScale(size);
+    final padding = insetsInFrame(size, query.padding);
     return ColoredBox(
       color: AppColors.ground,
       child: Center(

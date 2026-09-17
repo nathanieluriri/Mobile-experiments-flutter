@@ -222,8 +222,13 @@ void main() {
         warnIfMissed: false,
       );
       await settle(tester);
-      expect(store.position, 10);
-      expect(store.positionLabel, '11 / 71');
+      // Ten rows on, and the band gone with the push. The letters went up
+      // with it and uncovered the rows they had been lying over, so the row
+      // at the top is the one ten rows down less the band's height in rows.
+      final top = ((kGridRowHeight * 10 - kHeadBandHeight) / kGridRowHeight)
+          .floor();
+      expect(store.position, top);
+      expect(store.positionLabel, '${top + 1} / 71');
     });
 
     testWidgets('the back of a sheet holds the formulas, not the values', (

@@ -767,6 +767,7 @@ class _ReaderHostState extends State<ReaderHost> with TickerProviderStateMixin {
       overlay: find == null || !find.isOpen
           ? null
           : FindLayer(controller: find),
+      overlayHead: find == null || !find.isOpen ? 0 : find.titleFade,
       matches: find?.positions ?? const <double>[],
       liveMatch: find?.livePosition,
       matchOpacity: find?.railOpacity ?? 1,

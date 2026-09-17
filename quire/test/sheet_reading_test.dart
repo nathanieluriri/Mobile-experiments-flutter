@@ -125,6 +125,16 @@ GridPainter _body(WidgetTester tester) => tester
     .where((painter) => painter.pane == GridPane.cells)
     .last;
 
+/// Where the top left of the sheet's cells is on the glass: where the pane
+/// of cells is on screen, less how far the sheet has been pushed inside it.
+Offset _cellsOnGlass(WidgetTester tester) {
+  final painter = _body(tester);
+  final pane = find.byWidgetPredicate(
+    (widget) => widget is CustomPaint && identical(widget.painter, painter),
+  );
+  return tester.getTopLeft(pane) - painter.offset;
+}
+
 void main() {
   group('choosing a cell keeps the reader in place', () {
     testWidgets('a header in a frozen row moves nothing', (tester) async {
@@ -332,11 +342,15 @@ void main() {
       }
       await tester.tap(find.byType(SheetGrid), warnIfMissed: false);
       await tester.pump();
-      final caught = _body(tester).offset;
+      // Measured on the glass, since the band the flick sent away is still
+      // leaving and the letters are going up with it over rows that hold
+      // still.
+      final caught = _cellsOnGlass(tester);
       for (var i = 0; i < 6; i++) {
         await tester.pump(const Duration(milliseconds: 16));
       }
-      expect(_body(tester).offset, caught);
+      expect(_cellsOnGlass(tester).dx, closeTo(caught.dx, 0.01));
+      expect(_cellsOnGlass(tester).dy, closeTo(caught.dy, 0.01));
       expect(SheetController.of(store).selected, isNull);
     });
   });
