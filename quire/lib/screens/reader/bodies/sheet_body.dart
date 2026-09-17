@@ -125,11 +125,8 @@ class SheetBody extends ReaderBody {
   /// workbook with no grid in it says so on both faces, which is the only way
   /// a fold here can uncover anything other than the document.
   @override
-  Widget buildBack(BuildContext context) => SheetView(
-    store: store,
-    matches: matches,
-    face: SheetFace.back,
-  );
+  Widget buildBack(BuildContext context) =>
+      SheetView(store: store, matches: matches, face: SheetFace.back);
 
   @override
   int get unitCount => store.unitCount;
@@ -547,50 +544,6 @@ class _SheetViewState extends State<SheetView> with TickerProviderStateMixin {
     _sheet.sheet = picked;
   }
 
-  /// Everything said about the cells of the sheet showing.
-  ///
-  /// A spreadsheet is often argued over in its margins, and the marks alone
-  /// only say that an argument happened. This is where it can be read, and
-  /// picking one takes the grid to the cell it was made about.
-  Future<void> showComments() async {
-    final document = _document;
-    if (document == null) return;
-    final index = _sheetIndex;
-    final table = _tableOn(index);
-    if (table == null) return;
-    await comments(table, document.sections[index].title);
-  }
-
-  Future<void> comments(TableBlock table, String sheetName) async {
-    final said = commentsOn(table);
-    final picked = await showDeskSheet<SheetCell>(
-      context,
-      (context) => DeskSheet(
-        title: 'Comments',
-        note: said.isEmpty
-            ? 'Nobody has said anything about this sheet.'
-            : 'Tap one to go to the cell it is about.',
-        children: <Widget>[
-          for (final at in said.keys)
-            DeskSheetRow(
-              label: said[at]!.text,
-              icon: LucideIcons.messageSquare,
-              note: _saidBy(said[at]!, sheetName, at),
-              onTap: () => Navigator.of(context).pop(at),
-            ),
-        ],
-      ),
-    );
-    if (picked == null || !mounted) return;
-    _sheet.selected = picked;
-    setState(() => _reveal = SheetReveal(picked));
-  }
-
-  String _saidBy(CellComment said, String sheetName, SheetCell at) {
-    final where = cellReference(sheetName, at.column, at.row);
-    return said.author.isEmpty ? where : '$where · ${said.author}';
-  }
-
   /// How many rows a sheet holds, in the words the desk uses for a count.
   String _rowsOn(DocSection section) {
     final table = _tableIn(section);
@@ -713,6 +666,7 @@ class _SheetViewState extends State<SheetView> with TickerProviderStateMixin {
                     active: index,
                     onSelect: (next) => _sheet.sheet = next,
                     onAll: () => _allSheets(document, index),
+                    locked: widget.store.lock.holdsPage,
                   ),
               ],
             ),

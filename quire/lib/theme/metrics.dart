@@ -267,6 +267,9 @@ const kSheetRowPoints = 20.0;
 /// Room round a cell's own text.
 const kGridCellPadX = 8.0;
 
+/// Room above and below a cell's words, for words set at its top or foot.
+const kGridCellPadY = 5.0;
+
 /// The corner a cell wears when somebody has said something about it.
 const kGridCommentMark = 7.0;
 

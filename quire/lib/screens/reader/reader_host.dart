@@ -339,54 +339,60 @@ class _ReaderHostState extends State<ReaderHost> with TickerProviderStateMixin {
     widget.store.lock = wanted;
   }
 
-  /// True when the sheet showing carries a discussion in its margins.
-  bool get _hasComments => _commentsHere().isNotEmpty;
+  /// True when any sheet of the workbook carries a discussion in its
+  /// margins.
+  bool get _hasComments => _allComments().isNotEmpty;
 
-  /// What has been said about the cells of the sheet showing.
-  Map<SheetCell, CellComment> _commentsHere() {
+  /// What has been said about the cells of every sheet, sheet by sheet and
+  /// in reading order within each.
+  List<({int sheet, SheetCell at, CellComment said})> _allComments() {
     final document = widget.store.document;
-    if (document == null || !widget.store.isGrid) {
-      return const <SheetCell, CellComment>{};
-    }
-    final sheet = SheetController.of(widget.store).sheet;
-    if (sheet < 0 || sheet >= document.sections.length) {
-      return const <SheetCell, CellComment>{};
-    }
-    for (final block in document.sections[sheet].blocks) {
-      if (block is TableBlock) return commentsOn(block);
-    }
-    return const <SheetCell, CellComment>{};
+    if (document == null || !widget.store.isGrid) return const [];
+    return <({int sheet, SheetCell at, CellComment said})>[
+      for (var s = 0; s < document.sections.length; s++)
+        for (final block in document.sections[s].blocks)
+          if (block is TableBlock)
+            for (final entry in commentsOn(block).entries)
+              (sheet: s, at: entry.key, said: entry.value),
+    ];
   }
 
-  /// Everything said about this sheet, and a jump to the cell it was said
-  /// about.
+  /// Everything said about the workbook, and a jump to the cell it was said
+  /// about, on whichever sheet that is.
   Future<void> _comments() async {
     final document = widget.store.document;
     if (document == null) return;
     final controller = SheetController.of(widget.store);
-    final sheetName = document.sections[controller.sheet].title;
-    final said = _commentsHere();
-    final picked = await showDeskSheet<SheetCell>(
+    final all = _allComments();
+    final picked = await showDeskSheet<int>(
       context,
       (context) => DeskSheet(
         title: 'Comments',
         note: 'Tap one to go to the cell it is about.',
         children: <Widget>[
-          for (final at in said.keys)
+          for (var i = 0; i < all.length; i++)
             DeskSheetRow(
-              label: said[at]!.text,
+              label: all[i].said.text,
               icon: LucideIcons.messageSquare,
-              note: said[at]!.author.isEmpty
-                  ? cellReference(sheetName, at.column, at.row)
-                  : '${cellReference(sheetName, at.column, at.row)} · '
-                        '${said[at]!.author}',
-              onTap: () => Navigator.of(context).pop(at),
+              note: _saidWhere(
+                document.sections[all[i].sheet].title,
+                all[i].at,
+                all[i].said.author,
+              ),
+              onTap: () => Navigator.of(context).pop(i),
             ),
         ],
       ),
     );
     if (picked == null || !mounted) return;
-    controller.selected = picked;
+    final chosen = all[picked];
+    if (chosen.sheet != controller.sheet) controller.sheet = chosen.sheet;
+    controller.selected = chosen.at;
+  }
+
+  String _saidWhere(String sheetName, SheetCell at, String author) {
+    final where = cellReference(sheetName, at.column, at.row);
+    return author.isEmpty ? where : '$where · $author';
   }
 
   /// The list of dog ears, and a jump to the one picked.
@@ -586,7 +592,9 @@ class _ReaderHostState extends State<ReaderHost> with TickerProviderStateMixin {
   /// another cell.
   Set<SheetMatch> get _matchedCells {
     final find = _find;
-    if (find == null) return const <SheetMatch>{};
+    // Put away, a find lights nothing: a wash left on a cell afterwards would
+    // look like a fill the file itself gave it.
+    if (find == null || !find.isOpen) return const <SheetMatch>{};
     return <SheetMatch>{
       for (final match in find.matches)
         if (match.path.length >= 3)

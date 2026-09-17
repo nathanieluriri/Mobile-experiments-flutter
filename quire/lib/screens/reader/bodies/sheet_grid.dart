@@ -214,6 +214,15 @@ class SheetGridState extends State<SheetGrid> with TickerProviderStateMixin {
       // Held where it is. A pull past an end still goes back to the end.
       _settleInside();
     }
+    if (widget.coveredBelow < oldWidget.coveredBelow) {
+      // What was laid over the foot has gone, and the room it made with it:
+      // a sheet pushed into that room settles back to its own end.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && !_glideY.isAnimating && _pan.dy > _limit.dy) {
+          _settleInside();
+        }
+      });
+    }
   }
 
   @override
@@ -244,10 +253,15 @@ class SheetGridState extends State<SheetGrid> with TickerProviderStateMixin {
 
   // -------------------------------------------------------------- the pan
 
-  Offset get _limit => _geometry.limitFor(
-    Size(_view.width + kRowHeaderWidth, _view.height + kGridHeaderHeight),
-    frozen: _frozen,
-  );
+  /// How far the sheet can be pushed. While something is laid over the foot
+  /// of the grid, the sheet can be pushed on by that much, so its last rows
+  /// can be brought up clear of it.
+  Offset get _limit =>
+      _geometry.limitFor(
+        Size(_view.width + kRowHeaderWidth, _view.height + kGridHeaderHeight),
+        frozen: _frozen,
+      ) +
+      Offset(0, widget.coveredBelow);
 
   /// Moves the sheet to [next]. Held inside the sheet unless [over], which
   /// is for the pull against an end and the spring back from it.
@@ -291,8 +305,55 @@ class SheetGridState extends State<SheetGrid> with TickerProviderStateMixin {
     final velocity = details.velocity.pixelsPerSecond;
     final limit = _limit;
     _showing = false;
-    _glideAxis(_glideX, _pan.dx, -velocity.dx, limit.dx);
-    _glideAxis(_glideY, _pan.dy, -velocity.dy, limit.dy);
+    _glideAxis(
+      _glideX,
+      _pan.dx,
+      _released(_pan.dx, -velocity.dx, limit.dx),
+      limit.dx,
+    );
+    _glideAxis(
+      _glideY,
+      _pan.dy,
+      _released(_pan.dy, -velocity.dy, limit.dy),
+      limit.dy,
+    );
+  }
+
+  /// The speed a sheet is let go at. Past an end and still being pulled
+  /// outward, the sheet was only moving at the share of the finger's speed
+  /// the pull gave it, and it carries on at that, not at the finger's.
+  static double _released(double at, double velocity, double end) {
+    final past = at < 0 ? -at : (at > end ? at - end : 0.0);
+    final outward = (at < 0 && velocity < 0) || (at > end && velocity > 0);
+    if (!outward) return velocity;
+    return velocity *
+        kGridPullGive *
+        (1 - past / kGridPullMax).clamp(0.05, 1.0);
+  }
+
+  /// A finger put down on a sheet that is still gliding catches it, the way
+  /// a hand stops a turning page, and the tap that finger makes is taken as
+  /// the catch rather than as a choice.
+  bool _caught = false;
+
+  void _touch(DragDownDetails details) {
+    final moving = _glideX.isAnimating || _glideY.isAnimating;
+    // Only a flick is caught. A glide the grid is making to show a cell stops
+    // under the finger too, but the tap still chooses, since a reader
+    // tapping cell after cell should not lose every other tap.
+    _caught = moving && !_showing;
+    if (moving) _stopGliding();
+  }
+
+  /// A touch that turned out to be neither a push nor a tap, or a tap that
+  /// only caught the sheet: a sheet it left past an end goes back.
+  void _untouch() {
+    final limit = _limit;
+    final outside =
+        _pan.dx < 0 || _pan.dx > limit.dx || _pan.dy < 0 || _pan.dy > limit.dy;
+    if (outside && !_glideX.isAnimating && !_glideY.isAnimating) {
+      _settleInside();
+    }
   }
 
   void _glideAxis(
@@ -344,22 +405,32 @@ class SheetGridState extends State<SheetGrid> with TickerProviderStateMixin {
     var x = gliding ? _glideTarget.dx : _pan.dx;
     var y = gliding ? _glideTarget.dy : _pan.dy;
     final top = rect.top - _frozen.height;
+    // A cell in a frozen row is on screen whatever the pan down is, and one
+    // in a frozen column whatever the pan across is, so choosing one moves
+    // nothing on that axis. Throwing the reader back to the top to show them
+    // a header they could already see would lose their place.
+    final frozenRow = cell.row < _geometry.frozenRows;
+    final frozenColumn = cell.column < _geometry.frozenColumns;
     if (toTop) {
-      y = top;
+      if (!frozenRow) y = top;
     } else {
       // A cell wider than the view shows its start, and one taller than what
       // is left of it shows its top: the end of a thing is no use without
       // its beginning.
-      final left = rect.left - _frozen.width;
-      if (rect.right - _frozen.width > x + _view.width) {
-        x = rect.right - _frozen.width - _view.width;
+      if (!frozenColumn) {
+        final left = rect.left - _frozen.width;
+        if (rect.right - _frozen.width > x + _view.width) {
+          x = rect.right - _frozen.width - _view.width;
+        }
+        if (left < x) x = left;
       }
-      if (left < x) x = left;
-      final seen = math.max(kGridRowMin, _view.height - widget.coveredBelow);
-      if (rect.bottom - _frozen.height > y + seen) {
-        y = rect.bottom - _frozen.height - seen;
+      if (!frozenRow) {
+        final seen = math.max(kGridRowMin, _view.height - widget.coveredBelow);
+        if (rect.bottom - _frozen.height > y + seen) {
+          y = rect.bottom - _frozen.height - seen;
+        }
+        if (top < y) y = top;
       }
-      if (top < y) y = top;
     }
     final limit = _limit;
     final target = Offset(x.clamp(0.0, limit.dx), y.clamp(0.0, limit.dy));
@@ -396,6 +467,11 @@ class SheetGridState extends State<SheetGrid> with TickerProviderStateMixin {
 
   /// Which cell the finger landed on, in whichever pane it landed in.
   void _tap(Offset local) {
+    if (_caught) {
+      _caught = false;
+      _untouch();
+      return;
+    }
     final inGrid = Offset(
       local.dx - kRowHeaderWidth,
       local.dy - kGridHeaderHeight,
@@ -518,6 +594,8 @@ class SheetGridState extends State<SheetGrid> with TickerProviderStateMixin {
         if (widget.locked) return grid;
         return GestureDetector(
           behavior: HitTestBehavior.opaque,
+          onPanDown: _touch,
+          onPanCancel: _untouch,
           onPanUpdate: _drag,
           onPanEnd: _fling,
           onTapUp: (details) => _tap(details.localPosition),

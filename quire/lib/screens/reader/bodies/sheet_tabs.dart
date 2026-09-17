@@ -7,6 +7,7 @@ import '../../../constants/gooey_fab.dart'
     show kGooAlphaThresholdMatrix, kGooBlurSigma;
 import '../../../painting/tab_goo_painter.dart';
 import '../../../theme/colors.dart';
+import '../../../theme/easings.dart';
 import '../../../theme/metrics.dart';
 import '../../../theme/typography.dart';
 import '../../../widgets/press_fade.dart';
@@ -16,6 +17,9 @@ const kSheetTabGap = 8.0;
 
 /// How far through the journey the chip's own fill takes over from the goo.
 const kSheetTabHandover = 0.15;
+
+/// How far the bar steps back while the reading is locked.
+const kSheetTabLocked = 0.35;
 
 /// The sheets of a workbook, along the foot of the reader.
 ///
@@ -34,6 +38,7 @@ class SheetTabs extends StatefulWidget {
     required this.active,
     this.onSelect,
     this.onAll,
+    this.locked = false,
   });
 
   final List<String> names;
@@ -43,6 +48,10 @@ class SheetTabs extends StatefulWidget {
   /// Opens the list of every sheet, for a workbook with more of them than the
   /// foot of a phone can show.
   final VoidCallback? onAll;
+
+  /// True while the reading is locked, when the bar stays where it is but
+  /// takes no taps and steps back, since changing sheet is moving the reading.
+  final bool locked;
 
   @override
   State<SheetTabs> createState() => _SheetTabsState();
@@ -69,6 +78,28 @@ class _SheetTabsState extends State<SheetTabs>
   GlobalKey _keyFor(int index) => _keys.putIfAbsent(index, GlobalKey.new);
 
   @override
+  void initState() {
+    super.initState();
+    // A workbook opened on a later sheet shows that sheet's pill.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _show(widget.active, glide: false);
+    });
+  }
+
+  /// Brings [index]'s pill into the middle of the bar, or as near as the ends
+  /// of the bar allow, so the sheet showing is always a lit pill in view.
+  void _show(int index, {bool glide = true}) {
+    final context = _keys[index]?.currentContext;
+    if (context == null) return;
+    Scrollable.ensureVisible(
+      context,
+      alignment: 0.5,
+      duration: glide ? kSheetTabTravel : Duration.zero,
+      curve: easeInOutCubic,
+    );
+  }
+
+  @override
   void didUpdateWidget(SheetTabs oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.active != widget.active) {
@@ -84,7 +115,12 @@ class _SheetTabsState extends State<SheetTabs>
             )
           : null;
       _from = oldWidget.active;
-      _travel.forward(from: 0);
+      // A journey changed half way sets off from where the fill is, which is
+      // already a blob, so it does not stop to gather again first.
+      _travel.forward(from: _fromBody == null ? 0 : kTabGooGatherEnd);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _show(widget.active);
+      });
     }
   }
 
@@ -106,6 +142,18 @@ class _SheetTabsState extends State<SheetTabs>
 
   @override
   Widget build(BuildContext context) {
+    return IgnorePointer(
+      ignoring: widget.locked,
+      child: AnimatedOpacity(
+        opacity: widget.locked ? kSheetTabLocked : 1,
+        duration: kSheetTabTravel,
+        curve: easeInOutCubic,
+        child: _bar(context),
+      ),
+    );
+  }
+
+  Widget _bar(BuildContext context) {
     return Container(
       height: kSheetTabHeight,
       decoration: const BoxDecoration(

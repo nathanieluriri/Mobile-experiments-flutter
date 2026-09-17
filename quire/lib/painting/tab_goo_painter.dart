@@ -22,6 +22,11 @@ const kTabGooTravelEnd = 0.7;
 const kTabGooArriveStart = 0.55;
 const kTabGooWidenEnd = 0.85;
 
+/// A viscous journey's arrival: the new chip's fill grows from a point into
+/// its pill in one movement that begins before the blob has quite arrived,
+/// so the blob never comes to a stop and then bursts open.
+const kTabGooViscousOpenStart = 0.45;
+
 /// The selected tab's fill on its way from one chip to the next.
 ///
 /// A body that moves, not a fill that switches. Over a short hop the blob and
@@ -79,21 +84,41 @@ class TabGooPainter extends CustomPainter {
         height: from.height,
       );
     }
-    if (t < kTabGooTravelEnd) {
-      final travel = (viscous ? easeInOutCubic : easeInOutQuad).transform(
-        _stage(t, kTabGooGatherEnd, kTabGooTravelEnd),
-      );
-      final radius = math.min(from.height, to.height) / 2;
-      return Rect.fromCircle(
-        center: Offset.lerp(from.center, to.center, travel)!,
-        radius: radius,
-      );
+    final radius = math.min(from.height, to.height) / 2;
+    final travel = (viscous ? easeInOutCubic : easeInOutQuad).transform(
+      _stage(t, kTabGooGatherEnd, kTabGooTravelEnd),
+    );
+    final blob = Rect.fromCircle(
+      center: Offset.lerp(from.center, to.center, travel)!,
+      radius: radius,
+    );
+    if (viscous && t >= kTabGooViscousOpenStart) {
+      // The blob and the pill opening under it are one body; whichever is
+      // wider is where the fill is.
+      final open = _opening(to, t);
+      return open.width >= blob.width ? open : blob;
     }
+    if (t < kTabGooTravelEnd) return blob;
     final widen = eased(_stage(t, kTabGooTravelEnd, kTabGooWidenEnd));
     return Rect.fromCenter(
       center: to.center,
       width: ui.lerpDouble(to.height, to.width, widen)!,
       height: to.height,
+    );
+  }
+
+  /// A viscous arrival at [t]: a fill growing from nothing at the chip's
+  /// middle, round while it is narrower than the chip is tall and a pill as
+  /// it widens past that.
+  static Rect _opening(Rect chip, double t) {
+    final open = easeInOutQuad.transform(
+      _stage(t, kTabGooViscousOpenStart, kTabGooWidenEnd),
+    );
+    final width = chip.width * open;
+    return Rect.fromCenter(
+      center: chip.center,
+      width: width,
+      height: math.min(chip.height, width),
     );
   }
 
@@ -131,6 +156,16 @@ class TabGooPainter extends CustomPainter {
     }
 
     // The new chip opens to receive it, then widens into its own pill.
+    if (viscous) {
+      final open = _opening(to, t);
+      if (open.width > 0) {
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(open, Radius.circular(open.height / 2)),
+          paint,
+        );
+      }
+      return;
+    }
     final arrive = _eased(_stage(t, kTabGooArriveStart, kTabGooTravelEnd));
     final widen = _eased(_stage(t, kTabGooTravelEnd, kTabGooWidenEnd));
     if (arrive > 0) {

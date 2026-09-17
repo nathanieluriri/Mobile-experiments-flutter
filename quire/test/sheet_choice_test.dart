@@ -49,11 +49,15 @@ double _sizeStep(ChoiceFrame a, ChoiceFrame b) {
 /// The checks every journey has to pass: nothing moves far in one frame,
 /// nothing switches on or off, and the neck never thins past where it would
 /// break.
-void _flows(List<ChoiceFrame> frames) {
+///
+/// [fastest] is the most the body may move in a frame. A journey to a cell
+/// several screens away is made while the sheet itself glides there faster
+/// still, so what the eye follows is the body against the moving sheet.
+void _flows(List<ChoiceFrame> frames, {double fastest = 40}) {
   for (var i = 1; i < frames.length; i++) {
     final a = frames[i - 1];
     final b = frames[i];
-    expect(_centreStep(a, b), lessThan(40), reason: 'body jumped at $i');
+    expect(_centreStep(a, b), lessThan(fastest), reason: 'body jumped at $i');
     expect(_sizeStep(a, b), lessThan(12), reason: 'body popped at $i');
     expect((b.fill - a.fill).abs(), lessThan(0.12), reason: 'goo at $i');
     expect(
@@ -142,6 +146,34 @@ void main() {
     });
   });
 
+  group('a far cell', () {
+    for (final rows in <int>[60, 300]) {
+      test('$rows rows away is arrived at with the sheet, and stays', () {
+        final choice = SheetChoice(_cell(1, 0));
+        final target = _cell(1 + rows, 1);
+        final frames = _play(choice, (frame, now) {
+          if (frame == 0) choice.choose(target, now);
+        }, most: 600);
+        _flows(frames);
+        // The old ring melts first; the ring that matters is the one that
+        // forms after it.
+        final melted = frames.indexWhere((frame) => frame.ringStrength < 0.5);
+        final formed = frames.indexWhere(
+          (frame) => frame.ringStrength >= 0.5,
+          melted,
+        );
+        expect(formed, isNonNegative);
+        expect(formed * _frame, lessThan(1.8), reason: 'the ring formed late');
+        expect(frames.length * _frame, lessThan(3.5), reason: 'slow to rest');
+        // Once formed, the ring never draws back in to a drop.
+        for (final frame in frames.skip(formed)) {
+          expect(frame.ring!.width, greaterThan(target.width * 0.8));
+        }
+        expect(frames.last.ring, target);
+      });
+    }
+  });
+
   group('a first choice', () {
     test('condenses as a drop and spreads without stalling', () {
       final choice = SheetChoice(null);
@@ -173,6 +205,36 @@ void main() {
       _flows(frames);
       expect(frames.last.ring, isNull);
       expect(frames.last.lit, isNull);
+    });
+
+    test('fades out whole rather than being cut off by the threshold', () {
+      for (final travelling in <bool>[false, true]) {
+        final choice = SheetChoice(_cell(1, 0));
+        final frames = _play(choice, (frame, now) {
+          if (travelling && frame == 0) choice.choose(_cell(9, 1), now);
+          if (frame == (travelling ? 10 : 0)) choice.choose(null, now);
+        });
+        for (final frame in frames) {
+          final goo = frame.goo;
+          if (goo == null || frame.fill < 0.05) continue;
+          final size = math.max(goo.body.width, goo.body.height);
+          expect(size, greaterThanOrEqualTo(kChoiceDropFloor - 0.5));
+        }
+      }
+    });
+
+    test('a first choice fades in rather than popping in at a size', () {
+      final choice = SheetChoice(null);
+      final frames = _play(choice, (frame, now) {
+        if (frame == 0) choice.choose(_cell(3, 1), now);
+      });
+      expect(frames.first.fill, lessThan(0.05));
+      for (final frame in frames) {
+        final goo = frame.goo;
+        if (goo == null) continue;
+        final size = math.max(goo.body.width, goo.body.height);
+        expect(size, greaterThanOrEqualTo(kChoiceDropFloor - 0.5));
+      }
     });
   });
 }

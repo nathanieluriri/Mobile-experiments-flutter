@@ -21,7 +21,9 @@ const Map<int, String> kBuiltinNumFmts = {
   11: '0.00E+00',
   12: '# ?/?',
   13: '# ??/??',
-  14: 'mm-dd-yy',
+  // A short date is written the way the reader's own locale writes one, and
+  // a reader cannot know which that was, so it is written unambiguously.
+  14: 'd mmm yyyy',
   15: 'd-mmm-yy',
   16: 'd-mmm',
   17: 'mmm-yy',
@@ -29,11 +31,15 @@ const Map<int, String> kBuiltinNumFmts = {
   19: 'h:mm:ss AM/PM',
   20: 'h:mm',
   21: 'h:mm:ss',
-  22: 'm/d/yy h:mm',
+  22: 'd mmm yyyy h:mm',
   37: '#,##0 ;(#,##0)',
   38: '#,##0 ;[Red](#,##0)',
   39: '#,##0.00;(#,##0.00)',
   40: '#,##0.00;[Red](#,##0.00)',
+  41: r'_(* #,##0_);_(* \(#,##0\);_(* "-"_);_(@_)',
+  42: r'_("$"* #,##0_);_("$"* \(#,##0\);_("$"* "-"_);_(@_)',
+  43: r'_(* #,##0.00_);_(* \(#,##0.00\);_(* "-"??_);_(@_)',
+  44: r'_("$"* #,##0.00_);_("$"* \(#,##0.00\);_("$"* "-"??_);_(@_)',
   45: 'mm:ss',
   46: '[h]:mm:ss',
   47: 'mmss.0',
@@ -167,6 +173,8 @@ List<String> formatSections(String code) {
 String formatCell(Object? value, String code, {bool date1904 = false}) {
   if (value == null) return '';
   if (code.isEmpty || code == 'General') return _general(value);
+  // A number in a cell formatted as text is shown as it is.
+  if (code == '@' && value is num) return _general(value);
 
   final sections = formatSections(code);
   if (value is String) {
@@ -298,7 +306,9 @@ String _formatNumber(double value, String section) {
   var ip = decimals > 0 ? s.substring(0, s.indexOf('.')) : s;
   final fp = decimals > 0 ? s.substring(s.indexOf('.') + 1) : '';
   if (ip.length < minIntDigits) ip = ip.padLeft(minIntDigits, '0');
-  if (minIntDigits == 0 && ip == '0' && decimals > 0) ip = '';
+  // A whole part with no zero placeholder shows nothing for nought, which
+  // is how an accounting format's dash stands alone for zero.
+  if (minIntDigits == 0 && ip == '0') ip = '';
   if (grouped) ip = _group(ip);
 
   final digits = decimals > 0 ? '$ip.$fp' : ip;

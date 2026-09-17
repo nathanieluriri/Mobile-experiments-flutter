@@ -184,10 +184,14 @@ class SheetGeometry {
   static int _columnCount(TableBlock table) {
     var most = table.columns.length;
     for (final row in table.rows) {
+      // A merge's span is counted once, at the cell it starts at. The cells
+      // it swallows are held in the row as stand ins and are not columns of
+      // their own.
       var wide = 0;
       for (final cell in row.cells) {
-        wide += math.max(1, cell.colSpan);
+        if (!cell.merged) wide += math.max(1, cell.colSpan);
       }
+      if (row.cells.length > wide) wide = row.cells.length;
       if (wide > most) most = wide;
     }
     return most;

@@ -12,6 +12,23 @@ import '../../../theme/springs.dart';
 /// keeps a long journey reading as goo and not as a flick.
 const kChoiceTopSpeed = 1700.0;
 
+/// The slowest a long journey is taken, as a share of the house springs'
+/// stiffness. Speed is capped, but never so far that the choice arrives long
+/// after the sheet that carried the reader to it has stopped.
+const kChoiceSlowest = 0.45;
+
+/// The size a drop dries to and condenses from: just big enough that the
+/// blur and the threshold keep it whole, so what is seen coming and going is
+/// the goo fading in and out, never a drop cut off part way at speed.
+const kChoiceDropFloor = 26.0;
+
+/// How far a cell has to be for the goo not to cross to it, and how far
+/// short of it the goo condenses instead. Past a screen away the sheet glides
+/// to the cell, and goo streaking across rows scrolling past it is a smear,
+/// not a thing moving.
+const kChoiceFar = 750.0;
+const kChoiceReach = 96.0;
+
 /// A spring made slower by [share] of its stiffness, keeping its shape.
 SpringDescription _slowed(SpringDescription spring, double share) =>
     SpringDescription(
@@ -97,8 +114,15 @@ class SheetChoice {
   /// leaves the cell is goo and what stays behind is a ring going out.
   Offset _ringHome = Offset.zero;
 
-  /// The size the body travels at, from the last cell it was going to.
+  /// The size the body travels at, from the last cell it was going to, and
+  /// that size on its way there, so moving between rows of different heights
+  /// does not change the body's size in a single frame.
   double _radius = kCellGooBodyMax / 2;
+  final _radiusNow = SpringValue(kCellGooBodyMax / 2);
+
+  /// The size of the ring when it began to melt, which it only ever draws in
+  /// from.
+  Size _ringHomeSize = Size.zero;
 
   /// The cell chosen, in the sheet's own space.
   Rect? get cell => _cell;
@@ -120,6 +144,7 @@ class SheetChoice {
     _top,
     _right,
     _bottom,
+    _radiusNow,
   ];
 
   static Rect _inset(Rect cell) => Rect.fromCenter(
@@ -153,6 +178,7 @@ class SheetChoice {
     _right.jumpTo(cell.right);
     _bottom.jumpTo(cell.bottom);
     _radius = _radiusFor(body);
+    _radiusNow.jumpTo(_radius);
     _litShown = true;
     _moving = false;
   }
@@ -177,7 +203,11 @@ class SheetChoice {
     // rest is the cell that was chosen.
     final head = Offset(_headX.valueAt(now), _headY.valueAt(now));
     final litNow = _litAt(now);
-    if (_set || !_moving) _ringHome = _ringAt(now)?.center ?? head;
+    if (_set || !_moving) {
+      final ring = _ringAt(now);
+      _ringHome = ring?.center ?? head;
+      _ringHomeSize = ring?.size ?? Size.zero;
+    }
     _cell = cell;
     _set = false;
 
@@ -209,15 +239,15 @@ class SheetChoice {
     final goal = cell.center;
     if (!_moving && was == null) {
       // Nothing was chosen, so there is nothing to carry: a drop condenses
-      // at the middle of the cell.
+      // at the middle of the cell, fading in as it spreads.
       _headX.jumpTo(goal.dx);
       _headY.jumpTo(goal.dy);
       _tailX.jumpTo(goal.dx);
       _tailY.jumpTo(goal.dy);
-      _width.jumpTo(0);
-      _height.jumpTo(0);
-      _corner.jumpTo(0);
-      _fill.jumpTo(1);
+      _width.jumpTo(kChoiceDropFloor);
+      _height.jumpTo(kChoiceDropFloor);
+      _corner.jumpTo(kChoiceDropFloor / 2);
+      _fill.jumpTo(0);
       _ring.jumpTo(0);
       _left.jumpTo(goal.dx);
       _right.jumpTo(goal.dx);
@@ -231,15 +261,41 @@ class SheetChoice {
           math.min(_width.valueAt(now), _height.valueAt(now)) >= _radius * 1.2;
     }
     _radius = _radiusFor(body);
+    _radiusNow.sendTo(_radius, now, AppSprings.gooSpread);
     _litShown = true;
 
+    // A cell a screen or more away, chosen while no goo shows: the old ring
+    // melts where it was, and a drop condenses a little way short of the new
+    // cell on the side the choice came from and flows in.
+    var distance = (goal - head).distance;
+    var litFrom = litNow;
+    if (distance > kChoiceFar && _fill.valueAt(now) < 0.05) {
+      final way = (goal - head) / distance;
+      final start = goal - way * kChoiceReach;
+      _headX.jumpTo(start.dx);
+      _headY.jumpTo(start.dy);
+      _tailX.jumpTo(start.dx);
+      _tailY.jumpTo(start.dy);
+      _width.jumpTo(kChoiceDropFloor);
+      _height.jumpTo(kChoiceDropFloor);
+      _corner.jumpTo(kChoiceDropFloor / 2);
+      _fill.jumpTo(0);
+      final shifted = cell.shift(-way * kChoiceReach);
+      _left.jumpTo(shifted.left);
+      _right.jumpTo(shifted.right);
+      _top.jumpTo(shifted.top);
+      _bottom.jumpTo(shifted.bottom);
+      litFrom = shifted;
+      _condensed = true;
+      distance = kChoiceReach;
+    }
+
     // A spring's top speed grows with the distance it has to go, so a long
-    // journey is taken on softer springs of the same shape.
-    final distance = (goal - head).distance;
+    // journey is taken on softer springs of the same shape, down to a floor.
     final fastest = kChoiceTopSpeed / (0.42 * math.max(distance, 1));
-    final share = math.min(
+    final share = (fastest * fastest / AppSprings.gooHead.stiffness).clamp(
+      kChoiceSlowest,
       1.0,
-      fastest * fastest / AppSprings.gooHead.stiffness,
     );
     final headSpring = _slowed(AppSprings.gooHead, share);
     final tailSpring = _slowed(AppSprings.gooTail, share);
@@ -255,7 +311,7 @@ class SheetChoice {
 
     // The lit stretch crawls: the edge on the side the choice is going
     // leads, the other follows it in.
-    final from = litNow ?? Rect.fromCenter(center: goal, width: 0, height: 0);
+    final from = litFrom ?? Rect.fromCenter(center: goal, width: 0, height: 0);
     final across = cell.center.dx - from.center.dx;
     final down = cell.center.dy - from.center.dy;
     _left.sendTo(cell.left, now, across > 0 ? trail : lead);
@@ -282,7 +338,9 @@ class SheetChoice {
       final near =
           (head - cell.center).distance <
           math.max(6.0, body.shortestSide * 0.6);
-      if (_condensed && near) {
+      // Once the ring has formed round it the body stays spread, whatever a
+      // spring still settling makes of the distance to the cell.
+      if (_condensed && (near || _set)) {
         _width.sendTo(body.width, now, AppSprings.gooSpread);
         _height.sendTo(body.height, now, AppSprings.gooSpread);
         _corner.sendTo(kCellGooCellCorner, now, AppSprings.gooSpread);
@@ -310,11 +368,12 @@ class SheetChoice {
         _height.sendTo(2 * r, now, AppSprings.gooRise);
         _corner.sendTo(r, now, AppSprings.gooRise);
       } else {
-        // It dries rather than vanishing: smaller and fainter together, so
-        // there is no moment where it is cut off by the threshold at speed.
-        _width.sendTo(0, now, AppSprings.gooSet);
-        _height.sendTo(0, now, AppSprings.gooSet);
-        _corner.sendTo(0, now, AppSprings.gooSet);
+        // It dries by fading. It draws in only as far as the threshold still
+        // keeps it whole, so the eye sees the goo go and not a drop cut off
+        // part way at speed.
+        _width.sendTo(kChoiceDropFloor, now, AppSprings.gooSet);
+        _height.sendTo(kChoiceDropFloor, now, AppSprings.gooSet);
+        _corner.sendTo(kChoiceDropFloor / 2, now, AppSprings.gooSet);
         _fill.sendTo(0, now, AppSprings.gooSet);
       }
     }
@@ -332,14 +391,23 @@ class SheetChoice {
   /// drawing in where it was while it is being let go of.
   Rect? _ringAt(double now) {
     if (!_moving) return _cell;
-    final body = Rect.fromCenter(
-      center: _set
-          ? Offset(_headX.valueAt(now), _headY.valueAt(now))
-          : _ringHome,
-      width: math.max(0.0, _width.valueAt(now)),
-      height: math.max(0.0, _height.valueAt(now)),
+    final body = _outset(
+      Rect.fromCenter(
+        center: _set
+            ? Offset(_headX.valueAt(now), _headY.valueAt(now))
+            : _ringHome,
+        width: math.max(0.0, _width.valueAt(now)),
+        height: math.max(0.0, _height.valueAt(now)),
+      ),
     );
-    return _outset(body);
+    if (_set) return body;
+    // Melting where it was, it only draws in: it never grows back with a
+    // body spreading into some other cell.
+    return Rect.fromCenter(
+      center: _ringHome,
+      width: math.min(body.width, _ringHomeSize.width),
+      height: math.min(body.height, _ringHomeSize.height),
+    );
   }
 
   Rect? _litAt(double now) {
@@ -367,9 +435,10 @@ class SheetChoice {
     final h = math.max(0.0, _height.valueAt(now));
     final body = Rect.fromCenter(center: head, width: w, height: h);
     final gap = (head - tail).distance;
-    // What the body trails shrinks with the body, so a drop drying up on its
+    final radius = _radiusNow.valueAt(now);
+    // What the body trails shrinks with the body, so a drop drawing in on its
     // way takes its neck in with it rather than leaving the neck behind.
-    final scale = (math.max(w, h) / (2 * _radius)).clamp(0.0, 1.0);
+    final scale = (math.max(w, h) / (2 * radius)).clamp(0.0, 1.0);
     final joined = gap < 1 || scale <= 0;
     final goo = CellGoo(
       body: body,
@@ -377,10 +446,13 @@ class SheetChoice {
       tail: tail,
       tailRadius: joined
           ? 0
-          : _radius * (0.8 - 0.3 * (gap / 160).clamp(0.0, 1.0)) * scale,
+          : radius * (0.8 - 0.3 * (gap / 160).clamp(0.0, 1.0)) * scale,
       neck: joined
           ? 0
-          : (kCellGooNeckVolume / gap).clamp(kCellGooNeckMin, _radius * 0.7) *
+          : (kCellGooNeckVolume / gap).clamp(
+                  kCellGooNeckMin,
+                  math.max(kCellGooNeckMin, radius * 0.7),
+                ) *
                 scale,
       velocity: Offset(_headX.velocityAt(now), _headY.velocityAt(now)),
     );

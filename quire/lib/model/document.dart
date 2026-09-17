@@ -12,6 +12,9 @@ import 'dart:typed_data';
 /// Where a paragraph or a cell sits inside its measure.
 enum DocAlign { start, center, end, justify }
 
+/// Where a cell's words sit between its top and its bottom.
+enum DocVerticalAlign { top, center, bottom }
+
 /// A run of text sharing one set of character properties.
 ///
 /// The properties are the union of what the four parsers can actually prove
@@ -203,6 +206,8 @@ class DocCell {
     this.formula,
     this.comment,
     this.commentBy,
+    this.wrap = false,
+    this.verticalAlign,
   });
   final List<DocBlock> blocks;
   final int colSpan;
@@ -221,6 +226,14 @@ class DocCell {
   /// a cell nobody has discussed.
   final String? comment;
   final String? commentBy;
+
+  /// True when the cell's words wrap onto as many lines as its width makes,
+  /// rather than running on in one line.
+  final bool wrap;
+
+  /// Where the words sit up and down the cell, or null for the renderer's
+  /// choice.
+  final DocVerticalAlign? verticalAlign;
 
   /// Right align plus tabular figures.
   final bool numeric;

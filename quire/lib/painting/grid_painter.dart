@@ -263,30 +263,37 @@ class GridPainter extends CustomPainter {
     final text = _textOf(held);
     if (text.isEmpty) return null;
     final rect = geometry.rectOf(table, cell).shift(-offset);
-    final onFill = held.background != null;
+    if (rect.width <= 0 || rect.height <= 0) return null;
+    final first = _firstSpan(held);
     final bold =
         _bold(held) || (table.frozenRows == 0 && table.rows[cell.row].header);
+    final room = rect.width - kGridCellPadX * 2;
+    // Words the file wraps take as many lines as the cell's width makes, and
+    // are cut at the cell's edges rather than running on.
+    final wraps = held.wrap && !held.numeric;
     final painter = TextPainter(
       text: TextSpan(
-        text: text,
+        text: wraps
+            ? (face == SheetFace.front ? held.text : rawValueOf(held)).trim()
+            : text,
         style: AppText.cell.copyWith(
-          color: onFill ? AppColors.pageInk : AppColors.ink,
+          color: _inkFor(held, first?.color),
           fontWeight: bold ? FontWeight.w600 : FontWeight.w400,
+          fontStyle: first?.italic ?? false ? FontStyle.italic : null,
           fontFeatures: held.numeric
               ? const <ui.FontFeature>[ui.FontFeature.tabularFigures()]
               : null,
         ),
       ),
       textDirection: TextDirection.ltr,
-      maxLines: 1,
+      maxLines: wraps ? null : 1,
       textScaler: TextScaler.linear(textScale),
-    )..layout();
-    final room = rect.width - kGridCellPadX * 2;
+    )..layout(maxWidth: wraps ? math.max(0, room) : double.infinity);
     final free = room - painter.width;
     final align = _alignOf(held);
     var clip = rect;
     final spans = held.colSpan > 1 || held.rowSpan > 1;
-    if (free < 0 && !held.numeric && !spans) {
+    if (free < 0 && !held.numeric && !spans && !wraps) {
       var left = rect.left;
       var right = rect.right;
       var need = -free;
@@ -321,11 +328,66 @@ class GridPainter extends CustomPainter {
       DocAlign.center => rect.center.dx - painter.width / 2,
       _ => rect.left + kGridCellPadX,
     };
-    return _Run(
-      painter: painter,
-      at: Offset(x, rect.center.dy - painter.height / 2),
-      clip: clip,
-    );
+    // Up and down as the file sets it. Words taller than their cell start at
+    // its top, since the start of them is what is read first.
+    final tall = painter.height > rect.height - kGridCellPadY * 2;
+    final y = tall
+        ? rect.top + kGridCellPadY
+        : switch (held.verticalAlign) {
+            DocVerticalAlign.top => rect.top + kGridCellPadY,
+            DocVerticalAlign.bottom =>
+              rect.bottom - kGridCellPadY - painter.height,
+            _ => rect.center.dy - painter.height / 2,
+          };
+    return _Run(painter: painter, at: Offset(x, y), clip: clip);
+  }
+
+  DocSpan? _firstSpan(DocCell cell) {
+    for (final block in cell.blocks) {
+      if (block is ParagraphBlock && block.spans.isNotEmpty) {
+        return block.spans.first;
+      }
+    }
+    return null;
+  }
+
+  /// The colour a cell's words are set in.
+  ///
+  /// On a fill, the file's own colour when it can be read against that fill,
+  /// and otherwise dark or light ink by how light the fill is, so white words
+  /// on a navy header stay white and nothing is ever set dark on dark. On the
+  /// sheet's own dark ground, a colour the file chose to mean something, a
+  /// red flag or a green total, is kept and lifted until it can be read,
+  /// while black and the greys are the sheet's own ink: they were chosen for
+  /// white paper, and on this sheet they would be invisible.
+  Color _inkFor(DocCell held, int? stated) {
+    final fill = held.background;
+    if (fill != null) {
+      final ground = Color(fill);
+      if (stated != null && _contrast(Color(stated), ground) >= 3) {
+        return Color(stated);
+      }
+      return ground.computeLuminance() > 0.3
+          ? AppColors.pageInk
+          : AppColors.ink;
+    }
+    if (stated == null) return AppColors.ink;
+    final colour = Color(stated);
+    final most = math.max(colour.r, math.max(colour.g, colour.b));
+    final least = math.min(colour.r, math.min(colour.g, colour.b));
+    if (most - least < 0.2) return AppColors.ink;
+    var lifted = HSLColor.fromColor(colour);
+    while (_contrast(lifted.toColor(), AppColors.surface) < 4.5 &&
+        lifted.lightness < 0.9) {
+      lifted = lifted.withLightness(math.min(0.9, lifted.lightness + 0.05));
+    }
+    return lifted.toColor();
+  }
+
+  static double _contrast(Color a, Color b) {
+    final one = a.computeLuminance();
+    final two = b.computeLuminance();
+    return (math.max(one, two) + 0.05) / (math.min(one, two) + 0.05);
   }
 
   DocAlign _alignOf(DocCell cell) =>
@@ -404,10 +466,19 @@ class GridPainter extends CustomPainter {
     ) {
       final left = geometry.leftOf(c) - offset.dx;
       final rect = Rect.fromLTWH(left, 0, geometry.widthOf(c), size.height);
+      if (rect.width <= 0) continue;
+      // A column wider than what shows of it has its letter in the part that
+      // shows, so the letter is never off the side of the screen.
+      final shown = Rect.fromLTRB(
+        math.max(rect.left, 0),
+        rect.top,
+        math.min(rect.right, size.width),
+        rect.bottom,
+      );
       _label(
         canvas,
         columnLetter(c),
-        rect,
+        shown.width > 0 ? shown : rect,
         lit: _cover(span?.left, span?.right, rect.left + offset.dx, rect.width),
       );
       canvas.drawLine(
@@ -444,6 +515,7 @@ class GridPainter extends CustomPainter {
     for (var r = rows.first; r <= rows.last && r < geometry.rowCount; r++) {
       final top = geometry.topOf(r) - offset.dy;
       final rect = Rect.fromLTWH(0, top, size.width, geometry.heightOf(r));
+      if (rect.height <= 0) continue;
       _label(
         canvas,
         '${r + 1}',

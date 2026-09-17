@@ -27,9 +27,12 @@ class SheetCell {
     this.formula,
     this.numFmt = 'General',
     this.bold = false,
+    this.italic = false,
     this.color,
     this.background,
     this.align,
+    this.wrap = false,
+    this.vertical,
   });
   final String ref;
   final int row; // 0 based
@@ -40,9 +43,12 @@ class SheetCell {
   final String? formula;
   final String numFmt;
   final bool bold;
+  final bool italic;
   final int? color;
   final int? background;
   final DocAlign? align;
+  final bool wrap;
+  final DocVerticalAlign? vertical;
 }
 
 /// One worksheet: its cells by reference, a dense grid, and the geometry the
@@ -108,7 +114,10 @@ class XlsxParser {
   final List<int> _xfFontId = [];
   final List<int> _xfFillId = [];
   final List<DocAlign?> _xfAlign = [];
+  final List<bool> _xfWrap = [];
+  final List<DocVerticalAlign> _xfVertical = [];
   final List<bool> _fontBold = [];
+  final List<bool> _fontItalic = [];
   final List<int?> _fontColor = [];
   final List<int?> _fillColor = [];
   bool _date1904 = false;
@@ -458,7 +467,8 @@ class XlsxParser {
     final fonts = _kid(root, 'fonts');
     if (fonts != null) {
       for (final f in fonts.childElements) {
-        _fontBold.add(_kid(f, 'b') != null);
+        _fontBold.add(_on(_kid(f, 'b')));
+        _fontItalic.add(_on(_kid(f, 'i')));
         _fontColor.add(_colour(_kid(f, 'color')));
       }
     }
@@ -478,6 +488,14 @@ class XlsxParser {
         _xfFontId.add(int.tryParse(_at(xf, 'fontId') ?? '0') ?? 0);
         _xfFillId.add(int.tryParse(_at(xf, 'fillId') ?? '0') ?? 0);
         final al = _kid(xf, 'alignment');
+        _xfWrap.add(al != null && _flag(_at(al, 'wrapText')));
+        // A spreadsheet sets words at the foot of a cell unless told
+        // otherwise.
+        _xfVertical.add(switch (al == null ? null : _at(al, 'vertical')) {
+          'top' => DocVerticalAlign.top,
+          'center' || 'justify' || 'distributed' => DocVerticalAlign.center,
+          _ => DocVerticalAlign.bottom,
+        });
         _xfAlign.add(
           al == null
               ? null
@@ -492,6 +510,17 @@ class XlsxParser {
       }
     }
   }
+
+  /// A flag element such as `<b/>`: on unless it says `val="0"`.
+  bool _on(XmlElement? flag) {
+    if (flag == null) return false;
+    final value = _at(flag, 'val');
+    return value == null || _flag(value);
+  }
+
+  /// A flag attribute: on when present and not `0` or `false`.
+  static bool _flag(String? value) =>
+      value != null && value != '0' && value != 'false';
 
   String _numFmtCode(int styleIndex) {
     if (styleIndex < 0 || styleIndex >= _xfNumFmtId.length) return 'General';
@@ -710,6 +739,12 @@ class XlsxParser {
       formula: formula,
       numFmt: code,
       bold: fontId < _fontBold.length && _fontBold[fontId],
+      italic: fontId < _fontItalic.length && _fontItalic[fontId],
+      wrap:
+          styleIndex >= 0 && styleIndex < _xfWrap.length && _xfWrap[styleIndex],
+      vertical: styleIndex >= 0 && styleIndex < _xfVertical.length
+          ? _xfVertical[styleIndex]
+          : DocVerticalAlign.bottom,
       color: fontId < _fontColor.length ? _fontColor[fontId] : null,
       background: background,
       align: styleIndex >= 0 && styleIndex < _xfAlign.length
@@ -768,6 +803,7 @@ QuireDocument xlsxToDocument(XlsxWorkbook wb, String title) {
                 DocSpan(
                   sc?.formatted ?? '',
                   bold: sc?.bold ?? false,
+                  italic: sc?.italic ?? false,
                   color: sc?.color,
                 ),
               ], align: sc?.align ?? (numeric ? DocAlign.end : DocAlign.start)),
@@ -781,6 +817,8 @@ QuireDocument xlsxToDocument(XlsxWorkbook wb, String title) {
             formula: sc?.formula,
             comment: note?.text,
             commentBy: note?.author,
+            wrap: sc?.wrap ?? false,
+            verticalAlign: sc?.vertical ?? DocVerticalAlign.bottom,
           ),
         );
       }

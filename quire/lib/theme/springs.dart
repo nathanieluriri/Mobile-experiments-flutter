@@ -175,7 +175,7 @@ class SpringValue {
   SpringValue(double value, {this.tolerance = pointTolerance}) : _to = value;
 
   /// Close enough to stop, for something measured in points.
-  static const pointTolerance = Tolerance(distance: 0.05, velocity: 1);
+  static const pointTolerance = Tolerance(distance: 0.25, velocity: 2.5);
 
   /// Close enough to stop, for a share from nought to one.
   static const shareTolerance = Tolerance(distance: 0.004, velocity: 0.02);
