@@ -17,6 +17,7 @@ import '../../theme/easings.dart';
 import '../../theme/metrics.dart';
 import '../sign/placement_layer.dart';
 import '../sign/sign_screen.dart';
+import 'bodies/deck_body.dart';
 import 'bodies/page_states.dart';
 import 'bodies/pdf_body.dart';
 import 'bodies/prose_body.dart';
@@ -31,6 +32,7 @@ import '../desk/desk_sheet.dart';
 import 'reader_menu.dart';
 import 'dog_ears_sheet.dart';
 import 'view_sheet.dart';
+import 'present_screen.dart';
 import 'reader_screen.dart';
 import 'sheet_surface.dart';
 
@@ -211,6 +213,7 @@ class _ReaderHostState extends State<ReaderHost> with TickerProviderStateMixin {
 
   /// What this document can have done to it from inside itself.
   List<ReaderAction> get _actions => <ReaderAction>[
+    if (widget.store.isDeck) ReaderAction.present,
     if (widget.store.isPdf) ReaderAction.sign,
     if (widget.store.isPdf && widget.store.signed) ReaderAction.shareSigned,
     widget.store.dogEared.contains(widget.store.position)
@@ -226,6 +229,8 @@ class _ReaderHostState extends State<ReaderHost> with TickerProviderStateMixin {
   void _act(ReaderAction action) {
     _closeMenu();
     switch (action) {
+      case ReaderAction.present:
+        _present(widget.store.position);
       case ReaderAction.sign:
         _sign();
       case ReaderAction.dogEar:
@@ -247,6 +252,25 @@ class _ReaderHostState extends State<ReaderHost> with TickerProviderStateMixin {
       case ReaderAction.lock:
         _lock();
     }
+  }
+
+  /// Shows the deck, from [slide], with the app out of the way.
+  ///
+  /// The route is raised here rather than inside the body because present mode
+  /// takes the whole screen, and the body only owns the sheet. The reader is
+  /// left standing underneath it, on the slide the presentation ended on.
+  Future<void> _present(int slide) async {
+    final document = widget.store.document;
+    if (document == null || !widget.store.isDeck) return;
+    await Navigator.of(context).push<void>(
+      presentRoute(
+        store: widget.store,
+        slides: widget.store.slides,
+        assets: document.assets,
+        titles: <String>[for (final s in document.sections) s.title],
+        openAt: slide,
+      ),
+    );
   }
 
   /// Takes a signature on the pad and comes back to this page holding it.
@@ -631,6 +655,13 @@ class _ReaderHostState extends State<ReaderHost> with TickerProviderStateMixin {
     if (document == null) return _NoBody(store: store);
     if (store.isGrid) {
       return SheetBody(store: store, matches: _matchedCells);
+    }
+    if (store.isDeck) {
+      return DeckBody(
+        store: store,
+        document: document,
+        onPresent: _present,
+      );
     }
     return ProseBody(
       store: store,

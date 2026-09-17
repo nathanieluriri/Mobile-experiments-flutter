@@ -16,6 +16,7 @@ enum ReaderAction {
   undogEar(label: 'Remove the dog ear', icon: LucideIcons.bookmark),
   dogEars(label: 'Dog ears', icon: LucideIcons.bookMarked),
   comments(label: 'Comments', icon: LucideIcons.messageSquare),
+  present(label: 'Present this deck', icon: LucideIcons.play),
   find(label: 'Find in document', icon: LucideIcons.search),
   view(label: 'View', icon: LucideIcons.scanEye),
   lock(label: 'Lock the reading', icon: LucideIcons.lockKeyhole);

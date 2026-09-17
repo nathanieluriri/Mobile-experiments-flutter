@@ -12,6 +12,7 @@ import '../../../theme/typography.dart';
 import '../../../widgets/marked_text.dart';
 import '../../../widgets/paragraph_marks.dart';
 import '../back_layer.dart';
+import 'deck_body.dart';
 import '../find/find_layer.dart';
 import '../sheet_surface.dart';
 import 'page_states.dart';
@@ -576,6 +577,14 @@ class ProseBlockView extends StatelessWidget {
         table: block as TableBlock,
         measure: measure,
         marks: marks,
+      ),
+      // A deck is read on its own bench, so this is only reached by a slide
+      // that arrived inside another format. It keeps its own shape at the
+      // measure rather than being unpacked into paragraphs.
+      SlideBlock() => SlideCard(
+        slide: block as SlideBlock,
+        assets: assets,
+        width: measure,
       ),
     };
   }

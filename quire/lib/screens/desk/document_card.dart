@@ -21,6 +21,7 @@ Color chromaFor(DocFormat format) => switch (format) {
       DocFormat.xlsx => AppColors.fmtXlsx,
       DocFormat.csv => AppColors.fmtCsv,
       DocFormat.md => AppColors.fmtMd,
+      DocFormat.pptx => AppColors.fmtPptx,
     };
 
 /// [value] with a comma every three digits.
@@ -65,6 +66,14 @@ CardUnits? cardUnits(LibraryEntry entry, DocumentStore? store) {
       return count == 1
           ? (count: count, upper: 'ROW', lower: 'row')
           : (count: count, upper: 'ROWS', lower: 'rows');
+    case DocFormat.pptx:
+      // Slides, because a deck is weighed in slides and nobody has ever asked
+      // how many words are in one.
+      final count = store.unitCount;
+      if (count <= 0) return null;
+      return count == 1
+          ? (count: count, upper: 'SLIDE', lower: 'slide')
+          : (count: count, upper: 'SLIDES', lower: 'slides');
     case DocFormat.docx:
     case DocFormat.md:
       final count = store.wordCount;

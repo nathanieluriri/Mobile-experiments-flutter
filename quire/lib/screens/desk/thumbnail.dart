@@ -29,6 +29,8 @@ ThumbnailPicture _record(DocumentStore store) {
   if (document == null) return recordEmptyThumbnail();
   final grid = _gridOf(document);
   if (grid != null) return recordGridThumbnail(grid);
+  final slide = _firstSlideOf(document);
+  if (slide != null) return recordSlideThumbnail(slide);
   final blocks = <DocBlock>[
     for (final section in document.sections) ...section.blocks,
   ];
@@ -52,6 +54,19 @@ ThumbnailPicture _firstPage(DocumentStore store) {
   } on Object {
     return recordEmptyThumbnail();
   }
+}
+
+/// The first slide in [document], or null for anything that is not a deck.
+///
+/// A deck's card shows its opening slide, which is the one slide of it anybody
+/// would recognise it by.
+SlideBlock? _firstSlideOf(QuireDocument document) {
+  for (final section in document.sections) {
+    for (final block in section.blocks) {
+      if (block is SlideBlock) return block;
+    }
+  }
+  return null;
 }
 
 /// The first grid in [document], which is what a spreadsheet and a CSV both

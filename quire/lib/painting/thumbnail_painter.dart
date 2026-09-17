@@ -86,6 +86,91 @@ ThumbnailPicture recordGridThumbnail(TableBlock table) {
   return _record(source, (canvas) => _grid(canvas, table, source));
 }
 
+/// A deck's first slide, at the deck's own stage.
+///
+/// Recorded at the slide's size rather than the sheet's, so the card draws a
+/// slide's shape rather than a slide letterboxed into a page's. Pictures are
+/// left out for the same reason a PDF's are: decoding one is asynchronous and
+/// recording is not.
+ThumbnailPicture recordSlideThumbnail(SlideBlock slide) {
+  final source = Size(slide.width, slide.height);
+  return _record(source, (canvas) => paintSlideMiniature(canvas, slide, source));
+}
+
+/// One slide into [into], with its ground, its filled shapes and its words.
+void paintSlideMiniature(Canvas canvas, SlideBlock slide, Size into) {
+  final scale = slide.width <= 0 ? 1.0 : into.width / slide.width;
+  canvas.drawRect(
+    Offset.zero & into,
+    Paint()
+      ..color = slide.background == null
+          ? AppColors.page
+          : Color(slide.background!),
+  );
+  for (final shape in slide.shapes) {
+    final box = Rect.fromLTWH(
+      shape.box.left * scale,
+      shape.box.top * scale,
+      shape.box.width * scale,
+      shape.box.height * scale,
+    );
+    if (box.width <= 0 || box.height <= 0) continue;
+    final fill = shape.fill;
+    if (fill != null) canvas.drawRect(box, Paint()..color = Color(fill));
+    final line = shape.line;
+    if (line != null) {
+      canvas.drawRect(
+        box,
+        Paint()
+          ..color = Color(line)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = kThumbnailRule,
+      );
+    }
+    var y = box.top;
+    for (final block in shape.blocks) {
+      if (y > box.bottom) break;
+      final spans = _slideSpans(block);
+      if (spans.isEmpty) continue;
+      final text = spans.map((span) => span.text).join();
+      if (text.trim().isEmpty) continue;
+      y += _line(
+        canvas,
+        text,
+        _slideStyle(spans, scale, shape.role),
+        Offset(box.left, y),
+        box.width,
+      );
+    }
+  }
+}
+
+List<DocSpan> _slideSpans(DocBlock block) => switch (block) {
+  HeadingBlock() => block.spans,
+  ParagraphBlock() => block.spans,
+  ListItemBlock() => block.spans,
+  _ => const <DocSpan>[],
+};
+
+TextStyle _slideStyle(List<DocSpan> spans, double scale, SlideRole role) {
+  double? size;
+  int? colour;
+  var bold = role == SlideRole.title;
+  for (final span in spans) {
+    size ??= span.fontSize;
+    colour ??= span.color;
+    if (span.bold) bold = true;
+  }
+  return TextStyle(
+    fontFamily: kFontFamily,
+    fontSize: (size ?? 18) * scale,
+    height: 1.2,
+    fontWeight: bold ? FontWeight.w700 : FontWeight.w400,
+    decoration: TextDecoration.none,
+    color: colour == null ? AppColors.pageInk : Color(colour),
+  );
+}
+
 /// A page with nothing on it, for a document nothing has been able to read.
 ///
 /// It is not a placeholder standing in for a page that exists. It is what this
@@ -140,6 +225,19 @@ double _proseBlock(
   required bool foldBreaks,
 }) {
   switch (block) {
+    case SlideBlock():
+      // A slide in a prose column is a slide, not a run of paragraphs. It is
+      // drawn at the measure, keeping its own shape, which is the only way a
+      // reader could tell what they are looking at.
+      final width = kProseMeasure;
+      final height = block.width <= 0
+          ? 0.0
+          : width * block.height / block.width;
+      canvas.save();
+      canvas.translate(kSheetPadding, top);
+      paintSlideMiniature(canvas, block, Size(width, height));
+      canvas.restore();
+      return height;
     case HeadingBlock():
       return _line(
         canvas,

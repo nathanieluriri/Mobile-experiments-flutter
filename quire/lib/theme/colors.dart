@@ -157,4 +157,17 @@ abstract final class AppColors {
 
   /// Markdown.
   static const fmtMd = Color(0xFFB39DDB);
+
+  /// PowerPoint.
+  static const fmtPptx = Color(0xFFD24726);
+
+  // Presenting.
+
+  /// The ground a presentation stands on.
+  ///
+  /// Darker than [ground], and the only value in the app that goes below it.
+  /// A slide carries the file's own colours and is the brightest thing on the
+  /// glass while it is being shown, so what is round it has to stop being the
+  /// app and start being a wall.
+  static const presentGround = Color(0xFF07070A);
 }

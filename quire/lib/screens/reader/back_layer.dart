@@ -171,6 +171,7 @@ class ProseBack extends StatelessWidget {
     DividerBlock() => 'RULE',
     ImageBlock() => 'FIGURE',
     TableBlock() => 'TABLE',
+    SlideBlock() => 'SLIDE',
   };
 
   String _textOf(DocBlock block) => switch (block) {
@@ -181,6 +182,8 @@ class ProseBack extends StatelessWidget {
     DividerBlock() => '---',
     ImageBlock(:final alt, :final assetKey) => alt ?? assetKey,
     TableBlock(:final rows) => '${rows.length} rows',
+    SlideBlock(:final title, :final shapes) =>
+      title ?? '${shapes.length} shapes',
   };
 }
 
