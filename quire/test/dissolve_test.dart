@@ -5,6 +5,8 @@ import 'package:quire/screens/desk/desk_empty.dart';
 import 'package:quire/screens/desk/desk_screen.dart';
 import 'package:quire/screens/desk/document_row.dart';
 import 'package:quire/screens/desk/search_pill.dart';
+import 'package:quire/services/document_store.dart';
+import 'package:quire/services/library_catalogue.dart';
 import 'package:quire/theme/metrics.dart';
 import 'package:quire/widgets/dissolve/dissolve_scope.dart';
 
@@ -18,12 +20,15 @@ List<Object> jobsIn(WidgetTester tester) =>
 
 /// Where row [index] sits in the body, under the shell's own chrome.
 Rect rowRect(int index) => Rect.fromLTWH(
-      0,
-      kSafeTop + kTopBarHeight + kTabStripHeight + kSortRowHeight +
-          kListRowHeight * index,
-      kScreenWidth,
-      kListRowHeight,
-    );
+  0,
+  kSafeTop +
+      kTopBarHeight +
+      kTabStripHeight +
+      kSortRowHeight +
+      kListRowHeight * index,
+  kScreenWidth,
+  kListRowHeight,
+);
 
 /// The middle of row [index]'s overflow target.
 Offset overflowOf(int index) {
@@ -43,9 +48,11 @@ Future<void> removeRow(WidgetTester tester, int index) async {
   await pumpMs(tester, kSortMenuIn.inMilliseconds);
   // The pills peel off the dots one at a time, so the one we want is not
   // under the finger until its own neck has let go.
-  for (var waited = 0;
-      waited < 2000 && find.text('Remove').hitTestable().evaluate().isEmpty;
-      waited += 60) {
+  for (
+    var waited = 0;
+    waited < 2000 && find.text('Remove').hitTestable().evaluate().isEmpty;
+    waited += 60
+  ) {
     await pumpMs(tester, 60);
   }
   await tester.tap(find.text('Remove'));
@@ -56,8 +63,9 @@ Future<void> removeRow(WidgetTester tester, int index) async {
 }
 
 void main() {
-  testWidgets('a removed row comes apart, and undo gathers it back',
-      (tester) async {
+  testWidgets('a removed row comes apart, and undo gathers it back', (
+    tester,
+  ) async {
     final store = await deskStore();
     await pumpScreen(tester, deskApp(store));
     await settle(tester);
@@ -125,8 +133,9 @@ void main() {
     expect(jobsIn(tester), isEmpty);
   });
 
-  testWidgets('the pill runs out on its own and the removal stands',
-      (tester) async {
+  testWidgets('the pill runs out on its own and the removal stands', (
+    tester,
+  ) async {
     final store = await deskStore();
     await pumpScreen(tester, deskApp(store));
     await settle(tester);
@@ -141,8 +150,9 @@ void main() {
     expect(store.entries.length, 5);
   });
 
-  testWidgets('every document leaving at once comes apart, the last one too',
-      (tester) async {
+  testWidgets('every document leaving at once comes apart, the last one too', (
+    tester,
+  ) async {
     final store = await deskStore();
     await pumpScreen(tester, deskApp(store));
     await settle(tester);
@@ -166,4 +176,58 @@ void main() {
     expect(find.byType(DocumentRow), findsNothing);
     expect(find.byType(DeskEmpty), findsOneWidget);
   });
+
+  testWidgets('a bin filled in an earlier run does not come apart again', (
+    tester,
+  ) async {
+    final binned = entryFor(kPressLease).path;
+    final store = LibraryStore(
+      catalogue: _SavedDesk(<String, Object?>{
+        'binned': <Object?>[binned],
+      }),
+    );
+    await pumpScreen(tester, deskApp(store));
+    await settle(tester);
+    // The first frame is the shipped manifest alone: reading the phone takes
+    // longer than a frame, so everything is on the desk for that one frame.
+    expect(documentTitled('Press Lease'), findsOneWidget);
+
+    await store.boot(parse: false);
+    await settle(tester);
+
+    // It goes, because it was in the bin before the app opened. It does not
+    // come apart, because it was never on the desk to leave it.
+    expect(documentTitled('Press Lease'), findsNothing);
+    expect(store.binned.map((entry) => entry.fileName), contains(kPressLease));
+    expect(jobsIn(tester), isEmpty);
+  });
+
+  test('a desk says when it has read what it holds', () async {
+    // Until then the desk is the shipped manifest and nothing else, and what
+    // that read takes off it was never on it.
+    final store = LibraryStore(catalogue: _SavedDesk(<String, Object?>{}));
+    expect(store.booted, isFalse);
+    await store.boot(parse: false);
+    expect(store.booted, isTrue);
+  });
+
+  test('a desk with nowhere to read from holds everything at once', () {
+    expect(LibraryStore().booted, isTrue);
+  });
+}
+
+/// A desk whose state was written in an earlier run, with nothing brought in.
+class _SavedDesk extends LibraryCatalogue {
+  _SavedDesk(this.state);
+
+  final Map<String, Object?> state;
+
+  @override
+  Future<List<LibraryEntry>> load() async => const <LibraryEntry>[];
+
+  @override
+  Future<Map<String, Object?>> loadState() async => state;
+
+  @override
+  Future<void> saveState(Map<String, Object?> state) async {}
 }

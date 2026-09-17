@@ -217,17 +217,26 @@ class _ListBodyState extends State<ListBody>
   /// Leaving is the only thing that dissolves, and it is detected here rather
   /// than at a menu item so that every way of taking a document off the desk
   /// comes apart the same way and nothing else can.
+  ///
+  /// Nothing comes apart until the desk has read what it holds. The first
+  /// frame is drawn from the shipped manifest alone, before the bin and the
+  /// folders have been read back off the phone, so everything the reader put
+  /// in the bin in an earlier run is on that frame and leaves it a moment
+  /// later. That is the desk learning what it holds, not a document going,
+  /// and blowing them all apart again every time the app opens is the app
+  /// throwing away what it never had.
   void _onLibrary() {
     if (!mounted) return;
     final now = _held();
     final gone = _onDesk.difference(now);
     final back = now.difference(_onDesk);
+    final settling = widget.library.booted;
     _onDesk = now;
     for (final path in gone) {
-      _dissolve(path);
+      if (settling) _dissolve(path);
     }
     for (final path in back) {
-      _materialize(path);
+      if (settling) _materialize(path);
     }
     _dropUnclaimed();
     _sync();

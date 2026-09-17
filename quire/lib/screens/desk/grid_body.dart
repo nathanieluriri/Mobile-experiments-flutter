@@ -204,17 +204,23 @@ class _GridBodyState extends State<GridBody>
   }
 
   /// Watches the desk for documents arriving and leaving.
+  ///
+  /// Nothing comes apart until the desk has read what it holds: the documents
+  /// that leave the first frame were in the bin before the app opened, and
+  /// blowing them apart again every time it opens is the desk throwing away
+  /// what it never had. See [ListBody] for the whole of it.
   void _onLibrary() {
     if (!mounted) return;
     final now = _held();
     final gone = _onDesk.difference(now);
     final back = now.difference(_onDesk);
+    final settling = widget.library.booted;
     _onDesk = now;
     for (final path in gone) {
-      _dissolve(path);
+      if (settling) _dissolve(path);
     }
     for (final path in back) {
-      _materialize(path);
+      if (settling) _materialize(path);
     }
     _dropUnclaimed();
     _sync();

@@ -131,6 +131,9 @@ class SheetGridState extends State<SheetGrid> with TickerProviderStateMixin {
   /// inside. It is nought until the first layout.
   Size _view = Size.zero;
 
+  /// True once the grid has been laid out and knows that room.
+  bool _laid = false;
+
   /// As much of the file's frozen panes as there is room to hold, which on a
   /// phone can be less than the file asks for.
   late Size _frozen = Size(_geometry.frozenWidth, _geometry.frozenHeight);
@@ -636,6 +639,17 @@ class SheetGridState extends State<SheetGrid> with TickerProviderStateMixin {
         // inside the room it has now and not the room it had.
         _view = view;
         _frozen = frozen;
+        if (!_laid) {
+          _laid = true;
+          // A sheet opened where it was last left can be opened past what the
+          // file now holds, if the file has been written to since, so the
+          // first layout is where that is found out and put right.
+          final limit = _limit;
+          _pan = Offset(
+            _pan.dx.clamp(0.0, limit.dx),
+            _pan.dy.clamp(0.0, limit.dy),
+          );
+        }
         final frame = _choice.frameAt(_now);
         final across = frozenW + _pan.dx;
         final down = frozenH + _pan.dy;

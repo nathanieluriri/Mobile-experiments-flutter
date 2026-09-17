@@ -39,13 +39,23 @@ const kRowsPerForeEdgeMark = 25;
 /// state lasts exactly as long as the open document does: nothing disposes it,
 /// because there is nothing to dispose once the store it hangs from is gone.
 class SheetController extends ChangeNotifier {
-  SheetController._();
+  /// Made where the document was left, which the store keeps between runs.
+  SheetController._(this._store) {
+    final place = _store.place;
+    if (place == null) return;
+    _sheet = place.sheet;
+    _pans[place.sheet] = Offset(place.across, place.down);
+  }
 
   static final Expando<SheetController> _held = Expando<SheetController>();
 
   /// The view state of [store]'s grid, made once and then kept.
   static SheetController of(DocumentStore store) =>
-      _held[store] ??= SheetController._();
+      _held[store] ??= SheetController._(store);
+
+  /// The document this is the view of, which is where the place outlives the
+  /// app being closed.
+  final DocumentStore _store;
 
   int _sheet = 0;
   final Map<int, int> _open = <int, int>{};
@@ -58,6 +68,7 @@ class SheetController extends ChangeNotifier {
     if (value == _sheet) return;
     _sheet = value;
     _selected = null;
+    _tellStore();
     notifyListeners();
   }
 
@@ -70,6 +81,17 @@ class SheetController extends ChangeNotifier {
     // takes the ring with it rather than leaving it stranded in a spine.
     _selected = null;
     notifyListeners();
+  }
+
+  /// Opens on [sheet], pushed to [pan], before anybody is watching.
+  ///
+  /// It is used once, as the body for a document is built, to put a workbook
+  /// back where it was left, so it says nothing: there is nothing yet that
+  /// heard where it was before.
+  void openAt(int sheet, Offset pan) {
+    _sheet = sheet;
+    _pans[sheet] = pan;
+    _tellStore();
   }
 
   /// Records which column a sheet opens on the first time it is shown, which
@@ -85,7 +107,25 @@ class SheetController extends ChangeNotifier {
   /// find the column they were reading, not column A.
   final Map<int, Offset> _pans = <int, Offset>{};
   Offset panOf(int sheet) => _pans[sheet] ?? Offset.zero;
-  void rememberPan(int sheet, Offset value) => _pans[sheet] = value;
+  void rememberPan(int sheet, Offset value) {
+    _pans[sheet] = value;
+    if (sheet == _sheet) _tellStore();
+  }
+
+  /// Hands the place the document keeps back to the document, so a sheet
+  /// comes back where it was left rather than at its first row the next time
+  /// the app is opened.
+  void _tellStore() {
+    final at = panOf(_sheet);
+    _store.rememberPlace(
+      SheetPlace(
+        sheet: _sheet,
+        // A sheet pulled past its end is a sheet on its way back to it.
+        across: at.dx < 0 ? 0 : at.dx,
+        down: at.dy < 0 ? 0 : at.dy,
+      ),
+    );
+  }
 
   /// The ringed cell, or null when the cell bar is down.
   SheetCell? get selected => _selected;
@@ -249,6 +289,7 @@ class _SheetViewState extends State<SheetView> with TickerProviderStateMixin {
     super.initState();
     _barClock = createTicker(_barTick);
     _sheet = SheetController.of(widget.store);
+    _openWhereLeft();
     _sheet.addListener(_onController);
     widget.store.addListener(_onStore);
     _shown = _sheetIndex;
@@ -293,6 +334,36 @@ class _SheetViewState extends State<SheetView> with TickerProviderStateMixin {
 
   void _repaint() {
     if (mounted) setState(() {});
+  }
+
+  /// Puts a workbook back where the reader left it.
+  ///
+  /// Where that is belongs to the store, which keeps it between runs, and the
+  /// controller is already holding it by the time a body is built. This is for
+  /// a document whose store kept the row and no more, which is one read before
+  /// there was a place to keep or one moved from somewhere other than the
+  /// grid: the row is turned back into a place, so a workbook opens on the
+  /// sheet and at the row the folio chip says the reader is on rather than at
+  /// the first row of the first sheet.
+  void _openWhereLeft() {
+    final at = widget.store.position;
+    if (at <= 0 || widget.store.place != null) return;
+    final holding = _sheetHolding(at);
+    final table = _tableOn(holding);
+    if (table == null) return;
+    final row = at - _rowOffset(holding);
+    if (row <= 0) return;
+    final geometry = SheetGeometry.of(table);
+    _sheet.openAt(
+      holding,
+      Offset(
+        _sheet.panOf(holding).dx,
+        (geometry.topOf(row) - geometry.frozenHeight).clamp(
+          0.0,
+          double.infinity,
+        ),
+      ),
+    );
   }
 
   /// Reads a delimited file a second time, for the facts the shared model has

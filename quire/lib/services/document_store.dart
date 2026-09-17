@@ -59,25 +59,25 @@ class PlacedSignature {
 
   /// The same mark, now that its picture has been decoded.
   PlacedSignature withPicture(ui.Image decoded) => PlacedSignature(
-        pageIndex: pageIndex,
-        rect: rect,
-        strokes: strokes,
-        encoded: encoded,
-        picture: decoded,
-      );
+    pageIndex: pageIndex,
+    rect: rect,
+    strokes: strokes,
+    encoded: encoded,
+    picture: decoded,
+  );
 
   /// The mark as plain numbers, for the desk to write down.
   Map<String, Object?> toJson() => <String, Object?>{
-        'page': pageIndex,
-        'rect': <double>[rect.left, rect.top, rect.width, rect.height],
-        'strokes': <Object?>[
-          for (final stroke in strokes)
-            <Object?>[
-              for (final point in stroke) <double>[point.dx, point.dy],
-            ],
+    'page': pageIndex,
+    'rect': <double>[rect.left, rect.top, rect.width, rect.height],
+    'strokes': <Object?>[
+      for (final stroke in strokes)
+        <Object?>[
+          for (final point in stroke) <double>[point.dx, point.dy],
         ],
-        if (encoded != null) 'picture': base64Encode(encoded!),
-      };
+    ],
+    if (encoded != null) 'picture': base64Encode(encoded!),
+  };
 
   /// The mark read back, or null for numbers that do not make one.
   static PlacedSignature? fromJson(Object? json) {
@@ -203,6 +203,55 @@ const kTextScaleMin = 0.8;
 const kTextScaleMax = 2.2;
 const kTextScaleStep = 0.1;
 
+/// Where a grid was left: which sheet of a workbook, and how far that sheet
+/// was pushed across and down, in points.
+///
+/// The row alone is not where a reader was. A workbook is read across as much
+/// as down, and a sheet brought back at column A would lose the column
+/// somebody was reading for the sake of remembering the row.
+class SheetPlace {
+  const SheetPlace({
+    required this.sheet,
+    required this.across,
+    required this.down,
+  });
+
+  final int sheet;
+  final double across;
+  final double down;
+
+  Map<String, Object?> toJson() => <String, Object?>{
+    'sheet': sheet,
+    'across': across,
+    'down': down,
+  };
+
+  /// The place read back, or null for numbers that do not make one.
+  static SheetPlace? fromJson(Object? json) {
+    if (json is! Map<String, Object?>) return null;
+    final sheet = json['sheet'];
+    final across = json['across'];
+    final down = json['down'];
+    if (sheet is! int || across is! num || down is! num) return null;
+    if (sheet < 0) return null;
+    return SheetPlace(
+      sheet: sheet,
+      across: across.toDouble().clamp(0.0, double.maxFinite),
+      down: down.toDouble().clamp(0.0, double.maxFinite),
+    );
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is SheetPlace &&
+      other.sheet == sheet &&
+      other.across == across &&
+      other.down == down;
+
+  @override
+  int get hashCode => Object.hash(sheet, across, down);
+}
+
 class DocumentStore extends ChangeNotifier {
   DocumentStore(this.entry);
 
@@ -236,6 +285,7 @@ class DocumentStore extends ChangeNotifier {
   PdfLocked? _locked;
   PdfFile? _pdf;
   int _position = 0;
+  SheetPlace? _place;
   int _pdfPageCount = 0;
   bool _opened = false;
   int _opens = 0;
@@ -472,6 +522,22 @@ class DocumentStore extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Where a grid was left, or null for a document that has never been
+  /// pushed about or is not a grid at all.
+  SheetPlace? get place => _place;
+
+  /// Remembers where a grid has been left, without a word to anybody.
+  ///
+  /// A sheet moves under a finger at every frame, and a store that spoke each
+  /// time would have the desk behind the reader rebuilt sixty times a second
+  /// for a number nothing on screen is reading. It is written out with
+  /// everything else the next time the desk saves, which is the next row the
+  /// reader crosses or the moment the app goes into the background.
+  void rememberPlace(SheetPlace place) {
+    if (place == _place) return;
+    _place = place;
+  }
+
   /// True once the document has been opened, which is what puts it on the
   /// READING shelf and draws its progress track.
   bool get opened => _opened;
@@ -495,15 +561,14 @@ class DocumentStore extends ChangeNotifier {
 
   /// Everything the reader has done with this document, as plain numbers.
   Map<String, Object?> toJson() => <String, Object?>{
-        'position': _position,
-        'opens': _opens,
-        'opened': _opened,
-        'lastOpened': _lastOpened,
-        'dogEared': _dogEared.toList()..sort(),
-        'signatures': <Object?>[
-          for (final mark in _signatures) mark.toJson(),
-        ],
-      };
+    'position': _position,
+    if (_place != null) 'place': _place!.toJson(),
+    'opens': _opens,
+    'opened': _opened,
+    'lastOpened': _lastOpened,
+    'dogEared': _dogEared.toList()..sort(),
+    'signatures': <Object?>[for (final mark in _signatures) mark.toJson()],
+  };
 
   /// Takes back what [toJson] wrote, before or after the document has been
   /// read: a place beyond the end is pulled inside it once the file is known.
@@ -515,6 +580,7 @@ class DocumentStore extends ChangeNotifier {
     final dogEared = json['dogEared'];
     final signatures = json['signatures'];
     if (position is int) _position = position < 0 ? 0 : position;
+    _place = SheetPlace.fromJson(json['place']) ?? _place;
     if (opens is int) _opens = opens;
     if (opened is bool) _opened = opened;
     if (lastOpened is int) _lastOpened = lastOpened;
@@ -618,7 +684,9 @@ class DocumentStore extends ChangeNotifier {
   ///
   /// Throws [PdfWriteError] for a file the writer cannot add to, with the
   /// reason in words.
-  Uint8List? signedPdf({Map<int, PdfImage> pictures = const <int, PdfImage>{}}) {
+  Uint8List? signedPdf({
+    Map<int, PdfImage> pictures = const <int, PdfImage>{},
+  }) {
     final file = _pdf;
     if (file == null || _signatures.isEmpty) return null;
     return PdfSignatureWriter.signed(file, <PlacedInk>[
@@ -717,10 +785,12 @@ class DocumentStore extends ChangeNotifier {
 /// The desk: the six bundled documents, the shelf, the query, and whatever has
 /// been removed but not yet forgotten.
 class LibraryStore extends ChangeNotifier {
-  LibraryStore({
-    List<LibraryEntry> entries = libraryEntries,
-    this._catalogue,
-  }) : _entries = List<LibraryEntry>.of(entries);
+  LibraryStore({List<LibraryEntry> entries = libraryEntries, this._catalogue})
+    : _entries = List<LibraryEntry>.of(entries) {
+    // A desk with nowhere to read from, which is a desk a test built, holds
+    // everything it will ever hold from its first frame.
+    _booted = _catalogue == null;
+  }
 
   /// The desk in order, shipped documents and brought in ones together.
   final List<LibraryEntry> _entries;
@@ -772,12 +842,13 @@ class LibraryStore extends ChangeNotifier {
   final Set<String> _removed = <String>{};
   Shelf _shelf = Shelf.all;
   String _query = '';
+  bool _booted = false;
   LibraryEntry? _lastRemoved;
 
   /// Everything on the desk, removals included, except what is gone for good.
   List<LibraryEntry> get allEntries => List<LibraryEntry>.unmodifiable(
-        _entries.where((e) => !_gone.contains(e.path)).toList(),
-      );
+    _entries.where((e) => !_gone.contains(e.path)).toList(),
+  );
 
   /// True when the desk can take a file in from the phone.
   bool get canImport => _catalogue != null;
@@ -876,8 +947,7 @@ class LibraryStore extends ChangeNotifier {
   ///
   /// The chips need this to render an empty shelf at reduced alpha rather than
   /// letting a reader tap into nothing.
-  int countOn(Shelf shelf) =>
-      entries.where((e) => _onShelf(e, shelf)).length;
+  int countOn(Shelf shelf) => entries.where((e) => _onShelf(e, shelf)).length;
 
   bool _onShelf(LibraryEntry entry, Shelf shelf) {
     switch (shelf) {
@@ -923,19 +993,19 @@ class LibraryStore extends ChangeNotifier {
 
   /// Everything the desk remembers, as plain data.
   Map<String, Object?> _stateJson() => <String, Object?>{
-        'folders': _folders,
-        'signatures': <Object?>[
-          for (final signature in _recentSignatures) signature.toJson(),
-        ],
-        'inFolder': _inFolder,
-        'titles': _titles,
-        'starred': _starred.toList(),
-        'binned': _binned.toList(),
-        'gone': _gone.toList(),
-        'documents': <String, Object?>{
-          for (final entry in _stores.entries) entry.key: entry.value.toJson(),
-        },
-      };
+    'folders': _folders,
+    'signatures': <Object?>[
+      for (final signature in _recentSignatures) signature.toJson(),
+    ],
+    'inFolder': _inFolder,
+    'titles': _titles,
+    'starred': _starred.toList(),
+    'binned': _binned.toList(),
+    'gone': _gone.toList(),
+    'documents': <String, Object?>{
+      for (final entry in _stores.entries) entry.key: entry.value.toJson(),
+    },
+  };
 
   /// Takes back what [_stateJson] wrote, for the documents now on the desk.
   void _applyState(Map<String, Object?> state) {
@@ -1037,13 +1107,28 @@ class LibraryStore extends ChangeNotifier {
   Future<void> boot({bool parse = true}) async {
     final catalogue = _catalogue;
     if (catalogue != null) {
-      final imported = await catalogue.load();
-      if (imported.isNotEmpty) _entries.insertAll(0, imported);
-      _applyState(await catalogue.loadState());
-      notifyListeners();
+      try {
+        final imported = await catalogue.load();
+        if (imported.isNotEmpty) _entries.insertAll(0, imported);
+        _applyState(await catalogue.loadState());
+        notifyListeners();
+      } finally {
+        // Whatever the phone had to say about this desk, it has said. One
+        // that could not be read still holds what it holds.
+        _booted = true;
+      }
     }
     if (parse) await hydrate();
   }
+
+  /// True once the desk has read what it holds.
+  ///
+  /// The first frame is drawn from the shipped manifest alone, since reading
+  /// the phone takes longer than a frame, and what that read takes off the
+  /// desk was never on it. Whatever draws the desk watches this so a bin
+  /// filled in an earlier run is not emptied all over again in front of the
+  /// reader every time the app opens.
+  bool get booted => _booted;
 
   /// Reads the desk again: what has been brought in since, and what has gone.
   ///
