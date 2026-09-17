@@ -102,17 +102,22 @@ class SheetBody extends ReaderBody {
     super.key,
     required this.store,
     this.matches = const <SheetCell>{},
+    this.findOpen = 0,
   });
 
   final DocumentStore store;
 
-  /// Cells the current query found, which colour their spine glyphs so that
-  /// folding a column can never hide a result.
+  /// Cells the current query found, which the grid washes.
   final Set<SheetCell> matches;
+
+  /// How far the find has opened, 0 to 1. Its line of counts sits where the
+  /// column letters are, so the grid moves down out of its way rather than
+  /// letting it cover the names of the columns being searched.
+  final double findOpen;
 
   @override
   Widget buildFront(BuildContext context) =>
-      SheetView(store: store, matches: matches);
+      SheetView(store: store, matches: matches, findOpen: findOpen);
 
   /// The back of a grid: the same cells, showing what the file stores rather
   /// than what the formatting makes of it.
@@ -123,7 +128,12 @@ class SheetBody extends ReaderBody {
   /// a fold here can uncover anything other than the document.
   @override
   Widget buildBack(BuildContext context) =>
-      SheetView(store: store, matches: matches, face: SheetFace.back);
+      SheetView(
+        store: store,
+        matches: matches,
+        face: SheetFace.back,
+        findOpen: findOpen,
+      );
 
   @override
   int get unitCount => store.unitCount;
@@ -154,11 +164,13 @@ class SheetView extends StatefulWidget {
     required this.store,
     this.matches = const <SheetCell>{},
     this.face = SheetFace.front,
+    this.findOpen = 0,
   });
 
   final DocumentStore store;
   final Set<SheetCell> matches;
   final SheetFace face;
+  final double findOpen;
 
   @override
   State<SheetView> createState() => _SheetViewState();
@@ -534,7 +546,9 @@ class _SheetViewState extends State<SheetView> with TickerProviderStateMixin {
       // where the reader put this body, which is why it is measured rather
       // than assumed.
       child: Padding(
-        padding: EdgeInsets.only(top: _under),
+        padding: EdgeInsets.only(
+          top: _under + kStatusRowHeight * widget.findOpen.clamp(0.0, 1.0),
+        ),
         child: Stack(
           children: [
             Column(

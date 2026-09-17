@@ -524,7 +524,33 @@ class _ReaderHostState extends State<ReaderHost> with TickerProviderStateMixin {
       _steppedTo = find.current;
       widget.store.position = _unitOf(find.matches[find.current]);
     }
+    _ringMatch(find);
     setState(() {});
+  }
+
+  /// The match last ringed in a spreadsheet, so typing another letter that
+  /// finds the same cell does not ring it again.
+  SheetCell? _ringed;
+
+  /// In a spreadsheet a row is not a place, a cell is: the match the find is
+  /// on is ringed as well as scrolled to, so the grid goes across to it as
+  /// well as down, and the cell bar reads it out in full. That includes the
+  /// first match, which the find lands on without being stepped to.
+  void _ringMatch(FindController find) {
+    if (!widget.store.isGrid || find.matches.isEmpty) {
+      _ringed = null;
+      return;
+    }
+    final match = find.matches[find.current];
+    if (match.path.length < 3) return;
+    final cell = SheetCell(match.path[1], match.path[2]);
+    if (cell == _ringed) return;
+    _ringed = cell;
+    final sheet = SheetController.of(widget.store);
+    if (match.path[0] != sheet.sheet) {
+      widget.store.position = _unitOf(match);
+    }
+    sheet.selected = cell;
   }
 
   /// Where in the document a match sits, in the units the store counts in.
@@ -564,7 +590,13 @@ class _ReaderHostState extends State<ReaderHost> with TickerProviderStateMixin {
     }
     final document = store.document;
     if (document == null) return _NoBody(store: store);
-    if (store.isGrid) return SheetBody(store: store, matches: _matchedCells);
+    if (store.isGrid) {
+      return SheetBody(
+        store: store,
+        matches: _matchedCells,
+        findOpen: _find?.open ?? 0,
+      );
+    }
     return ProseBody(
       store: store,
       document: document,

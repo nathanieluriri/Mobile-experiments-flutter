@@ -13,6 +13,7 @@ import 'package:quire/screens/reader/bodies/sheet_geometry.dart';
 import 'package:quire/screens/reader/bodies/sheet_grid.dart';
 import 'package:quire/screens/reader/bodies/sheet_tabs.dart';
 import 'package:quire/screens/reader/bodies/spine_table.dart';
+import 'package:quire/screens/reader/reader_host.dart';
 import 'package:quire/screens/reader/reader_screen.dart';
 import 'package:quire/services/document_store.dart';
 import 'package:quire/theme/metrics.dart';
@@ -265,6 +266,34 @@ void main() {
       await tester.tap(find.text('Summary').last);
       await settle(tester);
       expect(SheetController.of(store).sheet, 2);
+    });
+  });
+
+  group('finding in a spreadsheet', () {
+    testWidgets('rings the cell it found and takes the grid across to it', (
+      tester,
+    ) async {
+      final store = await storeFor(kPressRunCosts);
+      await pumpScreen(
+        tester,
+        MaterialApp(
+          debugShowCheckedModeBanner: false,
+          home: ReaderHost(store: store),
+        ),
+      );
+      await settle(tester);
+
+      await tester.tap(find.bySemanticsLabel('Find in document'));
+      await settle(tester);
+      // A total, which lives in column G, off the right of the phone.
+      await tester.enterText(find.byType(EditableText).last, '589.00');
+      await settle(tester);
+
+      final chosen = SheetController.of(store).selected;
+      expect(chosen, isNotNull, reason: 'the match is ringed');
+      expect(chosen!.column, 6);
+      expect(find.text('Runs!G3'), findsOneWidget);
+      await capture(tester, 'sheet__found');
     });
   });
 
