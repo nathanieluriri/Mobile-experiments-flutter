@@ -246,7 +246,7 @@ void main() {
       await _pumpSheet(tester, store);
       await tester.tap(find.text('Paper').last);
       await tester.pump();
-      await pumpMs(tester, kTabTravel.inMilliseconds ~/ 2);
+      await pumpMs(tester, kSheetTabTravel.inMilliseconds ~/ 2);
       await capture(tester, 'sheet__tabs_travelling');
       await settle(tester);
       expect(SheetController.of(store).sheet, 1);
@@ -333,7 +333,6 @@ void main() {
       expect(find.text('3 RAGGED'), findsOneWidget);
       await capture(tester, 'reader__csv_ragged');
     });
-
   });
 }
 
@@ -367,7 +366,9 @@ Offset _cellCentre(
   final grid = tester.getRect(find.byType(SheetGrid));
   return grid.topLeft +
       Offset(
-        kRowHeaderWidth + geometry.leftOf(column) + geometry.widthOf(column) / 2,
+        kRowHeaderWidth +
+            geometry.leftOf(column) +
+            geometry.widthOf(column) / 2,
         kGridHeaderHeight + geometry.topOf(row) + geometry.heightOf(row) / 2,
       );
 }

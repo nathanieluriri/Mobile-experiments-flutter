@@ -268,8 +268,20 @@ const kGridCommentMark = 7.0;
 const kGridRingWidth = 2.0;
 const kGridHandle = 5.0;
 
-/// How long the ring takes to travel from one cell to the next.
-const kGridRingMove = Duration(milliseconds: 420);
+/// How long the choice takes to travel from one cell to the next, to
+/// condense onto a cell when nothing was chosen, and to dry up when it is let
+/// go.
+const kGridRingMove = Duration(milliseconds: 780);
+const kGridRingAppear = Duration(milliseconds: 620);
+const kGridRingLeave = Duration(milliseconds: 520);
+
+/// How round the ends of the lit letter and number get while they travel.
+const kGridLitRound = 9.0;
+
+/// How long the fill takes to travel between two sheets on the bar along the
+/// foot. Longer than the desk's tabs, because the desk's tabs are a filter
+/// and these are a move through the document.
+const kSheetTabTravel = Duration(milliseconds: 680);
 
 /// How big the ring is when it first opens out of the goo, as a share of the
 /// height of the cell it is opening into.
@@ -488,15 +500,20 @@ const kDigitStagger = Duration(milliseconds: 20);
 /// The match ticks appearing on the fore edge.
 const kRailFade = Duration(milliseconds: 200);
 
-/// The cell bar rising, on the valueBarSpring.
-const kCellBarIn = Duration(milliseconds: 180);
-const kCellBarOut = Duration(milliseconds: 140);
+/// The cell bar rising on the goo spring, and going back down.
+const kCellBarIn = Duration(milliseconds: 560);
+const kCellBarOut = Duration(milliseconds: 380);
+
+/// The cell bar opening room for a comment, or closing it, as the choice
+/// moves between a cell somebody talked about and one nobody did.
+const kCellBarNote = Duration(milliseconds: 460);
 
 /// A spine opening and the open column collapsing.
 const kColumnOpen = Duration(milliseconds: 240);
 
-/// Switching workbook sheets.
-const kSheetTabCross = Duration(milliseconds: 180);
+/// Switching workbook sheets: one grid giving way to the next while the
+/// fill travels along the foot.
+const kSheetTabCross = Duration(milliseconds: 360);
 
 /// A card coming apart. House value, unchanged.
 const kDissolve = Duration(milliseconds: 3000);

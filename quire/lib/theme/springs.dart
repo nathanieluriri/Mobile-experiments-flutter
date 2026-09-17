@@ -10,31 +10,63 @@ import 'metrics.dart';
 abstract final class AppSprings {
   /// A released fold returning to its rest inset. Clamped by its caller, so it
   /// stops the instant it first reaches rest.
-  static const peelSnap =
-      SpringDescription(mass: 1, stiffness: 260, damping: 22);
+  static const peelSnap = SpringDescription(
+    mass: 1,
+    stiffness: 260,
+    damping: 22,
+  );
 
   /// A dock button growing under the drag point, and shrinking back.
-  static const dockScale =
-      SpringDescription(mass: 1, stiffness: 260, damping: 20);
+  static const dockScale = SpringDescription(
+    mass: 1,
+    stiffness: 260,
+    damping: 20,
+  );
 
   /// The desk closing the gap a removed card leaves.
-  static const shelfLayout =
-      SpringDescription(mass: 1, stiffness: 200, damping: 30);
+  static const shelfLayout = SpringDescription(
+    mass: 1,
+    stiffness: 200,
+    damping: 30,
+  );
 
   /// A flip completing, and the reader sliding off on a back drag.
-  static const pageSettle =
-      SpringDescription(mass: 1, stiffness: 180, damping: 26);
+  static const pageSettle = SpringDescription(
+    mass: 1,
+    stiffness: 180,
+    damping: 26,
+  );
+
+  /// Anything in a spreadsheet made of the app's goo: the chosen cell's
+  /// ring opening, the formula well rising.
+  ///
+  /// Soft and a little under damped, so it arrives, goes a touch past where
+  /// it was going, and settles back, the way something thick does. A stiffer
+  /// spring gets there sooner and reads as a click, which is exactly what goo
+  /// is not.
+  static const goo = SpringDescription(mass: 1, stiffness: 70, damping: 13);
+
+  /// The grid gliding to a cell it has been asked to show. Stopped dead, so
+  /// it never runs past the row it was sent to, and soft enough that a
+  /// stream of requests is followed rather than chased.
+  static final reveal = SpringDescription.withDampingRatio(
+    mass: 1,
+    stiffness: 110,
+    ratio: 1,
+  );
 
   /// The cell bar rising from the sheet's bottom edge.
-  static const valueBarSpring =
-      SpringDescription(mass: 1, stiffness: 240, damping: 28);
+  static const valueBarSpring = SpringDescription(
+    mass: 1,
+    stiffness: 240,
+    damping: 28,
+  );
 
   /// The navigation drawer coming in and going out, and with it the hamburger
   /// morphing into an arrow. One spring drives both, so the glyph is a readout
   /// of where the panel is rather than an animation of its own that happens to
   /// finish at about the same moment.
-  static const drawer =
-      SpringDescription(mass: 1, stiffness: 210, damping: 24);
+  static const drawer = SpringDescription(mass: 1, stiffness: 210, damping: 24);
 
   /// The drawer's damping, as a share of what would stop it dead.
   ///
@@ -78,9 +110,10 @@ class SpringCurve extends Curve {
     SpringDescription spring, {
     required this.duration,
     bool clampOvershoot = false,
-  })  : _simulation = SpringSimulation(spring, 0, 1, 0),
-        _clampSeconds =
-            clampOvershoot ? _firstOvershootSeconds(spring) : double.infinity;
+  }) : _simulation = SpringSimulation(spring, 0, 1, 0),
+       _clampSeconds = clampOvershoot
+           ? _firstOvershootSeconds(spring)
+           : double.infinity;
 
   final Duration duration;
   final SpringSimulation _simulation;

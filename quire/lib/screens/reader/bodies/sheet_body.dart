@@ -127,13 +127,12 @@ class SheetBody extends ReaderBody {
   /// workbook with no grid in it says so on both faces, which is the only way
   /// a fold here can uncover anything other than the document.
   @override
-  Widget buildBack(BuildContext context) =>
-      SheetView(
-        store: store,
-        matches: matches,
-        face: SheetFace.back,
-        findOpen: findOpen,
-      );
+  Widget buildBack(BuildContext context) => SheetView(
+    store: store,
+    matches: matches,
+    face: SheetFace.back,
+    findOpen: findOpen,
+  );
 
   @override
   int get unitCount => store.unitCount;
@@ -185,11 +184,7 @@ class _SheetViewState extends State<SheetView> with TickerProviderStateMixin {
 
   /// The bar rises on its spring and leaves on a plain ease, because arriving
   /// is an object being lifted and leaving is a thing being put down.
-  late final Curve _barRise = SpringCurve(
-    AppSprings.valueBarSpring,
-    duration: kCellBarIn,
-    clampOvershoot: true,
-  );
+  late final Curve _barRise = SpringCurve(AppSprings.goo, duration: kCellBarIn);
 
   late SheetController _sheet;
 
@@ -210,6 +205,13 @@ class _SheetViewState extends State<SheetView> with TickerProviderStateMixin {
   /// leaving with its own text rather than emptying out first.
   _BarText? _leaving;
 
+  /// The last cell with a comment the bar showed, so the comment's room can
+  /// close around what it said rather than emptying first.
+  _BarText? _said;
+
+  /// The cell that was chosen when the controller last spoke.
+  SheetCell? _chosen;
+
   @override
   void initState() {
     super.initState();
@@ -222,7 +224,8 @@ class _SheetViewState extends State<SheetView> with TickerProviderStateMixin {
     _sheet.addListener(_onController);
     widget.store.addListener(_onStore);
     _shown = _sheetIndex;
-    if (_sheet.selected != null) _bar.value = 1;
+    _chosen = _sheet.selected;
+    if (_chosen != null) _bar.value = 1;
     _readParseFacts();
   }
 
@@ -263,11 +266,18 @@ class _SheetViewState extends State<SheetView> with TickerProviderStateMixin {
     if (chosen != null) {
       _bar.forward();
       // A cell chosen from somewhere other than the grid, such as the list of
-      // comments, has to be brought into view as well as ringed.
-      _reveal = chosen;
+      // comments, has to be brought into view as well as ringed. Showing a
+      // cell is not a jump, so whatever row a jump was holding the reader on
+      // gives way to where the grid ends up. Only a new choice asks: the
+      // controller speaks for other reasons too, and those are not requests.
+      if (chosen != _chosen) {
+        _landing = null;
+        _reveal = SheetReveal(chosen);
+      }
     } else {
       _bar.reverse();
     }
+    _chosen = chosen;
     _repaint();
   }
 
@@ -325,7 +335,12 @@ class _SheetViewState extends State<SheetView> with TickerProviderStateMixin {
     _landing = widget.store.position;
     final row = widget.store.position - _rowOffset(_sheetIndex);
     if (row < 0) return;
-    setState(() => _reveal = SheetCell(row, _sheet.selected?.column ?? 0));
+    setState(
+      () => _reveal = SheetReveal(
+        SheetCell(row, _sheet.selected?.column ?? 0),
+        toTop: true,
+      ),
+    );
   }
 
   QuireDocument? get _document => widget.store.document;
@@ -490,7 +505,7 @@ class _SheetViewState extends State<SheetView> with TickerProviderStateMixin {
     );
     if (picked == null || !mounted) return;
     _sheet.selected = picked;
-    setState(() => _reveal = picked);
+    setState(() => _reveal = SheetReveal(picked));
   }
 
   String _saidBy(CellComment said, String sheetName, SheetCell at) {
@@ -510,10 +525,15 @@ class _SheetViewState extends State<SheetView> with TickerProviderStateMixin {
   ///
   /// It is a cell rather than a row because the grid moves in two directions
   /// and a row on its own says nothing about which way it went.
-  SheetCell? _reveal;
+  SheetReveal? _reveal;
 
   void _jumpToRow(int row) {
-    setState(() => _reveal = SheetCell(row, _sheet.selected?.column ?? 0));
+    setState(
+      () => _reveal = SheetReveal(
+        SheetCell(row, _sheet.selected?.column ?? 0),
+        toTop: true,
+      ),
+    );
   }
 
   @override
@@ -565,8 +585,8 @@ class _SheetViewState extends State<SheetView> with TickerProviderStateMixin {
                 Expanded(
                   child: AnimatedSwitcher(
                     duration: kSheetTabCross,
-                    switchInCurve: easeOutQuad,
-                    switchOutCurve: easeOutQuad,
+                    switchInCurve: easeInOutQuad,
+                    switchOutCurve: easeInOutQuad,
                     child: SheetGrid(
                       key: ValueKey<int>(index),
                       table: table,
@@ -589,6 +609,13 @@ class _SheetViewState extends State<SheetView> with TickerProviderStateMixin {
                           _sheet.selected = null;
                         }
                         _sheet.rememberPan(index, pan);
+                        // A jump the grid is carrying out, or has carried
+                        // out as far as a short sheet lets it, leaves the
+                        // reader on the row they jumped to, whichever row
+                        // the grid ends up with at its top. Only a hand
+                        // moves them on from it.
+                        if (byHand) _landing = null;
+                        if (_landing != null) return;
                         _moveTo(_rowOffset(index) + topRow);
                       },
                     ),
@@ -627,15 +654,23 @@ class _SheetViewState extends State<SheetView> with TickerProviderStateMixin {
         ? _leaving
         : (_leaving = _BarText.of(table, sheetName, selected));
     if (cell == null) return const SizedBox.shrink();
-    return CellBar(
-      reference: cell.reference,
-      value: cell.value,
-      formula: cell.formula,
-      comment: cell.comment,
-      commentBy: cell.commentBy,
-      progress: _bar.status == AnimationStatus.reverse
-          ? easeOutQuad.transform(_bar.value)
-          : _barRise.transform(_bar.value),
+    if (cell.comment != null) _said = cell;
+    final said = _said;
+    return TweenAnimationBuilder<double>(
+      tween: Tween<double>(end: cell.comment == null ? 0 : 1),
+      duration: kCellBarNote,
+      curve: easeInOutCubic,
+      builder: (context, room, _) => CellBar(
+        reference: cell.reference,
+        value: cell.value,
+        formula: cell.formula,
+        comment: said?.comment,
+        commentBy: said?.commentBy,
+        noteOpen: room,
+        progress: _bar.status == AnimationStatus.reverse
+            ? easeOutQuad.transform(_bar.value)
+            : _barRise.transform(_bar.value),
+      ),
     );
   }
 

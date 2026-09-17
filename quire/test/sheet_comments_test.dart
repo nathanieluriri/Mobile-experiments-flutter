@@ -116,8 +116,9 @@ void main() {
         XlsxParser(_workbookWithComments()).parse(),
         'Runs',
       );
-      final table =
-          document.sections.single.blocks.whereType<TableBlock>().single;
+      final table = document.sections.single.blocks
+          .whereType<TableBlock>()
+          .single;
       final said = commentsOn(table);
       expect(said.keys, contains(const SheetCell(1, 1)));
       expect(said[const SheetCell(1, 1)]!.author, 'Bindery');
@@ -127,12 +128,9 @@ void main() {
     });
 
     test('a workbook nobody has discussed carries nothing', () {
-      final table = TableBlock(
-        <DocRow>[
-          DocRow(<DocCell>[_cell('a'), _cell('b')]),
-        ],
-        grid: true,
-      );
+      final table = TableBlock(<DocRow>[
+        DocRow(<DocCell>[_cell('a'), _cell('b')]),
+      ], grid: true);
       expect(commentsOn(table), isEmpty);
     });
   });
@@ -160,11 +158,7 @@ void main() {
           debugShowCheckedModeBanner: false,
           home: ColoredBox(
             color: AppColors.ground,
-            child: SheetGrid(
-              table: table,
-              selected: null,
-              onSelect: (_) {},
-            ),
+            child: SheetGrid(table: table, selected: null, onSelect: (_) {}),
           ),
         ),
       );
@@ -203,6 +197,34 @@ void main() {
         CellBar.heightFor(commented: true),
       );
       await capture(tester, 'sheet__cell_bar_comment');
+    });
+
+    testWidgets('opens its room for the comment rather than jumping', (
+      tester,
+    ) async {
+      Widget bar(double room) => MaterialApp(
+        debugShowCheckedModeBanner: false,
+        home: Align(
+          alignment: Alignment.bottomCenter,
+          child: CellBar(
+            reference: 'Runs!B2',
+            value: 'Thornbury Tea Rooms',
+            comment: 'Check the discount before invoicing.',
+            commentBy: 'Bindery',
+            progress: 1,
+            noteOpen: room,
+          ),
+        ),
+      );
+      final shut = CellBar.heightFor(commented: false);
+      final open = CellBar.heightFor(commented: true);
+      await pumpScreen(tester, bar(0));
+      expect(tester.getSize(find.byType(CellBar)).height, shut);
+      await pumpScreen(tester, bar(0.5));
+      expect(tester.getSize(find.byType(CellBar)).height, (shut + open) / 2);
+      await capture(tester, 'sheet__cell_bar_comment_opening');
+      await pumpScreen(tester, bar(1));
+      expect(tester.getSize(find.byType(CellBar)).height, open);
     });
   });
 }

@@ -34,6 +34,7 @@ class TabGooPainter extends CustomPainter {
     required this.to,
     required this.t,
     required this.colour,
+    this.viscous = false,
   });
 
   /// The chip being left, in the strip's coordinates.
@@ -47,6 +48,11 @@ class TabGooPainter extends CustomPainter {
 
   final Color colour;
 
+  /// True for a journey through a document rather than a change of filter:
+  /// every stage eases in and out, so the fill neither sets off nor stops at
+  /// speed, and it moves like something thick.
+  final bool viscous;
+
   static double _stage(double t, double start, double end) =>
       ((t - start) / (end - start)).clamp(0.0, 1.0);
 
@@ -58,11 +64,20 @@ class TabGooPainter extends CustomPainter {
     // The old fill gathers into a blob, then is gone: the blob is the fill.
     final gather = _stage(t, 0, kTabGooGatherEnd);
     if (gather < 1) {
-      _pill(canvas, paint, from, ui.lerpDouble(from.width, from.height, gather)!);
+      _pill(
+        canvas,
+        paint,
+        from,
+        ui.lerpDouble(
+          from.width,
+          from.height,
+          viscous ? easeInOutCubic.transform(gather) : gather,
+        )!,
+      );
     }
 
     // The blob crosses.
-    final travel = easeInOutQuad.transform(
+    final travel = (viscous ? easeInOutCubic : easeInOutQuad).transform(
       _stage(t, kTabGooGatherEnd, kTabGooTravelEnd),
     );
     final blob = Offset.lerp(from.center, to.center, travel)!;
@@ -75,8 +90,8 @@ class TabGooPainter extends CustomPainter {
     }
 
     // The new chip opens to receive it, then widens into its own pill.
-    final arrive = _stage(t, kTabGooArriveStart, kTabGooTravelEnd);
-    final widen = _stage(t, kTabGooTravelEnd, kTabGooWidenEnd);
+    final arrive = _eased(_stage(t, kTabGooArriveStart, kTabGooTravelEnd));
+    final widen = _eased(_stage(t, kTabGooTravelEnd, kTabGooWidenEnd));
     if (arrive > 0) {
       if (widen > 0) {
         _pill(canvas, paint, to, ui.lerpDouble(to.height, to.width, widen)!);
@@ -85,6 +100,11 @@ class TabGooPainter extends CustomPainter {
       }
     }
   }
+
+  /// A stage as it is felt: as it runs for the desk's filters, and slowing
+  /// into place for a viscous journey.
+  double _eased(double share) =>
+      viscous ? easeOutCubic.transform(share) : share;
 
   /// A chip's fill at [width], centred where the chip is.
   void _pill(Canvas canvas, Paint paint, Rect chip, double width) {
@@ -125,5 +145,6 @@ class TabGooPainter extends CustomPainter {
       oldDelegate.from != from ||
       oldDelegate.to != to ||
       oldDelegate.t != t ||
-      oldDelegate.colour != colour;
+      oldDelegate.colour != colour ||
+      oldDelegate.viscous != viscous;
 }

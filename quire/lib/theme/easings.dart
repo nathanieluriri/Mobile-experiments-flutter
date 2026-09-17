@@ -36,3 +36,29 @@ class EaseInOutQuad extends Curve {
 const easeOutQuad = EaseOutQuad();
 const easeOutCubic = EaseOutCubic();
 const easeInOutQuad = EaseInOutQuad();
+
+/// `4t^3` on the first half, mirrored on the second: slow away and slow in,
+/// for something thick enough that it neither leaves nor arrives at speed.
+class EaseInOutCubic extends Curve {
+  const EaseInOutCubic();
+
+  @override
+  double transformInternal(double t) {
+    if (t < 0.5) {
+      return 4 * t * t * t;
+    }
+    final inverse = 2 - 2 * t;
+    return 1 - inverse * inverse * inverse / 2;
+  }
+}
+
+/// `t^3`: gathering pace, for something drawn in until it is gone.
+class EaseInCubic extends Curve {
+  const EaseInCubic();
+
+  @override
+  double transformInternal(double t) => t * t * t;
+}
+
+const easeInOutCubic = EaseInOutCubic();
+const easeInCubic = EaseInCubic();

@@ -52,7 +52,7 @@ class _SheetTabsState extends State<SheetTabs>
     with SingleTickerProviderStateMixin {
   late final AnimationController _travel = AnimationController(
     vsync: this,
-    duration: kTabTravel,
+    duration: kSheetTabTravel,
     value: 1,
   );
 
@@ -189,6 +189,7 @@ class _SheetTabsState extends State<SheetTabs>
               to: b,
               t: _travel.value,
               colour: AppColors.accent,
+              viscous: true,
             ),
           ),
         ),
