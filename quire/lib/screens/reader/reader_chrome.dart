@@ -31,42 +31,31 @@ import '../../widgets/press_fade.dart';
 /// a gap between the two.
 const kHeadBandHidden = -kHeadBandHeight;
 
-/// Where the head band is over the top of the reader at this moment.
+/// How much of the head band is over the top of the reader at this moment:
+/// 0 with it gone, 1 with it all the way in.
 ///
 /// A body whose content passes under the band has no need of it. A body that
 /// holds something of its own at the top of the sheet, which is a grid and its
 /// letters, reads it to keep that thing directly under the band's lower edge,
 /// wherever the edge is, so that the letters go up as the band goes and are
 /// pushed down as it comes back rather than leaving room for a band that is
-/// not there.
+/// not there. The band hangs from the foot of the status bar, which a body
+/// finds in [ReaderInsets].
 ///
-/// It is handed down rather than worked out by the body, because a body lies
-/// on a sheet that starts at the top of the glass and does not see the
-/// phone's status bar at all: only the reader knows where that ends.
+/// It changes on every frame the band moves, which is why it is not where a
+/// body finds the phone's insets: a page that only needs those would be built
+/// again for every one of those frames.
 class ReaderBand extends InheritedWidget {
-  const ReaderBand({
-    super.key,
-    required this.top,
-    required this.shown,
-    required super.child,
-  });
+  const ReaderBand({super.key, required this.shown, required super.child});
 
-  /// Where the phone's status bar ends, which is what the band hangs from.
-  final double top;
-
-  /// How much of the band is in: 0 with it gone, 1 with it all the way in.
   final double shown;
-
-  /// Where the band's lower edge is.
-  double get edge => top + kHeadBandHeight * shown;
 
   /// The band over [context], or null for a body shown on its own.
   static ReaderBand? maybeOf(BuildContext context) =>
       context.dependOnInheritedWidgetOfExactType<ReaderBand>();
 
   @override
-  bool updateShouldNotify(ReaderBand oldWidget) =>
-      oldWidget.top != top || oldWidget.shown != shown;
+  bool updateShouldNotify(ReaderBand oldWidget) => oldWidget.shown != shown;
 }
 
 /// The size of the glyph inside a 38.5 header button.

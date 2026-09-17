@@ -576,9 +576,8 @@ class _SheetViewState extends State<SheetView> with TickerProviderStateMixin {
     // leaves, until they are under the status bar with nothing between. A
     // sheet that kept the band's room while the band was away would be a
     // strip of nothing over the top of the reading.
-    final band = ReaderBand.maybeOf(context);
-    final drop = kHeadBandHeight * (band?.shown ?? 1);
-    final head = (band?.top ?? MediaQuery.paddingOf(context).top) + drop;
+    final drop = kHeadBandHeight * (ReaderBand.maybeOf(context)?.shown ?? 1);
+    final head = ReaderInsets.of(context).top + drop;
 
     return NotificationListener<ScrollNotification>(
       onNotification: _onScroll,

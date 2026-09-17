@@ -1013,7 +1013,7 @@ class _PdfPageBlockState extends State<PdfPageBlock>
 
   /// Where the reading line is on the strip, across and down.
   Offset get _readingPoint {
-    final safeArea = MediaQuery.paddingOf(context);
+    final safeArea = ReaderInsets.of(context);
     final top = safeArea.top + kHeadBandHeight;
     final bottom = _viewport - readerContentBottom(safeArea);
     return Offset(_window / 2, top + (bottom - top) * kFindRevealLine);
@@ -1220,7 +1220,9 @@ class _PdfPageBlockState extends State<PdfPageBlock>
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    final safeArea = MediaQuery.paddingOf(context);
+    // The reader's word for where the phone's bars are, and not the phone's:
+    // the sheet these pages lie on has taken the phone's insets away.
+    final safeArea = ReaderInsets.of(context);
     _topInset = readerContentTop(safeArea);
     _bottomInset = readerContentBottom(safeArea);
   }

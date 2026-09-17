@@ -808,235 +808,244 @@ class _ReaderScreenState extends State<ReaderScreen>
     };
     final readable = !unreadable.contains(plan);
 
-    return ReaderBand(
-      top: MediaQuery.paddingOf(context).top,
-      shown: head,
-      child: PopScope(
-        // Pressing back while the riffle is up closes the riffle rather than
-        // putting the document down: browsing has to be free, and a reader who
-        // opened the page block did not ask to leave.
-        // A lock is a lock. It answers back before the riffle does, because a
-        // reader who fastened the way out did so to stop exactly this.
-        // A reader handed its own way out takes system back through it too,
-        // so the button in the corner and the phone's back gesture can never
-        // disagree about where leaving goes.
-        canPop: _riffle.value == 0 && !lock.holdsBack && widget.onLeave == null,
-        onPopInvokedWithResult: (didPop, result) {
-          if (didPop) return;
-          if (lock.holdsBack) {
-            _refuseToLeave(lock);
-            return;
-          }
-          if (_riffle.value > 0) {
-            _closeRiffle();
-            return;
-          }
-          _leave();
-        },
-        child: Listener(
-          // A listener rather than a recogniser: the loupe watches where the
-          // finger is without taking the finger off whatever it was doing, so
-          // the page still scrolls and every control still works underneath it.
-          behavior: HitTestBehavior.deferToChild,
-          onPointerDown: _magnifierAt,
-          onPointerMove: _magnifierAt,
-          onPointerUp: (_) => _magnifierGone(),
-          onPointerCancel: (_) => _magnifierGone(),
-          child: RawGestureDetector(
-            behavior: HitTestBehavior.opaque,
-            gestures: _gestures(unitCount, hidden, body),
-            child: NotificationListener<ReadingMoved>(
-              onNotification: _onReadingMoved,
-              child: NotificationListener<ScrollNotification>(
-                onNotification: _onScroll,
-                child: Stack(
-                  children: [
-                    Positioned.fill(
-                      child: IgnorePointer(
-                        child: ColoredBox(
-                          color: AppColors.ground.withValues(
-                            // However far off home the paper is, by arriving or
-                            // by being dragged away, is how much of the desk is
-                            // showing and how little of it should be dark.
-                            alpha:
-                                kDeskDim *
-                                (1 -
-                                    ((slide + arrival) / kScreenWidth).clamp(
-                                      0,
-                                      1,
-                                    )),
+    return ReaderInsets(
+      insets: MediaQuery.paddingOf(context),
+      child: ReaderBand(
+        shown: head,
+        child: PopScope(
+          // Pressing back while the riffle is up closes the riffle rather than
+          // putting the document down: browsing has to be free, and a reader
+          // who opened the page block did not ask to leave. A lock is a lock.
+          // It answers back before the riffle does, because a reader who
+          // fastened the way out did so to stop exactly this. A reader handed
+          // its own way out takes system back through it too, so the button in
+          // the corner and the phone's back gesture can never disagree about
+          // where leaving goes.
+          canPop:
+              _riffle.value == 0 && !lock.holdsBack && widget.onLeave == null,
+          onPopInvokedWithResult: (didPop, result) {
+            if (didPop) return;
+            if (lock.holdsBack) {
+              _refuseToLeave(lock);
+              return;
+            }
+            if (_riffle.value > 0) {
+              _closeRiffle();
+              return;
+            }
+            _leave();
+          },
+          child: Listener(
+            // A listener rather than a recogniser: the loupe watches where the
+            // finger is without taking the finger off whatever it was doing, so
+            // the page still scrolls and every control still works underneath
+            // it.
+            behavior: HitTestBehavior.deferToChild,
+            onPointerDown: _magnifierAt,
+            onPointerMove: _magnifierAt,
+            onPointerUp: (_) => _magnifierGone(),
+            onPointerCancel: (_) => _magnifierGone(),
+            child: RawGestureDetector(
+              behavior: HitTestBehavior.opaque,
+              gestures: _gestures(unitCount, hidden, body),
+              child: NotificationListener<ReadingMoved>(
+                onNotification: _onReadingMoved,
+                child: NotificationListener<ScrollNotification>(
+                  onNotification: _onScroll,
+                  child: Stack(
+                    children: [
+                      Positioned.fill(
+                        child: IgnorePointer(
+                          child: ColoredBox(
+                            color: AppColors.ground.withValues(
+                              // However far off home the paper is, by arriving
+                              // or by being dragged away, is how much of the
+                              // desk is showing and how little of it should be
+                              // dark.
+                              alpha:
+                                  kDeskDim *
+                                  (1 -
+                                      ((slide + arrival) / kScreenWidth).clamp(
+                                        0,
+                                        1,
+                                      )),
+                            ),
                           ),
                         ),
                       ),
-                    ),
-                    Transform.translate(
-                      offset: Offset(slide, 0),
-                      child: Stack(
-                        children: [
-                          // The paper, and everything drawn on the paper. This
-                          // is what travels when a document arrives; the band
-                          // above it does not, because the band is where the
-                          // desk's own corner button is turning into the way
-                          // back.
-                          Positioned.fill(
-                            child: Transform.translate(
-                              offset: Offset(arrival, 0),
-                              child: Stack(
-                                children: [
-                                  const Positioned.fill(
-                                    child: ColoredBox(color: AppColors.ground),
-                                  ),
-                                  Positioned.fromRect(
-                                    rect: kSheetRect,
-                                    child: _sheetFor(plan, body, foldPoint),
-                                  ),
-                                  if (readable && !lock.holdsBack)
-                                    Positioned(
-                                      left: kForeEdgeLeft,
-                                      top: kForeEdgeTop,
-                                      child: IgnorePointer(
-                                        child: ForeEdge(
-                                          marks: body.foreEdgeMarks,
-                                          position: position,
-                                          dogEars: dogEars,
-                                          damaged: body.damagedMarks,
-                                          signatures: signatures,
-                                          matches: widget.matches,
-                                          liveMatch: widget.liveMatch,
-                                          scrubbedMatch: _scrubbedMatch,
-                                          matchOpacity: widget.matchOpacity,
-                                        ),
-                                      ),
-                                    ),
-                                  if (_scrubbing)
-                                    Positioned(
-                                      right:
-                                          kScreenWidth -
-                                          kForeEdgeLeft +
-                                          kForeEdgeBubbleGap,
-                                      top: _scrubY - kForeEdgeBubble / 2,
-                                      child: IgnorePointer(
-                                        child: ForeEdgeBubble(
-                                          label: 'p. ${body.positionLabel}',
-                                          matches: _matchesHere,
-                                        ),
-                                      ),
-                                    ),
-                                  if (readable && !lock.holdsBack)
-                                    Positioned(
-                                      // Held by its right edge, so a longer
-                                      // label grows the chip into the page and
-                                      // not off the side of it.
-                                      right:
-                                          kScreenWidth -
-                                          kSheetLeft -
-                                          kSheetWidth +
-                                          kFolioChipInset,
-                                      top:
-                                          kReadableBottom -
-                                          kFolioChipInset -
-                                          kFolioChipHeight +
-                                          kFolioChipHidden * hidden,
-                                      child: IgnorePointer(
-                                        child: FolioChip(
-                                          label: body.positionLabel,
-                                          hidden: hidden,
-                                          dogEared: _store.dogEared.contains(
-                                            _store.position,
-                                          ),
-                                          tint: _folioTint,
-                                        ),
-                                      ),
-                                    ),
-                                  Positioned.fill(
-                                    child: PlacementSlot(
-                                      child: widget.placement,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                          // A band on its way out over a locked reading
-                          // takes no touch while it goes.
-                          IgnorePointer(
-                            ignoring: lock.holdsBack,
-                            child: ReaderChrome(
-                              title: _store.entry.title,
-                              hidden: hidden,
-                              showingBack: _side == SheetSide.back,
-                              backMorph: opening == null
-                                  ? 1
-                                  : kDocumentArrival.transform(
-                                      opening.value.clamp(0.0, 1.0),
-                                    ),
-                              onBack: _leave,
-                              onFind: widget.onFind,
-                              onMenu: widget.onMenu,
-                              menuOpen: widget.menuOpen,
-                              // Under a lock the band stays gone even with
-                              // something to say, since saying it would bring
-                              // every button in the band back with it.
-                              notice: notice,
-                              placing: widget.placing,
-                              onConfirm: widget.onConfirmPlacement,
-                              onCancel: widget.onCancelPlacement,
-                            ),
-                          ),
-                          ?widget.menu,
-                          ?widget.overlay,
-                          if (lock.holdsBack)
-                            UnlockChip(
-                              progress: _unlockChip.value,
-                              onUnlock: _unlock,
-                              label: lock.holdsPage
-                                  ? 'Unlock the page'
-                                  : 'Unlock the reading',
-                            ),
-                          // Last of all, because a magnifier under something is
-                          // a magnifier of nothing.
-                          if (_store.magnifier) Loupe(at: _loupeAt),
-                          if (_riffle.value > 0)
+                      Transform.translate(
+                        offset: Offset(slide, 0),
+                        child: Stack(
+                          children: [
+                            // The paper, and everything drawn on the paper.
+                            // This is what travels when a document arrives; the
+                            // band above it does not, because the band is where
+                            // the desk's own corner button is turning into the
+                            // way back.
                             Positioned.fill(
-                              child: RiffleSheet(
-                                items: _riffleShowing,
-                                initialIndex: _riffleFrom,
-                                kindLabel: _riffleLabel(_riffleShowing.length),
-                                progress:
-                                    _riffle.value *
-                                    (1 -
-                                        easeOutQuad.transform(
-                                          _riffleCommit.value,
-                                        )),
-                                onSelect: _commitRiffle,
-                                onClose: _closeRiffle,
-                              ),
-                            ),
-                          if (_committing)
-                            Positioned.fromRect(
-                              rect: Rect.lerp(
-                                _riffleSlotRect,
-                                kSheetRect,
-                                easeOutCubic.transform(_riffleCommit.value),
-                              )!,
-                              child: IgnorePointer(
-                                // The same leaf and the same hairline the sheet
-                                // itself wears, so the slot growing into the
-                                // reader is one object changing size, not two
-                                // swapping.
-                                child: DecoratedBox(
-                                  decoration: BoxDecoration(
-                                    color: AppColors.surface,
-                                    borderRadius: kPeelableCorner,
-                                    border: AppEdges.all(context),
-                                  ),
+                              child: Transform.translate(
+                                offset: Offset(arrival, 0),
+                                child: Stack(
+                                  children: [
+                                    const Positioned.fill(
+                                      child: ColoredBox(
+                                        color: AppColors.ground,
+                                      ),
+                                    ),
+                                    Positioned.fromRect(
+                                      rect: kSheetRect,
+                                      child: _sheetFor(plan, body, foldPoint),
+                                    ),
+                                    if (readable && !lock.holdsBack)
+                                      Positioned(
+                                        left: kForeEdgeLeft,
+                                        top: kForeEdgeTop,
+                                        child: IgnorePointer(
+                                          child: ForeEdge(
+                                            marks: body.foreEdgeMarks,
+                                            position: position,
+                                            dogEars: dogEars,
+                                            damaged: body.damagedMarks,
+                                            signatures: signatures,
+                                            matches: widget.matches,
+                                            liveMatch: widget.liveMatch,
+                                            scrubbedMatch: _scrubbedMatch,
+                                            matchOpacity: widget.matchOpacity,
+                                          ),
+                                        ),
+                                      ),
+                                    if (_scrubbing)
+                                      Positioned(
+                                        right:
+                                            kScreenWidth -
+                                            kForeEdgeLeft +
+                                            kForeEdgeBubbleGap,
+                                        top: _scrubY - kForeEdgeBubble / 2,
+                                        child: IgnorePointer(
+                                          child: ForeEdgeBubble(
+                                            label: 'p. ${body.positionLabel}',
+                                            matches: _matchesHere,
+                                          ),
+                                        ),
+                                      ),
+                                    if (readable && !lock.holdsBack)
+                                      Positioned(
+                                        // Held by its right edge, so a longer
+                                        // label grows the chip into the page
+                                        // and not off the side of it.
+                                        right:
+                                            kScreenWidth -
+                                            kSheetLeft -
+                                            kSheetWidth +
+                                            kFolioChipInset,
+                                        top:
+                                            kReadableBottom -
+                                            kFolioChipInset -
+                                            kFolioChipHeight +
+                                            kFolioChipHidden * hidden,
+                                        child: IgnorePointer(
+                                          child: FolioChip(
+                                            label: body.positionLabel,
+                                            hidden: hidden,
+                                            dogEared: _store.dogEared.contains(
+                                              _store.position,
+                                            ),
+                                            tint: _folioTint,
+                                          ),
+                                        ),
+                                      ),
+                                    Positioned.fill(
+                                      child: PlacementSlot(
+                                        child: widget.placement,
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
                             ),
-                        ],
+                            // A band on its way out over a locked reading
+                            // takes no touch while it goes.
+                            IgnorePointer(
+                              ignoring: lock.holdsBack,
+                              child: ReaderChrome(
+                                title: _store.entry.title,
+                                hidden: hidden,
+                                showingBack: _side == SheetSide.back,
+                                backMorph: opening == null
+                                    ? 1
+                                    : kDocumentArrival.transform(
+                                        opening.value.clamp(0.0, 1.0),
+                                      ),
+                                onBack: _leave,
+                                onFind: widget.onFind,
+                                onMenu: widget.onMenu,
+                                menuOpen: widget.menuOpen,
+                                // Under a lock the band stays gone even with
+                                // something to say, since saying it would bring
+                                // every button in the band back with it.
+                                notice: notice,
+                                placing: widget.placing,
+                                onConfirm: widget.onConfirmPlacement,
+                                onCancel: widget.onCancelPlacement,
+                              ),
+                            ),
+                            ?widget.menu,
+                            ?widget.overlay,
+                            if (lock.holdsBack)
+                              UnlockChip(
+                                progress: _unlockChip.value,
+                                onUnlock: _unlock,
+                                label: lock.holdsPage
+                                    ? 'Unlock the page'
+                                    : 'Unlock the reading',
+                              ),
+                            // Last of all, because a magnifier under something
+                            // is a magnifier of nothing.
+                            if (_store.magnifier) Loupe(at: _loupeAt),
+                            if (_riffle.value > 0)
+                              Positioned.fill(
+                                child: RiffleSheet(
+                                  items: _riffleShowing,
+                                  initialIndex: _riffleFrom,
+                                  kindLabel: _riffleLabel(
+                                    _riffleShowing.length,
+                                  ),
+                                  progress:
+                                      _riffle.value *
+                                      (1 -
+                                          easeOutQuad.transform(
+                                            _riffleCommit.value,
+                                          )),
+                                  onSelect: _commitRiffle,
+                                  onClose: _closeRiffle,
+                                ),
+                              ),
+                            if (_committing)
+                              Positioned.fromRect(
+                                rect: Rect.lerp(
+                                  _riffleSlotRect,
+                                  kSheetRect,
+                                  easeOutCubic.transform(_riffleCommit.value),
+                                )!,
+                                child: IgnorePointer(
+                                  // The same leaf and the same hairline the
+                                  // sheet itself wears, so the slot growing
+                                  // into the reader is one object changing
+                                  // size, not two swapping.
+                                  child: DecoratedBox(
+                                    decoration: BoxDecoration(
+                                      color: AppColors.surface,
+                                      borderRadius: kPeelableCorner,
+                                      border: AppEdges.all(context),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),

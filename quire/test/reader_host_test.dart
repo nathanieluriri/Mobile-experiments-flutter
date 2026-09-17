@@ -30,10 +30,7 @@ void main() {
       // The count comes off the page tree as the reader opens, so the chip and
       // the fore edge agree before a single content stream has been run.
       expect(store.pdfPageCount, 6);
-      expect(
-        tester.widget<FolioChip>(find.byType(FolioChip)).label,
-        '1 / 6',
-      );
+      expect(tester.widget<FolioChip>(find.byType(FolioChip)).label, '1 / 6');
     });
 
     testWidgets('a Markdown file gets prose, with its own source behind it', (
@@ -96,13 +93,25 @@ void main() {
       expect(reader.matches.length, 11);
       expect(reader.liveMatch, isNotNull);
 
-      // Typing goes to the first match from where the reader is, which here
-      // is already on screen at the head of the document, so the reading does
-      // not move until a step takes it on.
-      expect(store.position, 0);
+      // Typing goes to the first match from where the reader is. That match
+      // is at the head of the document, so the reading stays at its head, and
+      // it is a step that takes it on.
+      double reading() => tester
+          .state<ScrollableState>(
+            find
+                .ancestor(
+                  of: find.byType(ProseColumn),
+                  matching: find.byType(Scrollable),
+                )
+                .first,
+          )
+          .position
+          .pixels;
+      expect(store.position, lessThanOrEqualTo(1));
+      final typed = reading();
       await tester.tap(find.bySemanticsLabel('Next match'));
       await settle(tester);
-      expect(store.position, greaterThan(0));
+      expect(reading(), greaterThan(typed));
     });
 
     testWidgets('a page file is indexed from its own text layer', (

@@ -105,6 +105,30 @@ class ReadingMoved extends Notification {
   final double by;
 }
 
+/// Where the phone's own status bar ends and its gesture bar begins, as the
+/// reader measures them, for a body to hold its reading clear of.
+///
+/// A body cannot ask the phone. It lies on a [SheetSurface], which takes the
+/// phone's insets away so that the sheet's own content starts at the sheet's
+/// own top rather than 62 points down it, and so every body asking the phone
+/// from inside the sheet is told there is no status bar and no gesture bar at
+/// all. The reader asks from outside the sheet, where the answer is true, and
+/// says it here.
+class ReaderInsets extends InheritedWidget {
+  const ReaderInsets({super.key, required this.insets, required super.child});
+
+  final EdgeInsets insets;
+
+  /// The insets over [context]: the reader's, or the phone's own where there
+  /// is no reader, which is a body shown on its own.
+  static EdgeInsets of(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<ReaderInsets>()?.insets ??
+      MediaQuery.paddingOf(context);
+
+  @override
+  bool updateShouldNotify(ReaderInsets oldWidget) => oldWidget.insets != insets;
+}
+
 /// The layer a signature is placed on: above the sheet, below the chrome.
 ///
 /// The shell owns where it sits and what it sits between, and it is empty

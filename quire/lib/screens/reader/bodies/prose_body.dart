@@ -1109,7 +1109,7 @@ class _ProseSheetState extends State<ProseSheet> {
   /// Where on the sheet a match comes to rest: [kFindRevealLine] of the way
   /// down what is left of the screen under the find bar and above the foot.
   double _readingLine() {
-    final safeArea = MediaQuery.paddingOf(context);
+    final safeArea = ReaderInsets.of(context);
     final top = safeArea.top + kHeadBandHeight;
     final bottom = _controller.position.viewportDimension -
         readerContentBottom(safeArea);
@@ -1273,6 +1273,9 @@ class _ProseSheetState extends State<ProseSheet> {
   }
 
   Widget _column(BuildContext context) {
+    // The reader's word for where the phone's bars are, and not the phone's:
+    // the sheet this column lies on has taken the phone's insets away.
+    final safeArea = ReaderInsets.of(context);
     return SingleChildScrollView(
       controller: _controller,
       // Locked to where it is, the same as a page.
@@ -1282,9 +1285,8 @@ class _ProseSheetState extends State<ProseSheet> {
       // The prose keeps its own breathing room and is held clear of the band
       // and the gesture bar on top of it, the same as a page is.
       padding: EdgeInsets.only(
-        top: readerContentTop(MediaQuery.paddingOf(context)) + kSheetPadding,
-        bottom:
-            readerContentBottom(MediaQuery.paddingOf(context)) + kSheetPadding,
+        top: readerContentTop(safeArea) + kSheetPadding,
+        bottom: readerContentBottom(safeArea) + kSheetPadding,
       ),
       child: Center(
         child: ProseColumn(
