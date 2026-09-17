@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
@@ -24,6 +25,7 @@ import '../../theme/springs.dart';
 import '../../theme/typography.dart';
 import '../../widgets/gooey_fab/gooey_fab_controller.dart';
 import '../../widgets/gooey_fab/gooey_fab.dart';
+import '../../widgets/quire_spinner.dart';
 import '../../services/convert.dart';
 import 'convert_sheet.dart';
 import 'desk_colophon.dart';
@@ -77,12 +79,7 @@ const kBodyBottomPadding = 96.0;
 /// over all four from the left, and the hamburger that opens it is a readout
 /// of where it has got to rather than an animation of its own.
 class DeskScreen extends StatefulWidget {
-  const DeskScreen({
-    super.key,
-    required this.store,
-    this.onOpen,
-    this.onSign,
-  });
+  const DeskScreen({super.key, required this.store, this.onOpen, this.onSign});
 
   final LibraryStore store;
 
@@ -207,11 +204,41 @@ class _DeskScreenState extends State<DeskScreen> with TickerProviderStateMixin {
     });
     _undoRise = AnimationController(vsync: this, duration: kUndoPillIn);
     widget.store.addListener(_onStoreChanged);
+    if (!_awake) {
+      _leastWaking = Timer(kDeskWaking, () {
+        _leastWaking = null;
+        _wakeWhenRead();
+      });
+      _mostWaking = Timer(kDeskWakingLimit, _wake);
+    }
+  }
+
+  /// True once the desk has read what it holds and its mark has had its
+  /// moment. A desk with nowhere to read from, which is a desk a test built,
+  /// is awake from the first frame.
+  late bool _awake = widget.store.booted;
+  Timer? _leastWaking;
+  Timer? _mostWaking;
+
+  void _wakeWhenRead() {
+    if (_leastWaking != null || !widget.store.booted) return;
+    _wake();
+  }
+
+  void _wake() {
+    if (_awake || !mounted) return;
+    _leastWaking?.cancel();
+    _leastWaking = null;
+    _mostWaking?.cancel();
+    _mostWaking = null;
+    setState(() => _awake = true);
   }
 
   @override
   void dispose() {
     widget.store.removeListener(_onStoreChanged);
+    _leastWaking?.cancel();
+    _mostWaking?.cancel();
     // A removal nobody undid is a removal. The pill's clock dies with this
     // screen, so a desk put away while one was draining (a document opened,
     // the app closed) would leave that document in neither place: off the
@@ -231,7 +258,10 @@ class _DeskScreenState extends State<DeskScreen> with TickerProviderStateMixin {
     super.dispose();
   }
 
-  void _onStoreChanged() => setState(() {});
+  void _onStoreChanged() {
+    _wakeWhenRead();
+    setState(() {});
+  }
 
   // The drawer.
 
@@ -530,15 +560,14 @@ class _DeskScreenState extends State<DeskScreen> with TickerProviderStateMixin {
   }
 
   /// Why a sheet row is offered but cannot be taken, or null when it can.
-  String? _noteFor(LibraryEntry entry, DeskAction action) =>
-      switch (action) {
-        DeskAction.shareOriginal
-            when entry.source == DocSource.asset && !_signedPdf(entry) =>
-          'A shipped document has no file to hand over',
-        DeskAction.shareUnsigned when entry.source == DocSource.asset =>
-          'A shipped document has no file to hand over',
-        _ => null,
-      };
+  String? _noteFor(LibraryEntry entry, DeskAction action) => switch (action) {
+    DeskAction.shareOriginal
+        when entry.source == DocSource.asset && !_signedPdf(entry) =>
+      'A shipped document has no file to hand over',
+    DeskAction.shareUnsigned when entry.source == DocSource.asset =>
+      'A shipped document has no file to hand over',
+    _ => null,
+  };
 
   bool _allows(LibraryEntry entry, DeskAction action) => switch (action) {
     DeskAction.shareOriginal =>
@@ -727,10 +756,7 @@ class _DeskScreenState extends State<DeskScreen> with TickerProviderStateMixin {
       return;
     }
     await SharePlus.instance.share(
-      ShareParams(
-        title: entry.title,
-        files: <XFile>[XFile(entry.path)],
-      ),
+      ShareParams(title: entry.title, files: <XFile>[XFile(entry.path)]),
     );
   }
 
@@ -784,10 +810,8 @@ class _DeskScreenState extends State<DeskScreen> with TickerProviderStateMixin {
     }
     await showDeskSheet<void>(
       context,
-      (context) => ConvertWarningSheet(
-        title: made.title,
-        warnings: result.warnings,
-      ),
+      (context) =>
+          ConvertWarningSheet(title: made.title, warnings: result.warnings),
     );
   }
 
@@ -892,15 +916,16 @@ class _DeskScreenState extends State<DeskScreen> with TickerProviderStateMixin {
   /// of them for Recent and All files, the starred ones, the signed ones, or
   /// the ones in the bin.
   List<LibraryEntry> get _pool => switch (_destination) {
-        DrawerDestination.starred =>
-          widget.store.entries.where(widget.store.isStarred).toList(),
-        DrawerDestination.signed => widget.store.entries
-            .where((e) => widget.store.peek(e)?.signed ?? false)
-            .toList(),
-        DrawerDestination.bin => widget.store.binned,
-        DrawerDestination.folders => widget.store.inFolder(_folder ?? ''),
-        _ => widget.store.entries,
-      };
+    DrawerDestination.starred =>
+      widget.store.entries.where(widget.store.isStarred).toList(),
+    DrawerDestination.signed =>
+      widget.store.entries
+          .where((e) => widget.store.peek(e)?.signed ?? false)
+          .toList(),
+    DrawerDestination.bin => widget.store.binned,
+    DrawerDestination.folders => widget.store.inFolder(_folder ?? ''),
+    _ => widget.store.entries,
+  };
 
   /// [_pool] after the search.
   List<LibraryEntry> get _base => widget.store.visibleOf(_pool);
@@ -916,19 +941,14 @@ class _DeskScreenState extends State<DeskScreen> with TickerProviderStateMixin {
 
   /// What the body shows: the destination, then the search, then the tab,
   /// then the sort.
-  List<LibraryEntry> get _entries => shellEntries(
-        _base,
-        _tab,
-        _sortField,
-        _sortOrder,
-        widget.store.peek,
-      );
+  List<LibraryEntry> get _entries =>
+      shellEntries(_base, _tab, _sortField, _sortOrder, widget.store.peek);
 
   /// How much each tab holds, before the search is applied, so a count is a
   /// fact about the destination rather than about what you have typed.
   Map<DeskTab, int> get _counts => <DeskTab, int>{
-        for (final tab in DeskTab.values) tab: _pool.where(tab.holds).length,
-      };
+    for (final tab in DeskTab.values) tab: _pool.where(tab.holds).length,
+  };
 
   /// What [entry] can have done to it, here and now, in the one place.
   List<DeskAction> _actionsFor(
@@ -950,6 +970,23 @@ class _DeskScreenState extends State<DeskScreen> with TickerProviderStateMixin {
 
   @override
   Widget build(BuildContext context) {
+    // Nothing of the desk until it knows what it holds, and the app's own
+    // mark while it finds out.
+    return ColoredBox(
+      color: AppColors.ground,
+      child: AnimatedSwitcher(
+        duration: kDeskWakingFade,
+        child: _awake
+            ? KeyedSubtree(key: const ValueKey<bool>(true), child: _desk())
+            : const KeyedSubtree(
+                key: ValueKey<bool>(false),
+                child: QuireLoading(),
+              ),
+      ),
+    );
+  }
+
+  Widget _desk() {
     final top = MediaQuery.paddingOf(context).top;
     final bottom = MediaQuery.paddingOf(context).bottom;
     final bare = widget.store.entries.isEmpty;
@@ -988,8 +1025,8 @@ class _DeskScreenState extends State<DeskScreen> with TickerProviderStateMixin {
                     onUndo: _notice == null
                         ? _undoRemoval
                         : _choosingToSign
-                            ? _stopChoosing
-                            : null,
+                        ? _stopChoosing
+                        : null,
                   ),
                 ),
               ),
@@ -1022,10 +1059,8 @@ class _DeskScreenState extends State<DeskScreen> with TickerProviderStateMixin {
             top: top + kMenuButtonTop,
             child: AnimatedBuilder(
               animation: _drawer,
-              builder: (context, _) => MenuButton(
-                progress: _drawer.value,
-                onTap: _toggleDrawer,
-              ),
+              builder: (context, _) =>
+                  MenuButton(progress: _drawer.value, onTap: _toggleDrawer),
             ),
           ),
         ],
@@ -1136,10 +1171,7 @@ class _DeskScreenState extends State<DeskScreen> with TickerProviderStateMixin {
     // living in the shell, because what is being pulled is the list: the tabs
     // and the sort row above it stay where they are, the way they do for
     // every other scroll.
-    return PullToRefresh(
-      onRefresh: _refresh,
-      child: _list(bottom, colophon),
-    );
+    return PullToRefresh(onRefresh: _refresh, child: _list(bottom, colophon));
   }
 
   /// Reads the desk again, for the pull at the top of the list.
@@ -1182,9 +1214,9 @@ class _DeskScreenState extends State<DeskScreen> with TickerProviderStateMixin {
       onOpen: _choosingToSign ? _signChosen : widget.onOpen,
       onOverflow: _openOverflow,
       controller: _scroll,
-      padding: const EdgeInsets.all(kGridPadding).copyWith(
-        bottom: bottom + kBodyBottomPadding,
-      ),
+      padding: const EdgeInsets.all(
+        kGridPadding,
+      ).copyWith(bottom: bottom + kBodyBottomPadding),
       footer: colophon,
     );
   }
@@ -1239,10 +1271,11 @@ class _DeskScreenState extends State<DeskScreen> with TickerProviderStateMixin {
   /// rather than pushed as a route, so the library behind it stays live.
   /// How open the menu is, 0 to 1, whichever thing is driving it.
   double get _overflowOpen => switch (kOverflowMenuStyle) {
-        OverflowMenuStyle.oozed =>
-          easeOutCubic.transform(_overflow.value.clamp(0.0, 1.0)),
-        OverflowMenuStyle.pills => _pills.progress.value.clamp(0.0, 1.0),
-      };
+    OverflowMenuStyle.oozed => easeOutCubic.transform(
+      _overflow.value.clamp(0.0, 1.0),
+    ),
+    OverflowMenuStyle.pills => _pills.progress.value.clamp(0.0, 1.0),
+  };
 
   Widget _overflowLayer(LibraryEntry entry) {
     return AnimatedBuilder(
@@ -1263,7 +1296,8 @@ class _DeskScreenState extends State<DeskScreen> with TickerProviderStateMixin {
                 },
                 child: ColoredBox(
                   color: AppColors.scrim.withValues(
-                    alpha: AppColors.scrim.a *
+                    alpha:
+                        AppColors.scrim.a *
                         switch (kOverflowMenuStyle) {
                           OverflowMenuStyle.oozed => _overflowOpen,
                           OverflowMenuStyle.pills => _pills.scrim.value,
@@ -1273,61 +1307,59 @@ class _DeskScreenState extends State<DeskScreen> with TickerProviderStateMixin {
               ),
             ),
             if (kOverflowMenuStyle == OverflowMenuStyle.oozed)
-              Positioned.fill(
-                child: IgnorePointer(child: _overflowGoo()),
-              ),
+              Positioned.fill(child: IgnorePointer(child: _overflowGoo())),
             // The panel is hung off the dots by the delegate. The pills place
             // themselves, because they are measured from the dots' centre
             // and a box clamped against the screen margin would carry the
             // goo's origin away from the glyph it is meant to sit under.
             switch (kOverflowMenuStyle) {
               OverflowMenuStyle.oozed => Positioned.fill(
-                  child: CustomSingleChildLayout(
-                    delegate: _OverflowMenuLayout(
-                      anchor: _actingMenuRect,
-                      margin: EdgeInsets.fromLTRB(
-                        kListRowPaddingX,
-                        kSafeTop,
-                        kListRowPaddingX,
-                        MediaQuery.paddingOf(context).bottom +
-                            kOverflowMenuMargin,
-                      ),
-                      gap: kOverflowMenuOffset,
+                child: CustomSingleChildLayout(
+                  delegate: _OverflowMenuLayout(
+                    anchor: _actingMenuRect,
+                    margin: EdgeInsets.fromLTRB(
+                      kListRowPaddingX,
+                      kSafeTop,
+                      kListRowPaddingX,
+                      MediaQuery.paddingOf(context).bottom +
+                          kOverflowMenuMargin,
                     ),
-                    child: OverflowMenu(
-                      key: _menuKey,
-                      t: _overflow.value,
-                      entry: entry,
-                      actions: _actionsFor(entry),
-                      oozed: true,
-                      onAction: (action) => _act(entry, action),
-                    ),
+                    gap: kOverflowMenuOffset,
+                  ),
+                  child: OverflowMenu(
+                    key: _menuKey,
+                    t: _overflow.value,
+                    entry: entry,
+                    actions: _actionsFor(entry),
+                    oozed: true,
+                    onAction: (action) => _act(entry, action),
                   ),
                 ),
+              ),
               OverflowMenuStyle.pills => GooMenu(
-                  drives: <double>[
-                    for (var i = 0; i < _pills.actionCount; i++)
-                      _pills.actionDrive(i).value,
-                  ],
-                  items: <GooMenuItem>[
-                    for (final action in _actionsFor(entry))
-                      GooMenuItem(
-                        label: action.label,
-                        icon: action.icon,
-                        destructive: action.destructive,
-                      ),
-                  ],
-                  onPick: (i) => _act(entry, _actionsFor(entry)[i]),
-                  anchor: _actingMenuRect,
-                  bounds: Rect.fromLTRB(
-                    0,
-                    kSafeTop,
-                    kScreenWidth,
-                    kScreenHeight -
-                        MediaQuery.paddingOf(context).bottom -
-                        kOverflowMenuMargin,
-                  ),
+                drives: <double>[
+                  for (var i = 0; i < _pills.actionCount; i++)
+                    _pills.actionDrive(i).value,
+                ],
+                items: <GooMenuItem>[
+                  for (final action in _actionsFor(entry))
+                    GooMenuItem(
+                      label: action.label,
+                      icon: action.icon,
+                      destructive: action.destructive,
+                    ),
+                ],
+                onPick: (i) => _act(entry, _actionsFor(entry)[i]),
+                anchor: _actingMenuRect,
+                bounds: Rect.fromLTRB(
+                  0,
+                  kSafeTop,
+                  kScreenWidth,
+                  kScreenHeight -
+                      MediaQuery.paddingOf(context).bottom -
+                      kOverflowMenuMargin,
                 ),
+              ),
             },
             // Last, so it is over the goo. The dots are what the body came out
             // of, and a control the body has swallowed is a control nobody can
@@ -1361,7 +1393,6 @@ class _DeskScreenState extends State<DeskScreen> with TickerProviderStateMixin {
       },
     );
   }
-
 
   /// The body the menu oozes out of the dots as.
   ///
@@ -1426,7 +1457,6 @@ class _DeskScreenState extends State<DeskScreen> with TickerProviderStateMixin {
     );
   }
 }
-
 
 /// Lays the overflow menu against the three dots that opened it.
 ///

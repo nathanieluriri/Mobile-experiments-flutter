@@ -15,6 +15,7 @@ import 'package:quire/format/document_loader.dart';
 import 'package:quire/model/document.dart';
 import 'package:quire/pdf/display_list.dart';
 import 'package:quire/services/document_store.dart';
+import 'package:quire/services/library_catalogue.dart';
 import 'package:quire/widgets/marked_text.dart';
 
 final Map<String, Uint8List> _bytes = <String, Uint8List>{};
@@ -69,9 +70,9 @@ LibraryEntry entryFor(String fileName) =>
 /// so it is laid out and painted by [MarkedText] in one pass and `find.text`
 /// would miss every one of them.
 Finder documentTitled(String title) => find.byWidgetPredicate(
-      (widget) => widget is MarkedText && widget.text == title,
-      description: 'document titled "$title"',
-    );
+  (widget) => widget is MarkedText && widget.text == title,
+  description: 'document titled "$title"',
+);
 
 /// A store already holding a parsed bundled document.
 Future<DocumentStore> storeFor(String fileName) async =>
@@ -91,14 +92,16 @@ PageDisplayList richPage() {
 /// it as a scan rather than as a decorative picture.
 PageDisplayList scanPage({String encoding = 'jpeg'}) {
   final list = PageDisplayList(widthPts: 612, heightPts: 792, rotation: 0);
-  list.images.add(imageCmd(
-    rect: const <double>[0, 0, 612, 792],
-    encoding: encoding,
-    bytes: encoding == 'jpeg' || encoding.startsWith('raw')
-        ? Uint8List.fromList(const <int>[0xFF, 0xD8, 0xFF])
-        : null,
-    seq: 1,
-  ));
+  list.images.add(
+    imageCmd(
+      rect: const <double>[0, 0, 612, 792],
+      encoding: encoding,
+      bytes: encoding == 'jpeg' || encoding.startsWith('raw')
+          ? Uint8List.fromList(const <int>[0xFF, 0xD8, 0xFF])
+          : null,
+      seq: 1,
+    ),
+  );
   return list;
 }
 
@@ -106,12 +109,14 @@ PageDisplayList scanPage({String encoding = 'jpeg'}) {
 PageDisplayList textWithUndecodableImagePage() {
   final list = PageDisplayList(widthPts: 612, heightPts: 792, rotation: 0);
   list.texts.add(textRun('Figure 2, the fold tester.', seq: 1));
-  list.images.add(imageCmd(
-    rect: const <double>[72, 200, 300, 400],
-    encoding: 'jpx',
-    bytes: null,
-    seq: 2,
-  ));
+  list.images.add(
+    imageCmd(
+      rect: const <double>[72, 200, 300, 400],
+      encoding: 'jpx',
+      bytes: null,
+      seq: 2,
+    ),
+  );
   return list;
 }
 
@@ -131,37 +136,36 @@ TextRunCmd textRun(
   double widthPts = 240,
   int seq = 0,
   int color = 0xFF000000,
-}) =>
-    TextRunCmd(
-      text: text,
-      x: x,
-      y: y,
-      fontSize: fontSize,
-      widthPts: widthPts,
-      fontKey: 'F1',
-      bold: false,
-      italic: false,
-      serif: true,
-      mono: false,
-      color: color,
-      rotated: false,
-      seq: seq,
-    );
+}) => TextRunCmd(
+  text: text,
+  x: x,
+  y: y,
+  fontSize: fontSize,
+  widthPts: widthPts,
+  fontKey: 'F1',
+  bold: false,
+  italic: false,
+  serif: true,
+  mono: false,
+  color: color,
+  rotated: false,
+  seq: seq,
+);
 
 /// A one point horizontal rule, the cheapest real path a page can carry.
 PathCmd rulePath({int seq = 0}) => PathCmd(
-      segs: const <PathSeg>[
-        PathSeg(PathOp.move, <double>[72, 120]),
-        PathSeg(PathOp.line, <double>[540, 120]),
-      ],
-      fill: false,
-      stroke: true,
-      fillColor: 0xFF000000,
-      strokeColor: 0xFF000000,
-      lineWidth: 1,
-      evenOdd: false,
-      seq: seq,
-    );
+  segs: const <PathSeg>[
+    PathSeg(PathOp.move, <double>[72, 120]),
+    PathSeg(PathOp.line, <double>[540, 120]),
+  ],
+  fill: false,
+  stroke: true,
+  fillColor: 0xFF000000,
+  strokeColor: 0xFF000000,
+  lineWidth: 1,
+  evenOdd: false,
+  seq: seq,
+);
 
 /// One image command placed at [rect] in top left page space.
 ImageCmd imageCmd({
@@ -172,16 +176,15 @@ ImageCmd imageCmd({
   String name = 'Im0',
   int width = 1200,
   int height = 1600,
-}) =>
-    ImageCmd(
-      name: name,
-      rect: rect,
-      bytes: bytes,
-      encoding: encoding,
-      width: width,
-      height: height,
-      seq: seq,
-    );
+}) => ImageCmd(
+  name: name,
+  rect: rect,
+  bytes: bytes,
+  encoding: encoding,
+  width: width,
+  height: height,
+  seq: seq,
+);
 
 /// A genuine one page file whose only content is a filled rectangle.
 ///
@@ -224,4 +227,24 @@ Uint8List pageWithoutTextLayer() {
   add('trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\n');
   add('startxref\n$startXref\n%%EOF\n');
   return Uint8List.fromList(out);
+}
+
+/// A desk whose state was written in an earlier run, with nothing brought in.
+///
+/// It stands in for the phone: a desk built with one has to read before it
+/// knows what it holds, the way the real one does, where a desk built with
+/// nothing to read from knows everything from the first frame.
+class SavedDesk extends LibraryCatalogue {
+  SavedDesk([this.state = const <String, Object?>{}]);
+
+  final Map<String, Object?> state;
+
+  @override
+  Future<List<LibraryEntry>> load() async => const <LibraryEntry>[];
+
+  @override
+  Future<Map<String, Object?>> loadState() async => state;
+
+  @override
+  Future<void> saveState(Map<String, Object?> state) async {}
 }

@@ -6,7 +6,6 @@ import 'package:quire/screens/desk/desk_screen.dart';
 import 'package:quire/screens/desk/document_row.dart';
 import 'package:quire/screens/desk/search_pill.dart';
 import 'package:quire/services/document_store.dart';
-import 'package:quire/services/library_catalogue.dart';
 import 'package:quire/theme/metrics.dart';
 import 'package:quire/widgets/dissolve/dissolve_scope.dart';
 
@@ -182,7 +181,7 @@ void main() {
   ) async {
     final binned = entryFor(kPressLease).path;
     final store = LibraryStore(
-      catalogue: _SavedDesk(<String, Object?>{
+      catalogue: SavedDesk(<String, Object?>{
         'binned': <Object?>[binned],
       }),
     );
@@ -205,7 +204,7 @@ void main() {
   test('a desk says when it has read what it holds', () async {
     // Until then the desk is the shipped manifest and nothing else, and what
     // that read takes off it was never on it.
-    final store = LibraryStore(catalogue: _SavedDesk(<String, Object?>{}));
+    final store = LibraryStore(catalogue: SavedDesk(<String, Object?>{}));
     expect(store.booted, isFalse);
     await store.boot(parse: false);
     expect(store.booted, isTrue);
@@ -214,20 +213,4 @@ void main() {
   test('a desk with nowhere to read from holds everything at once', () {
     expect(LibraryStore().booted, isTrue);
   });
-}
-
-/// A desk whose state was written in an earlier run, with nothing brought in.
-class _SavedDesk extends LibraryCatalogue {
-  _SavedDesk(this.state);
-
-  final Map<String, Object?> state;
-
-  @override
-  Future<List<LibraryEntry>> load() async => const <LibraryEntry>[];
-
-  @override
-  Future<Map<String, Object?>> loadState() async => state;
-
-  @override
-  Future<void> saveState(Map<String, Object?> state) async {}
 }

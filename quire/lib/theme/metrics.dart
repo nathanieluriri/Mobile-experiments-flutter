@@ -483,6 +483,27 @@ const kCloseDocument = Duration(milliseconds: 300);
 /// The fold sweeping to the opposite corner, on the pageSettle spring.
 const kFlipCommit = Duration(milliseconds: 380);
 
+/// How long the desk keeps its loading mark up while it reads what it holds.
+///
+/// Reading the phone takes a few milliseconds, and a desk drawn before it is
+/// read is a desk that is not yours: it is the shipped documents in the
+/// shipped order, and everything you brought in, put in the bin or renamed
+/// arrives a moment later and rearranges it in front of you. So the desk
+/// waits, and says it is waiting. It is held for the whole of this even when
+/// the answer comes straight back, because a mark that came up and went again
+/// inside two frames would read as a fault rather than as the app getting
+/// ready.
+const kDeskWaking = Duration(seconds: 1);
+
+/// When the desk stops waiting and shows what it has.
+///
+/// A saved desk that cannot be read is a desk with nothing to say for itself,
+/// and a mark that never goes is worse than a desk that is a little wrong.
+const kDeskWakingLimit = Duration(seconds: 2);
+
+/// The desk coming up over its own loading mark.
+const kDeskWakingFade = Duration(milliseconds: 150);
+
 /// Chrome coming in, for a controller a spring drives, which only falls back
 /// to it when it is stopped. The reader's band itself moves on
 /// the band spring in AppSprings.
