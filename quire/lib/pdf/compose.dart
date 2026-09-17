@@ -100,6 +100,17 @@ class PdfComposer {
   void _blocks(List<DocBlock> blocks, List<_Line> out, int indent) {
     for (final block in blocks) {
       switch (block) {
+        case SlideBlock():
+          // A slide composes as its title and then everything on it, in the
+          // order the deck drew it. Its layout cannot survive being poured
+          // into a column, and its words can.
+          final named = block.title;
+          if (named != null && named.isNotEmpty) _heading(out, named, 1);
+          for (final shape in block.shapes) {
+            if (shape.role == SlideRole.title) continue;
+            _blocks(shape.blocks, out, indent);
+          }
+          _blocks(block.notes, out, (indent + kComposeListIndent).round());
         case HeadingBlock():
           _heading(out, block.text, block.level);
         case ParagraphBlock():

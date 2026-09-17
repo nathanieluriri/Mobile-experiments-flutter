@@ -7,6 +7,7 @@ import '../model/document.dart';
 import 'csv_parser.dart';
 import 'docx_parser.dart';
 import 'markdown_parser.dart';
+import 'pptx_parser.dart';
 import 'xlsx_parser.dart';
 
 /// The eight bytes an OLE compound file starts with.
@@ -57,7 +58,7 @@ class LoadedDocument {
   /// The file name the bytes came in under.
   final String name;
 
-  /// 'pdf', 'docx', 'xlsx', 'csv', 'md', or 'unknown'.
+  /// 'pdf', 'docx', 'xlsx', 'pptx', 'csv', 'md', or 'unknown'.
   final String format;
 
   /// The original bytes, kept because a PDF is opened by the page engine
@@ -133,6 +134,8 @@ abstract final class DocumentLoader {
         return DocxParser(bytes).parse(title: title);
       case 'xlsx':
         return xlsxToDocument(XlsxParser(bytes).parse(), title);
+      case 'pptx':
+        return PptxParser(bytes).parse(title: title);
       case 'csv':
         return csvToDocument(readCsv(bytes), title);
       case 'md':
@@ -167,6 +170,11 @@ abstract final class DocumentLoader {
             if (block.text.trim().isNotEmpty) return false;
           case ImageBlock():
             return false;
+          case SlideBlock():
+            // A slide with nothing on it is a slide, and a deck of them is a
+            // deck somebody is part way through writing. Only a file with no
+            // slides at all is empty, and the parser throws on that first.
+            return false;
           case DividerBlock():
             break;
         }
@@ -186,7 +194,7 @@ abstract final class DocumentLoader {
     if (_startsWith(bytes, const [0x50, 0x4B, 0x03, 0x04])) {
       final inside = _zipFlavour(bytes);
       if (inside != null) return inside;
-      if (ext == 'docx' || ext == 'xlsx') return ext;
+      if (ext == 'docx' || ext == 'xlsx' || ext == 'pptx') return ext;
       return 'unknown';
     }
     switch (ext) {
@@ -201,6 +209,7 @@ abstract final class DocumentLoader {
         return 'md';
       case 'docx':
       case 'xlsx':
+      case 'pptx':
         // The name promises a container that is not there.
         return ext;
       default:
@@ -217,12 +226,15 @@ abstract final class DocumentLoader {
       final zip = ZipDecoder().decodeBytes(bytes, verify: false);
       var hasWord = false;
       var hasSheet = false;
+      var hasDeck = false;
       for (final f in zip.files) {
         if (f.name == 'word/document.xml') hasWord = true;
         if (f.name == 'xl/workbook.xml') hasSheet = true;
+        if (f.name == 'ppt/presentation.xml') hasDeck = true;
       }
       if (hasWord) return 'docx';
       if (hasSheet) return 'xlsx';
+      if (hasDeck) return 'pptx';
       return null;
     } on ArchiveException {
       return null;

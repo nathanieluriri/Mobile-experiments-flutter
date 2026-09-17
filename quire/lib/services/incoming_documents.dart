@@ -172,6 +172,7 @@ DocFormat? formatOfPath(String path) {
   final wanted = switch (tail) {
     'doc' => 'docx',
     'xls' => 'xlsx',
+    'ppt' => 'pptx',
     'markdown' => 'md',
     _ => tail,
   };

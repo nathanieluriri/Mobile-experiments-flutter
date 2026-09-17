@@ -181,6 +181,152 @@ class ImageBlock extends DocBlock {
   final String? alt;
 }
 
+/// A box on a slide, in the slide's own points with the origin at its top
+/// left.
+///
+/// Not a [Rect] because nothing in this file may import Flutter, and a slide
+/// parser has to run in a plain Dart test.
+class SlideBox {
+  const SlideBox(this.left, this.top, this.width, this.height);
+  final double left;
+  final double top;
+  final double width;
+  final double height;
+
+  double get right => left + width;
+  double get bottom => top + height;
+
+  @override
+  bool operator ==(Object other) =>
+      other is SlideBox &&
+      other.left == left &&
+      other.top == top &&
+      other.width == width &&
+      other.height == height;
+
+  @override
+  int get hashCode => Object.hash(left, top, width, height);
+
+  @override
+  String toString() => 'SlideBox($left, $top, $width, $height)';
+}
+
+/// What a shape was put on its slide to be.
+///
+/// PowerPoint says this itself, in the placeholder each shape claims, and it
+/// is worth keeping: it is the difference between a line of text that is the
+/// slide's title and a line that happens to be at the top. The outline, the
+/// riffle and the thumbnail all want the title and none of them want to guess
+/// at it from a font size.
+enum SlideRole { title, body, picture, table, chart, other }
+
+/// One shape on a slide: a box holding blocks, with whatever the file says
+/// about the box itself.
+///
+/// A shape carries blocks rather than text for the same reason a table cell
+/// does: a text box on a slide holds paragraphs, bullets, and sometimes a
+/// picture, and a second model for slide text would be a second set of bugs.
+class SlideShape {
+  const SlideShape({
+    required this.box,
+    required this.blocks,
+    this.role = SlideRole.other,
+    this.fill,
+    this.fillAsset,
+    this.line,
+    this.lineWidth = 0,
+    this.verticalAlign,
+    this.rotation = 0,
+  });
+
+  final SlideBox box;
+  final List<DocBlock> blocks;
+  final SlideRole role;
+
+  /// 0xAARRGGBB behind the shape, or null for one that is not filled.
+  final int? fill;
+
+  /// Key into [QuireDocument.assets] for a shape filled with a picture, which
+  /// is how a deck's decorated panels are usually made.
+  final String? fillAsset;
+
+  /// 0xAARRGGBB of the shape's outline, or null for one with no outline.
+  final int? line;
+
+  /// Logical points. Zero with no outline.
+  final double lineWidth;
+
+  /// Where the words sit between the box's top and its bottom.
+  final DocVerticalAlign? verticalAlign;
+
+  /// Clockwise degrees. Almost always zero, and ruinous when it is not and
+  /// nobody kept it.
+  final double rotation;
+
+  /// Every word the shape holds, in order.
+  String get text => blocks
+      .map(
+        (b) => switch (b) {
+          ParagraphBlock() => b.text,
+          HeadingBlock() => b.text,
+          ListItemBlock() => b.text,
+          CodeBlock() => b.text,
+          _ => '',
+        },
+      )
+      .where((line) => line.isNotEmpty)
+      .join('\n');
+}
+
+/// One slide: its own canvas, the shapes on it, and what the speaker was going
+/// to say.
+///
+/// A slide is laid out rather than flowed, which is why it is one block
+/// carrying boxes instead of a run of paragraphs. [width] and [height] are the
+/// deck's slide size in points, and every shape's box is inside them, so a
+/// renderer scales the whole slide by one number and never has to measure
+/// anything to know where a thing goes.
+class SlideBlock extends DocBlock {
+  const SlideBlock({
+    required this.width,
+    required this.height,
+    required this.shapes,
+    this.background,
+    this.backgroundAsset,
+    this.notes = const <DocBlock>[],
+    this.layoutName,
+  });
+
+  /// The slide canvas in logical points.
+  final double width;
+  final double height;
+
+  final List<SlideShape> shapes;
+
+  /// 0xAARRGGBB of the slide's ground, or null for paper white.
+  final int? background;
+
+  /// Key into [QuireDocument.assets] for a slide whose ground is a picture.
+  final String? backgroundAsset;
+
+  /// The speaker notes, which are a document of their own and belong on the
+  /// back of the sheet rather than on the slide.
+  final List<DocBlock> notes;
+
+  /// The layout the slide was built on, kept for the back of the sheet.
+  final String? layoutName;
+
+  /// The slide's own title, or null for one that has no title placeholder.
+  String? get title {
+    for (final shape in shapes) {
+      if (shape.role != SlideRole.title) continue;
+      final text = shape.text.trim();
+      if (text.isNotEmpty) return text;
+    }
+    return null;
+  }
+}
+
 /// A column's intrinsic width and default alignment.
 class DocColumn {
   const DocColumn({this.width, this.align});
@@ -302,13 +448,14 @@ class TableBlock extends DocBlock {
   final bool grid;
 }
 
-/// A sheet name for xlsx, a document title otherwise.
+/// A sheet name for xlsx, a slide's own title for pptx, a document title
+/// otherwise.
 class DocSection {
   const DocSection(this.title, this.blocks, {this.kind = 'body'});
   final String title;
   final List<DocBlock> blocks;
 
-  /// 'body', 'sheet' or 'page'.
+  /// 'body', 'sheet', 'page' or 'slide'.
   final String kind;
 }
 
@@ -341,7 +488,7 @@ class QuireDocument {
   /// Embedded media keyed by its path inside the source container.
   final Map<String, Uint8List> assets;
 
-  /// 'docx', 'xlsx', 'csv' or 'md'.
+  /// 'docx', 'xlsx', 'pptx', 'csv' or 'md'.
   final String sourceFormat;
   final List<OutlineEntry> outline;
 
@@ -377,6 +524,12 @@ class QuireDocument {
               total += _wordsInBlocks(cell.blocks);
             }
           }
+        case SlideBlock():
+          for (final shape in b.shapes) {
+            total += _wordsInBlocks(shape.blocks);
+          }
+          // The notes are not on the slide. Counting them would tell a reader
+          // a deck is twice the length they are about to read.
         case DividerBlock():
           break;
       }

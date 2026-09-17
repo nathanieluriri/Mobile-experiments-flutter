@@ -477,8 +477,8 @@ class DocumentStore extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Pages for a PDF, rows for a grid, blocks for prose. It is the scale the
-  /// fore edge and the position label are drawn against.
+  /// Pages for a PDF, rows for a grid, slides for a deck, blocks for prose. It
+  /// is the scale the fore edge and the position label are drawn against.
   int get unitCount {
     if (isPdf) return _pdfPageCount;
     final doc = document;
@@ -498,6 +498,23 @@ class DocumentStore extends ChangeNotifier {
     }
     return blocks;
   }
+
+  /// The deck's slides, in order, or empty for anything that is not a deck.
+  ///
+  /// One slide per section by construction, so the slide count, the section
+  /// count and the unit count are the same number and can never disagree about
+  /// how long a deck is.
+  List<SlideBlock> get slides {
+    final doc = document;
+    if (doc == null) return const <SlideBlock>[];
+    return <SlideBlock>[
+      for (final section in doc.sections)
+        ...section.blocks.whereType<SlideBlock>(),
+    ];
+  }
+
+  /// True when the document is a deck of slides.
+  bool get isDeck => document?.sourceFormat == 'pptx';
 
   /// True when the document is a spreadsheet or a CSV.
   bool get isGrid {
@@ -613,7 +630,10 @@ class DocumentStore extends ChangeNotifier {
   /// while a percentage of a flowing document does.
   String get positionLabel {
     if (unitCount == 0) return '';
-    if (isPdf || isGrid) return '${_position + 1} / $unitCount';
+    // A deck counts in slides, which a reader counts too. A percentage
+    // through a deck would be the one format where the honest number is
+    // already on the screen.
+    if (isPdf || isGrid || isDeck) return '${_position + 1} / $unitCount';
     return '${(progress * 100).round()}%';
   }
 
@@ -622,6 +642,7 @@ class DocumentStore extends ChangeNotifier {
   String unitName(int unit) {
     if (isPdf) return 'Page ${unit + 1}';
     if (isGrid) return 'Row ${unit + 1}';
+    if (isDeck) return 'Slide ${unit + 1}';
     final count = unitCount;
     if (count <= 1) return 'The start';
     return '${((unit + 1) / count * 100).round()}% through';

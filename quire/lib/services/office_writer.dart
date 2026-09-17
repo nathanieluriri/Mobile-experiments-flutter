@@ -269,6 +269,18 @@ String _docxBody(QuireDocument document) {
 void _docxBlocks(List<DocBlock> blocks, StringBuffer body) {
   for (final block in blocks) {
     switch (block) {
+      case SlideBlock():
+        // One slide becomes one run of paragraphs under its own heading,
+        // which is what a deck turned into a document actually is.
+        final named = block.title;
+        if (named != null && named.isNotEmpty) {
+          body.write(_docxParagraph(named, style: 'Heading1'));
+        }
+        for (final shape in block.shapes) {
+          if (shape.role == SlideRole.title) continue;
+          _docxBlocks(shape.blocks, body);
+        }
+        _docxBlocks(block.notes, body);
       case HeadingBlock():
         body.write(
           _docxParagraph(

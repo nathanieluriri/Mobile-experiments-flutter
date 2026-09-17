@@ -177,6 +177,10 @@ String _wordsIn(DocBlock block) => switch (block) {
   CodeBlock() => block.text,
   ImageBlock() => block.alt ?? '',
   DividerBlock() => '',
+  SlideBlock() => <String>[
+    for (final shape in block.shapes)
+      for (final inner in shape.blocks) _wordsIn(inner),
+  ].join(' '),
   TableBlock() => <String>[
     for (final row in block.rows)
       for (final cell in row.cells)

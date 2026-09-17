@@ -148,6 +148,7 @@ class _StubBody extends ReaderBody {
     ListItemBlock(:final text) => text,
     CodeBlock(:final text) => text,
     DividerBlock() => '',
+    SlideBlock(:final title) => title ?? '',
     ImageBlock(:final alt) => alt ?? '',
     TableBlock(:final rows) => '${rows.length} rows',
   };

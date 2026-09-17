@@ -1,18 +1,19 @@
-/// The documents on the desk: the six quire ships with, and the shape of any
+/// The documents on the desk: the seven quire ships with, and the shape of any
 /// the reader brings in.
 ///
-/// The shipped six are literals, byte counts included, so laying out the desk
+/// The shipped seven are literals, byte counts included, so laying out the desk
 /// needs no file system read and no parse: the first frame of the app is
 /// correct before a single document has been opened. A document the reader
 /// opens from the phone is the same shape, made at import from what the file
 /// says about itself.
 library;
 
-/// The five formats quire reads.
+/// The six formats quire reads.
 enum DocFormat {
   pdf('PDF', 'pdf'),
   docx('DOC', 'docx'),
   xlsx('XLS', 'xlsx'),
+  pptx('PPT', 'pptx'),
   csv('CSV', 'csv'),
   md('MD', 'md');
 
@@ -164,6 +165,12 @@ const List<LibraryEntry> libraryEntries = <LibraryEntry>[
     title: 'Press Run Costs',
     format: DocFormat.xlsx,
     bytes: 9601,
+  ),
+  LibraryEntry(
+    path: 'assets/documents/press-day-briefing.pptx',
+    title: 'Press Day Briefing',
+    format: DocFormat.pptx,
+    bytes: 15577,
   ),
   LibraryEntry(
     path: 'assets/documents/subscribers.csv',

@@ -430,6 +430,10 @@ class _ProseStub extends ReaderBody {
     final ranges = finder.rangesIn(0, <int>[index]);
     final frame = finder.frame;
     switch (block) {
+      case SlideBlock():
+        // The sweep is judged over flowing text, and this harness never
+        // builds a deck. The case exists because the block model is sealed.
+        return const SizedBox.shrink();
       case HeadingBlock():
         return Padding(
           padding: const EdgeInsets.only(top: kSpace16, bottom: kSpace4),

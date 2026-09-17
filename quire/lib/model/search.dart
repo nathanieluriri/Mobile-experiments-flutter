@@ -133,6 +133,14 @@ class ProseSearch implements DocSearch {
               _walk(cell.blocks, section, [...p, r, c], label);
             }
           }
+        case SlideBlock():
+          for (var i = 0; i < b.shapes.length; i++) {
+            _walk(b.shapes[i].blocks, section, [...p, i], label);
+          }
+          // The notes go in after the slide, so a search finds what the
+          // speaker was going to say as well as what the room could read, and
+          // finds it after the slide it belongs to rather than before it.
+          _walk(b.notes, section, [...p, b.shapes.length], label);
         case DividerBlock():
           break;
       }

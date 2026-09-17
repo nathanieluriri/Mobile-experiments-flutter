@@ -142,6 +142,19 @@ void _blocksAsText(List<DocBlock> blocks, StringBuffer out) {
           );
         }
         out.writeln();
+      case SlideBlock():
+        for (final shape in block.shapes) {
+          _blocksAsText(shape.blocks, out);
+        }
+        // The notes come out too, under their own heading. A deck written out
+        // without them loses the half of it that was put down for the one
+        // person reading this.
+        if (block.notes.isNotEmpty) {
+          out.writeln();
+          out.writeln('Notes');
+          _blocksAsText(block.notes, out);
+        }
+        out.writeln();
     }
   }
 }
@@ -198,6 +211,25 @@ void _blocksAsMarkdown(List<DocBlock> blocks, StringBuffer out) {
         out.writeln();
       case TableBlock():
         _tableAsMarkdown(block, out);
+      case SlideBlock():
+        final named = block.title;
+        if (named != null && named.isNotEmpty) {
+          out.writeln('## ${_escapeMarkdown(named)}');
+          out.writeln();
+        }
+        for (final shape in block.shapes) {
+          if (shape.role == SlideRole.title) continue;
+          _blocksAsMarkdown(shape.blocks, out);
+        }
+        // Notes are set as a quotation, because that is the one Markdown
+        // shape that says a passage belongs to the document without being
+        // part of what it shows.
+        final said = StringBuffer();
+        _blocksAsMarkdown(block.notes, said);
+        for (final line in said.toString().trimRight().split('\n')) {
+          out.writeln(line.isEmpty ? '>' : '> $line');
+        }
+        if (block.notes.isNotEmpty) out.writeln();
     }
   }
 }

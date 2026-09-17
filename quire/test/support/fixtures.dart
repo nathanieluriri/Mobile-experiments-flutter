@@ -21,13 +21,14 @@ import 'package:quire/widgets/marked_text.dart';
 final Map<String, Uint8List> _bytes = <String, Uint8List>{};
 final Map<String, LoadedDocument> _loaded = <String, LoadedDocument>{};
 
-/// The six bundled documents by their file names.
+/// The seven bundled documents by their file names.
 const String kFieldGuide = 'field-guide-to-paper.pdf';
 const String kPressLease = 'press-lease.pdf';
 const String kHouseStyle = 'house-style.docx';
 const String kPressRunCosts = 'press-run-costs.xlsx';
 const String kSubscribers = 'subscribers.csv';
 const String kBinderyNotes = 'bindery-notes.md';
+const String kPressDayBriefing = 'press-day-briefing.pptx';
 
 /// The raw bytes of a bundled document.
 Future<Uint8List> documentBytes(String fileName) async {
