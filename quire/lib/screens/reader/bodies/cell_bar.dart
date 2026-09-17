@@ -65,10 +65,11 @@ class CellBar extends StatelessWidget {
       offset: Offset(0, height * (1 - progress.clamp(0.0, 1.0))),
       child: Container(
         height: height,
+        // Clear of the folio chip, which floats over the bar's right end.
         padding: const EdgeInsets.fromLTRB(
           kCellBarPadX,
           kCellBarPadY,
-          kCellBarPadX,
+          kCellBarChipClearance,
           kCellBarPadY,
         ),
         decoration: const BoxDecoration(

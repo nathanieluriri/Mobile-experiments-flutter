@@ -268,13 +268,6 @@ const kGridCommentMark = 7.0;
 const kGridRingWidth = 2.0;
 const kGridHandle = 5.0;
 
-/// How long the choice takes to travel from one cell to the next, to
-/// condense onto a cell when nothing was chosen, and to dry up when it is let
-/// go.
-const kGridRingMove = Duration(milliseconds: 780);
-const kGridRingAppear = Duration(milliseconds: 620);
-const kGridRingLeave = Duration(milliseconds: 520);
-
 /// How round the ends of the lit letter and number get while they travel.
 const kGridLitRound = 9.0;
 
@@ -283,18 +276,14 @@ const kGridLitRound = 9.0;
 /// and these are a move through the document.
 const kSheetTabTravel = Duration(milliseconds: 680);
 
-/// How big the ring is when it first opens out of the goo, as a share of the
-/// height of the cell it is opening into.
-const kGridRingSeed = 0.5;
-
-/// How far the goo sits inside the cells it travels between, and how late in
-/// the journey the ring takes over from it.
+/// How far the goo sits inside the cells it travels between.
 const kGridGooInset = 3.0;
-const kGridGooHandover = 0.2;
 
-/// How far the ring swells at the middle of its travel, so it reads as one
-/// thing moving rather than two things appearing.
-const kGridRingSwell = 3.0;
+/// A pull past the end of a sheet: how much of the finger's movement it
+/// takes at first, and how far past the end it can be drawn before it takes
+/// almost none.
+const kGridPullGive = 0.5;
+const kGridPullMax = 220.0;
 
 /// The speed a flick has to beat before the grid carries on without the
 /// finger.
@@ -500,13 +489,6 @@ const kDigitStagger = Duration(milliseconds: 20);
 /// The match ticks appearing on the fore edge.
 const kRailFade = Duration(milliseconds: 200);
 
-/// The cell bar rising on the goo spring, and going back down.
-const kCellBarIn = Duration(milliseconds: 560);
-const kCellBarOut = Duration(milliseconds: 380);
-
-/// The cell bar opening room for a comment, or closing it, as the choice
-/// moves between a cell somebody talked about and one nobody did.
-const kCellBarNote = Duration(milliseconds: 460);
 
 /// A spine opening and the open column collapsing.
 const kColumnOpen = Duration(milliseconds: 240);

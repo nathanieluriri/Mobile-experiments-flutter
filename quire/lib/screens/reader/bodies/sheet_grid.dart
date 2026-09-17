@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/physics.dart';
+import 'package:flutter/scheduler.dart' show Ticker;
 import 'package:flutter/widgets.dart';
 
 import '../../../model/document.dart';
@@ -11,36 +12,12 @@ import '../../../constants/gooey_fab.dart'
 import '../../../painting/grid_painter.dart';
 import '../../../painting/cell_goo_painter.dart';
 import '../../../theme/colors.dart';
-import '../../../theme/easings.dart';
 import '../../../theme/feedback.dart';
 import '../../../theme/metrics.dart';
 import '../../../theme/springs.dart';
+import 'sheet_choice.dart';
 import 'sheet_geometry.dart';
 import 'spine_table.dart' show SheetCell, SheetFace;
-
-/// On a move, when the lit letter and number set off and arrive, as shares of
-/// the journey: the edge on the side the choice is going leads, the other
-/// follows, and the two meet again at the new cell.
-const kGridLitLeadStart = 0.1;
-const kGridLitLeadEnd = 0.62;
-const kGridLitTrailStart = 0.24;
-const kGridLitTrailEnd = 0.86;
-
-/// On a first choice, when the lit letter and number spread out from the
-/// middle of their column and row; on a choice let go, when they have drawn
-/// back in to it.
-const kGridLitSpreadStart = 0.08;
-const kGridLitSpreadEnd = 0.72;
-const kGridLitDrawInEnd = 0.6;
-
-/// How quickly the ring fades as it draws into the goo on a choice let go,
-/// and as it opens out of the goo on its way in.
-const kGridRingLetGo = 0.35;
-const kGridRingFadeIn = 0.15;
-
-/// How long the goo takes to come up to full strength as a choice sets off
-/// from a cell at rest, where there was a ring and no fill.
-const kGridFillRise = 0.25;
 
 /// A request to bring a cell into view.
 ///
@@ -53,9 +30,11 @@ class SheetReveal {
   final SheetCell cell;
 
   /// True when the row should come to the top of the grid, as far as the
-  /// sheet has rows below it to allow, which is what a jump to a place in
-  /// the document means. False for the shortest push that puts the cell on
-  /// screen, which is what showing somebody a cell means.
+  /// sheet has rows below it to allow, which is what a jump to a place in the
+  /// document means. The grid keeps whatever columns it is showing, because a
+  /// jump is to a row and the reader is still reading across. False for the
+  /// shortest push that puts the cell on screen, which is what showing
+  /// somebody a cell means.
   final bool toTop;
 }
 
@@ -86,11 +65,12 @@ class SheetGrid extends StatefulWidget {
     this.textScale = 1,
     this.onPanned,
     this.startAt = Offset.zero,
+    this.coveredBelow = 0,
   });
 
   final TableBlock table;
 
-  /// The cell the reader has chosen, which the ring travels to.
+  /// The cell the reader has chosen, which the choice travels to.
   final SheetCell? selected;
   final ValueChanged<SheetCell> onSelect;
 
@@ -103,7 +83,7 @@ class SheetGrid extends StatefulWidget {
   final SheetReveal? reveal;
 
   /// True while the reading is pinned, when the grid holds still like the
-  /// pages do.
+  /// pages do and claims no touches, so a tap goes on to the reader.
   final bool locked;
 
   /// Which face of the sheet is showing: the values as the file formats them,
@@ -122,6 +102,11 @@ class SheetGrid extends StatefulWidget {
   final void Function(Offset pan, int topRow, bool byHand)? onPanned;
   final Offset startAt;
 
+  /// How much of the foot of the grid something is laid over, such as the
+  /// bar showing the chosen cell, so a cell brought into view is brought
+  /// clear of it rather than under it.
+  final double coveredBelow;
+
   @override
   State<SheetGrid> createState() => SheetGridState();
 }
@@ -129,12 +114,17 @@ class SheetGrid extends StatefulWidget {
 class SheetGridState extends State<SheetGrid> with TickerProviderStateMixin {
   late SheetGeometry _geometry = SheetGeometry.of(widget.table);
 
-  /// How far the sheet has been pushed, in its own space.
+  /// How far the sheet has been pushed, in its own space. Past either end
+  /// only while it is pulled against that end or is springing back from it.
   Offset _pan = Offset.zero;
 
   /// The room the scrolling part of the grid has, which the pan is held
   /// inside. It is nought until the first layout.
   Size _view = Size.zero;
+
+  /// As much of the file's frozen panes as there is room to hold, which on a
+  /// phone can be less than the file asks for.
+  late Size _frozen = Size(_geometry.frozenWidth, _geometry.frozenHeight);
 
   late final AnimationController _glideX;
   late final AnimationController _glideY;
@@ -143,29 +133,15 @@ class SheetGridState extends State<SheetGrid> with TickerProviderStateMixin {
   /// carrying on after a flick.
   bool _showing = false;
 
-  /// The choice on its way from one place to the next.
-  late final AnimationController _ringMove;
+  /// Where a glide the grid is making on its own is headed.
+  Offset _glideTarget = Offset.zero;
 
-  /// The ring opens on the goo spring timed over the whole of its settling,
-  /// so it comes to rest inside the part of the journey it has rather than
-  /// being cut off still moving when the journey ends.
-  final SpringCurve _ringCurve = SpringCurve(
-    AppSprings.goo,
-    duration: springDuration(AppSprings.goo),
-  );
-
-  /// Where the body set off from, which is null for a first choice, and the
-  /// cell it is going to, which is null for a choice let go. At rest, the cell
-  /// the ring sits on.
-  Rect? _ringFrom;
-  Rect? _ringTo;
-
-  /// How round the body was, how strong the goo was, how much ring there
-  /// was, and what was lit along the bands, all at the moment it set off.
-  double _fromCorner = kCellGooCellCorner;
-  double _fillFrom = 0;
-  double _ringStrengthFrom = 0;
-  Rect? _litFrom;
+  /// The choice of cell, and the clock it moves on, in seconds. The clock
+  /// only runs while something is moving.
+  late final SheetChoice _choice = SheetChoice(_rectOf(widget.selected));
+  late final Ticker _ticker;
+  double _now = 0;
+  double _started = 0;
 
   @override
   void initState() {
@@ -173,32 +149,58 @@ class SheetGridState extends State<SheetGrid> with TickerProviderStateMixin {
     _pan = widget.startAt;
     _glideX = AnimationController.unbounded(vsync: this)
       ..addListener(
-        () => _pushTo(Offset(_glideX.value, _pan.dy), byHand: !_showing),
+        () => _pushTo(
+          Offset(_glideX.value, _pan.dy),
+          byHand: !_showing,
+          over: true,
+        ),
       );
     _glideY = AnimationController.unbounded(vsync: this)
       ..addListener(
-        () => _pushTo(Offset(_pan.dx, _glideY.value), byHand: !_showing),
+        () => _pushTo(
+          Offset(_pan.dx, _glideY.value),
+          byHand: !_showing,
+          over: true,
+        ),
       );
-    _ringMove = AnimationController(vsync: this, duration: kGridRingMove)
-      ..addListener(_repaint);
-    _ringTo = _rectOf(widget.selected);
+    _ticker = createTicker(_tick);
+    // A grid made for a cell that has already been asked for, such as a find
+    // landing on another sheet, goes to it as soon as it has been laid out.
+    final reveal = widget.reveal;
+    if (reveal != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _bring(reveal.cell, toTop: reveal.toTop);
+        });
+      });
+    }
   }
 
   @override
   void didUpdateWidget(SheetGrid oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.table != widget.table) {
-      _geometry = SheetGeometry.of(widget.table);
-      // The same sheet read again keeps its place, and a smaller one keeps
-      // as much of it as it has room for.
-      final limit = _limit;
-      _pan = Offset(_pan.dx.clamp(0.0, limit.dx), _pan.dy.clamp(0.0, limit.dy));
-      // Where the choice was, or was going, on the new sheet's measures, so
-      // a journey under way carries on and a choice that changed in the same
-      // breath still travels from somewhere.
-      _ringTo = _rectOf(oldWidget.selected);
+      final measured = SheetGeometry.of(widget.table);
+      final same =
+          measured.size == _geometry.size &&
+          measured.columnCount == _geometry.columnCount &&
+          measured.rowCount == _geometry.rowCount;
+      _geometry = measured;
+      // The same sheet read again keeps its place and whatever is moving on
+      // it. A different one is measured afresh.
+      if (!same) {
+        final limit = _limit;
+        _pan = Offset(
+          _pan.dx.clamp(0.0, limit.dx),
+          _pan.dy.clamp(0.0, limit.dy),
+        );
+        _choice.settleOn(_rectOf(oldWidget.selected));
+      }
     }
-    if (oldWidget.selected != widget.selected) _moveRing();
+    if (oldWidget.selected != widget.selected) {
+      _choice.choose(_rectOf(widget.selected), _now);
+      _run();
+    }
     final reveal = widget.reveal;
     if (reveal != null && reveal != oldWidget.reveal) {
       // After this frame rather than during it: bringing a cell into view
@@ -208,256 +210,113 @@ class SheetGridState extends State<SheetGrid> with TickerProviderStateMixin {
         if (mounted) _bring(reveal.cell, toTop: reveal.toTop);
       });
     }
+    if (widget.locked && !oldWidget.locked && !_showing) {
+      // Held where it is. A pull past an end still goes back to the end.
+      _settleInside();
+    }
   }
 
   @override
   void dispose() {
     _glideX.dispose();
     _glideY.dispose();
-    _ringMove.dispose();
+    _ticker.dispose();
     super.dispose();
-  }
-
-  void _repaint() {
-    if (mounted) setState(() {});
   }
 
   Rect? _rectOf(SheetCell? cell) =>
       cell == null ? null : _geometry.rectOf(widget.table, cell);
 
-  static double _stage(double t, double start, double end) =>
-      ((t - start) / (end - start)).clamp(0.0, 1.0);
-
-  bool get _journeying => _ringMove.isAnimating;
-
   // ------------------------------------------------------------- the choice
 
-  /// The goo sits a little inside the cells it travels between. Worked out
-  /// from the middle rather than by deflating, so a body that has dried to
-  /// nothing comes back out as nothing rather than as a rectangle turned
-  /// inside out.
-  static Rect _inset(Rect cell) => Rect.fromCenter(
-    center: cell.center,
-    width: math.max(0, cell.width - 2 * kGridGooInset),
-    height: math.max(0, cell.height - 2 * kGridGooInset),
-  );
-
-  static Rect _outset(Rect body) => Rect.fromCenter(
-    center: body.center,
-    width: math.max(0, body.width) + 2 * kGridGooInset,
-    height: math.max(0, body.height) + 2 * kGridGooInset,
-  );
-
-  /// The body at this moment, in the cells' own measure.
-  CellGooShape? _bodyNow() {
-    final from = _ringFrom;
-    final to = _ringTo;
-    if (!_journeying) return null;
-    final body = CellGooPainter.bodyAt(
-      from: from == null ? null : _inset(from),
-      to: to == null ? null : _inset(to),
-      t: _ringMove.value,
-      fromCorner: _fromCorner,
-    );
-    return body == null
-        ? null
-        : (rect: _outset(body.rect), corner: body.corner);
+  void _run() {
+    if (!_choice.moving || _ticker.isActive) return;
+    _started = _now;
+    _ticker.start();
   }
 
-  /// The choice never jumps between cells. It sets off from wherever it is,
-  /// even half way to somewhere else, and everything that shows it (the goo,
-  /// the ring, the lit letter and number) goes with it.
-  void _moveRing() {
-    final to = _rectOf(widget.selected);
-    final body = _bodyNow();
-    final from = _journeying ? body?.rect : _ringTo;
-    final ring = _ringNow();
-    final fill = _journeying ? _fillNow() : 0.0;
-    final lit = _litNow();
-    _ringMove.stop();
-    if (from == null && to == null) {
-      setState(() {
-        _ringFrom = null;
-        _ringTo = null;
-        _litFrom = null;
-      });
-      return;
-    }
-    setState(() {
-      _ringFrom = from;
-      _ringTo = to;
-      _fromCorner = body?.corner ?? kCellGooCellCorner;
-      _fillFrom = from == null ? 1 : fill;
-      _ringStrengthFrom = ring?.strength ?? 0;
-      _litFrom = lit;
-    });
-    _ringMove.duration = from == null
-        ? kGridRingAppear
-        : to == null
-        ? kGridRingLeave
-        : kGridRingMove;
-    _ringMove.forward(from: 0);
+  void _tick(Duration elapsed) {
+    _now = _started + elapsed.inMicroseconds / Duration.microsecondsPerSecond;
+    _choice.step(_now);
+    if (!_choice.moving) _ticker.stop();
+    if (mounted) setState(() {});
   }
-
-  /// How strong the goo is at this moment.
-  ///
-  /// It comes up as the ring draws into it, because a cell at rest wears a
-  /// ring and no fill, and it gives way to the ring again as it arrives. A
-  /// choice let go never gives way: it dries up instead.
-  double _fillNow() {
-    if (!_journeying) return 0;
-    final t = _ringMove.value;
-    final rise = ui.lerpDouble(_fillFrom, 1, _stage(t, 0, kGridFillRise))!;
-    if (_ringTo == null) return rise;
-    final handover = t < 1 - kGridGooHandover
-        ? 1.0
-        : ((1 - t) / kGridGooHandover).clamp(0.0, 1.0);
-    return rise * handover;
-  }
-
-  /// Where the ring is at this moment and how much of it there is, or null
-  /// while the goo alone is carrying the choice.
-  ///
-  /// The goo leads and the ring follows it: it draws into the goo as the
-  /// choice sets off, there is no ring anywhere while the body is crossing,
-  /// and it opens out of the goo once the goo has reached the new cell.
-  ({Rect rect, double strength})? _ringNow() {
-    final to = _ringTo;
-    final from = _ringFrom;
-    if (!_journeying) return to == null ? null : (rect: to, strength: 1);
-    final t = _ringMove.value;
-    if (from != null) {
-      final letGo = to == null ? kGridRingLetGo : kCellGooGatherEnd;
-      if (t < letGo) {
-        final strength =
-            _ringStrengthFrom * (1 - easeOutCubic.transform(t / letGo));
-        final body = _bodyNow();
-        if (strength > 0 && body != null) {
-          return (rect: body.rect, strength: strength);
-        }
-      }
-    }
-    if (to == null) return null;
-    final opensAt = from == null ? kCellGooCondenseEnd : kCellGooArriveStart;
-    if (t < opensAt) return null;
-    final share = _stage(t, opensAt, 1);
-    final open = _ringCurve.transform(share);
-    final seed = Rect.fromCenter(
-      center: to.center,
-      width: to.height * kGridRingSeed,
-      height: to.height * kGridRingSeed,
-    );
-    final rect = Rect.lerp(seed, to, open)!;
-    // A little past the cell before it settles, the way a drop spreads.
-    final swell = kGridRingSwell * math.sin(math.pi * open.clamp(0.0, 1.0));
-    return (
-      rect: rect.inflate(swell),
-      strength: (share / kGridRingFadeIn).clamp(0.0, 1.0),
-    );
-  }
-
-  /// The stretch of letters and numbers lit at this moment, and how round its
-  /// ends are.
-  ///
-  /// On a move it crawls: the edge on the side the choice is going sets off
-  /// first and arrives first, and the other edge follows it in. A first
-  /// choice spreads out from the middle of its column and row, and a choice
-  /// let go draws back in to it.
-  ({Rect span, double round})? _litSpanNow() {
-    final to = _ringTo;
-    if (!_journeying) return to == null ? null : (span: to, round: 0);
-    final t = _ringMove.value;
-    final from = _litFrom;
-    if (to == null) {
-      if (from == null) return null;
-      final share = easeInOutCubic.transform(_stage(t, 0, kGridLitDrawInEnd));
-      return (
-        span: Rect.lerp(
-          from,
-          Rect.fromCenter(center: from.center, width: 0, height: 0),
-          share,
-        )!,
-        round: kGridLitRound * math.sin(math.pi * share),
-      );
-    }
-    if (from == null) {
-      final share = easeOutCubic.transform(
-        _stage(t, kGridLitSpreadStart, kGridLitSpreadEnd),
-      );
-      return (
-        span: Rect.lerp(
-          Rect.fromCenter(center: to.center, width: 0, height: 0),
-          to,
-          share,
-        )!,
-        round: kGridLitRound * math.sin(math.pi * share),
-      );
-    }
-    final lead = easeInOutCubic.transform(
-      _stage(t, kGridLitLeadStart, kGridLitLeadEnd),
-    );
-    final trail = easeInOutCubic.transform(
-      _stage(t, kGridLitTrailStart, kGridLitTrailEnd),
-    );
-    final across = to.center.dx >= from.center.dx;
-    final down = to.center.dy >= from.center.dy;
-    double edge(double a, double b, bool leading) =>
-        ui.lerpDouble(a, b, leading ? lead : trail)!;
-    return (
-      span: Rect.fromLTRB(
-        edge(from.left, to.left, !across),
-        edge(from.top, to.top, !down),
-        edge(from.right, to.right, across),
-        edge(from.bottom, to.bottom, down),
-      ),
-      round: kGridLitRound * math.sin(math.pi * (lead + trail) / 2),
-    );
-  }
-
-  Rect? _litNow() => _litSpanNow()?.span;
 
   // -------------------------------------------------------------- the pan
 
   Offset get _limit => _geometry.limitFor(
     Size(_view.width + kRowHeaderWidth, _view.height + kGridHeaderHeight),
+    frozen: _frozen,
   );
 
-  void _pushTo(Offset next, {bool byHand = true}) {
+  /// Moves the sheet to [next]. Held inside the sheet unless [over], which
+  /// is for the pull against an end and the spring back from it.
+  void _pushTo(Offset next, {bool byHand = true, bool over = false}) {
     final limit = _limit;
-    final held = Offset(
-      next.dx.clamp(0.0, limit.dx),
-      next.dy.clamp(0.0, limit.dy),
-    );
+    final held = over
+        ? next
+        : Offset(next.dx.clamp(0.0, limit.dx), next.dy.clamp(0.0, limit.dy));
     if (held == _pan) return;
     setState(() => _pan = held);
     widget.onPanned?.call(
       held,
-      _geometry.rowAt(held.dy + _geometry.frozenHeight),
+      _geometry.rowAt(math.max(0, held.dy) + _frozen.height),
       byHand,
     );
   }
 
   void _drag(DragUpdateDetails details) {
-    if (widget.locked) return;
     _stopGliding();
-    _pushTo(_pan - details.delta);
+    final limit = _limit;
+    final push = -details.delta;
+    _pushTo(
+      Offset(
+        _pan.dx + _resisted(_pan.dx, push.dx, limit.dx),
+        _pan.dy + _resisted(_pan.dy, push.dy, limit.dy),
+      ),
+      over: true,
+    );
+  }
+
+  /// A push past either end of the sheet gives way less the further it goes,
+  /// so the end can be felt without being a wall.
+  static double _resisted(double at, double push, double end) {
+    final past = at < 0 ? -at : (at > end ? at - end : 0.0);
+    final outward = (at <= 0 && push < 0) || (at >= end && push > 0);
+    if (!outward) return push;
+    return push * kGridPullGive * (1 - past / kGridPullMax).clamp(0.05, 1.0);
   }
 
   void _fling(DragEndDetails details) {
-    if (widget.locked) return;
     final velocity = details.velocity.pixelsPerSecond;
     final limit = _limit;
     _showing = false;
-    if (velocity.dx.abs() > kGridFlingFrom && limit.dx > 0) {
-      _glideX.animateWith(
-        FrictionSimulation(kGridFriction, _pan.dx, -velocity.dx),
+    _glideAxis(_glideX, _pan.dx, -velocity.dx, limit.dx);
+    _glideAxis(_glideY, _pan.dy, -velocity.dy, limit.dy);
+  }
+
+  void _glideAxis(
+    AnimationController axis,
+    double at,
+    double velocity,
+    double end,
+  ) {
+    final outside = at < 0 || at > end;
+    final flung = velocity.abs() > kGridFlingFrom;
+    if (!outside && !flung) return;
+    axis
+      ..value = at
+      ..animateWith(
+        _EdgeGlide(position: at, velocity: flung ? velocity : 0, end: end),
       );
-    }
-    if (velocity.dy.abs() > kGridFlingFrom && limit.dy > 0) {
-      _glideY.animateWith(
-        FrictionSimulation(kGridFriction, _pan.dy, -velocity.dy),
-      );
-    }
+  }
+
+  /// Takes a sheet left pulled past an end back inside it.
+  void _settleInside() {
+    final limit = _limit;
+    _showing = false;
+    _glideAxis(_glideX, _pan.dx, 0, limit.dx);
+    _glideAxis(_glideY, _pan.dy, 0, limit.dy);
   }
 
   void _stopGliding() {
@@ -467,7 +326,8 @@ class SheetGridState extends State<SheetGrid> with TickerProviderStateMixin {
   }
 
   /// Takes the grid to [cell]: its row to the top when [toTop], and
-  /// otherwise by the shortest push that puts it on screen.
+  /// otherwise by the shortest push that puts it on screen, clear of anything
+  /// laid over the foot of the grid.
   ///
   /// It glides there rather than cutting, so a find that lands somewhere else
   /// in the sheet carries you to it and you can see which way you went. The
@@ -480,23 +340,26 @@ class SheetGridState extends State<SheetGrid> with TickerProviderStateMixin {
   void _bring(SheetCell cell, {bool toTop = false}) {
     final rect = _rectOf(cell);
     if (rect == null || _view == Size.zero) return;
-    final frozen = Offset(_geometry.frozenWidth, _geometry.frozenHeight);
     final gliding = _showing && (_glideX.isAnimating || _glideY.isAnimating);
     var x = gliding ? _glideTarget.dx : _pan.dx;
     var y = gliding ? _glideTarget.dy : _pan.dy;
-    final left = rect.left - frozen.dx;
-    final top = rect.top - frozen.dy;
-    if (left < x) x = left;
-    if (rect.right - frozen.dx > x + _view.width) {
-      x = rect.right - frozen.dx - _view.width;
-    }
+    final top = rect.top - _frozen.height;
     if (toTop) {
       y = top;
     } else {
-      if (top < y) y = top;
-      if (rect.bottom - frozen.dy > y + _view.height) {
-        y = rect.bottom - frozen.dy - _view.height;
+      // A cell wider than the view shows its start, and one taller than what
+      // is left of it shows its top: the end of a thing is no use without
+      // its beginning.
+      final left = rect.left - _frozen.width;
+      if (rect.right - _frozen.width > x + _view.width) {
+        x = rect.right - _frozen.width - _view.width;
       }
+      if (left < x) x = left;
+      final seen = math.max(kGridRowMin, _view.height - widget.coveredBelow);
+      if (rect.bottom - _frozen.height > y + seen) {
+        y = rect.bottom - _frozen.height - seen;
+      }
+      if (top < y) y = top;
     }
     final limit = _limit;
     final target = Offset(x.clamp(0.0, limit.dx), y.clamp(0.0, limit.dy));
@@ -511,9 +374,6 @@ class SheetGridState extends State<SheetGrid> with TickerProviderStateMixin {
     _glide(_glideX, _pan.dx, target.dx);
     _glide(_glideY, _pan.dy, target.dy);
   }
-
-  /// Where a glide the grid is making on its own is headed.
-  Offset _glideTarget = Offset.zero;
 
   void _glide(AnimationController axis, double from, double to) {
     if ((to - from).abs() < 0.5 && !axis.isAnimating) return;
@@ -536,15 +396,13 @@ class SheetGridState extends State<SheetGrid> with TickerProviderStateMixin {
 
   /// Which cell the finger landed on, in whichever pane it landed in.
   void _tap(Offset local) {
-    final frozenW = _geometry.frozenWidth;
-    final frozenH = _geometry.frozenHeight;
     final inGrid = Offset(
       local.dx - kRowHeaderWidth,
       local.dy - kGridHeaderHeight,
     );
     if (inGrid.dx < 0 || inGrid.dy < 0) return;
-    final x = inGrid.dx <= frozenW ? inGrid.dx : inGrid.dx + _pan.dx;
-    final y = inGrid.dy <= frozenH ? inGrid.dy : inGrid.dy + _pan.dy;
+    final x = inGrid.dx <= _frozen.width ? inGrid.dx : inGrid.dx + _pan.dx;
+    final y = inGrid.dy <= _frozen.height ? inGrid.dy : inGrid.dy + _pan.dy;
     final cell = SheetCell(_geometry.rowAt(y), _geometry.columnAt(x));
     Feel.tap.ring();
     widget.onSelect(_geometry.anchorOf(widget.table, cell));
@@ -568,131 +426,120 @@ class SheetGridState extends State<SheetGrid> with TickerProviderStateMixin {
           math.max(0, width - kRowHeaderWidth - frozenW),
           math.max(0, height - kGridHeaderHeight - frozenH),
         );
-        if (view != _view) {
+        final frozen = Size(frozenW, frozenH);
+        if (view != _view || frozen != _frozen) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (mounted) setState(() => _view = view);
+            if (!mounted) return;
+            setState(() {
+              _view = view;
+              _frozen = frozen;
+            });
           });
         }
-        final shown = _Shown(
-          ring: _ringNow(),
-          lit: _litSpanNow(),
-          body: _journeying ? (from: _ringFrom, to: _ringTo) : null,
-          fill: _fillNow(),
+        final frame = _choice.frameAt(_now);
+        final across = frozenW + _pan.dx;
+        final down = frozenH + _pan.dy;
+        final grid = Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: <Widget>[
+            SizedBox(
+              height: kGridHeaderHeight,
+              child: Row(
+                children: <Widget>[
+                  _paint(
+                    GridPane.corner,
+                    Offset.zero,
+                    frame,
+                    width: kRowHeaderWidth,
+                  ),
+                  if (frozenW > 0)
+                    _paint(
+                      GridPane.letters,
+                      Offset.zero,
+                      frame,
+                      width: frozenW,
+                    ),
+                  Expanded(
+                    child: _paint(GridPane.letters, Offset(across, 0), frame),
+                  ),
+                ],
+              ),
+            ),
+            if (frozenH > 0)
+              SizedBox(
+                height: frozenH,
+                child: Row(
+                  children: <Widget>[
+                    _paint(
+                      GridPane.numbers,
+                      Offset.zero,
+                      frame,
+                      width: kRowHeaderWidth,
+                    ),
+                    if (frozenW > 0)
+                      _paint(
+                        GridPane.cells,
+                        Offset.zero,
+                        frame,
+                        width: frozenW,
+                      ),
+                    Expanded(
+                      child: _paint(GridPane.cells, Offset(across, 0), frame),
+                    ),
+                  ],
+                ),
+              ),
+            Expanded(
+              child: Row(
+                children: <Widget>[
+                  _paint(
+                    GridPane.numbers,
+                    Offset(0, down),
+                    frame,
+                    width: kRowHeaderWidth,
+                  ),
+                  if (frozenW > 0)
+                    _paint(
+                      GridPane.cells,
+                      Offset(0, down),
+                      frame,
+                      width: frozenW,
+                    ),
+                  Expanded(
+                    child: _paint(GridPane.cells, Offset(across, down), frame),
+                  ),
+                ],
+              ),
+            ),
+          ],
         );
+        // Under a lock the grid claims nothing, so a tap goes on to the
+        // reader, which answers it with the way to unlock.
+        if (widget.locked) return grid;
         return GestureDetector(
           behavior: HitTestBehavior.opaque,
           onPanUpdate: _drag,
           onPanEnd: _fling,
           onTapUp: (details) => _tap(details.localPosition),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: <Widget>[
-              SizedBox(
-                height: kGridHeaderHeight,
-                child: Row(
-                  children: <Widget>[
-                    _paint(
-                      GridPane.corner,
-                      Offset.zero,
-                      shown,
-                      width: kRowHeaderWidth,
-                    ),
-                    if (frozenW > 0)
-                      _paint(
-                        GridPane.letters,
-                        Offset.zero,
-                        shown,
-                        width: frozenW,
-                      ),
-                    Expanded(
-                      child: _paint(
-                        GridPane.letters,
-                        Offset(frozenW + _pan.dx, 0),
-                        shown,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              if (frozenH > 0)
-                SizedBox(
-                  height: frozenH,
-                  child: Row(
-                    children: <Widget>[
-                      _paint(
-                        GridPane.numbers,
-                        Offset.zero,
-                        shown,
-                        width: kRowHeaderWidth,
-                      ),
-                      if (frozenW > 0)
-                        _paint(
-                          GridPane.cells,
-                          Offset.zero,
-                          shown,
-                          width: frozenW,
-                        ),
-                      Expanded(
-                        child: _paint(
-                          GridPane.cells,
-                          Offset(frozenW + _pan.dx, 0),
-                          shown,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              Expanded(
-                child: Row(
-                  children: <Widget>[
-                    _paint(
-                      GridPane.numbers,
-                      Offset(0, frozenH + _pan.dy),
-                      shown,
-                      width: kRowHeaderWidth,
-                    ),
-                    if (frozenW > 0)
-                      _paint(
-                        GridPane.cells,
-                        Offset(0, frozenH + _pan.dy),
-                        shown,
-                        width: frozenW,
-                      ),
-                    Expanded(
-                      child: _paint(
-                        GridPane.cells,
-                        Offset(frozenW + _pan.dx, frozenH + _pan.dy),
-                        shown,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
+          child: grid,
         );
       },
     );
   }
 
-  /// The body of goo that carries the choice, over one pane of cells.
+  /// The goo that carries the choice, over one pane of cells.
   ///
-  /// It gathers out of the cell being left, crosses the sheet trailing a
-  /// thread, and opens into the cell being chosen, the same journey the desk's
-  /// tabs make, so a choice reads as one thing moving rather than a ring
-  /// vanishing in one place and turning up in another. Blurred and cut at a
-  /// threshold, which is what makes circles into one body. It is laid over
-  /// every pane of cells, frozen ones included, so a choice in a header row
-  /// is carried the same way as one in the body of the sheet.
-  Widget _goo(Offset at, _Shown shown) {
-    final body = shown.body;
-    if (body == null || shown.fill <= 0) return const SizedBox.shrink();
-    final from = body.from;
-    final to = body.to;
+  /// Blurred and cut at a threshold, which is what makes its shapes one body
+  /// with a neck. It is laid over every pane of cells, frozen ones included,
+  /// so a choice in a header row is carried the same way as one in the body
+  /// of the sheet.
+  Widget _goo(Offset at, ChoiceFrame frame) {
+    final goo = frame.goo;
+    if (goo == null || frame.fill <= 0) return const SizedBox.shrink();
     return IgnorePointer(
       child: ClipRect(
         child: Opacity(
-          opacity: shown.fill.clamp(0.0, 1.0),
+          opacity: frame.fill,
           child: ColorFiltered(
             colorFilter: const ColorFilter.matrix(kGooAlphaThresholdMatrix),
             child: ImageFiltered(
@@ -703,10 +550,7 @@ class SheetGridState extends State<SheetGrid> with TickerProviderStateMixin {
               ),
               child: CustomPaint(
                 painter: CellGooPainter(
-                  from: from == null ? null : _inset(from.shift(-at)),
-                  to: to == null ? null : _inset(to.shift(-at)),
-                  fromCorner: _fromCorner,
-                  t: _ringMove.value,
+                  goo: goo.shift(-at),
                   colour: AppColors.accentMuted,
                 ),
                 size: Size.infinite,
@@ -720,7 +564,7 @@ class SheetGridState extends State<SheetGrid> with TickerProviderStateMixin {
 
   /// One pane, clipped to itself so a cell half in it is half drawn rather
   /// than spilling into the pane beside it.
-  Widget _paint(GridPane pane, Offset at, _Shown shown, {double? width}) {
+  Widget _paint(GridPane pane, Offset at, ChoiceFrame frame, {double? width}) {
     Widget paint = ClipRect(
       child: CustomPaint(
         painter: GridPainter(
@@ -728,10 +572,10 @@ class SheetGridState extends State<SheetGrid> with TickerProviderStateMixin {
           geometry: _geometry,
           pane: pane,
           offset: at,
-          lit: shown.lit?.span,
-          litRound: shown.lit?.round ?? 0,
-          ring: pane == GridPane.cells ? shown.ring?.rect : null,
-          ringStrength: shown.ring?.strength ?? 0,
+          lit: frame.lit,
+          litRound: frame.litRound,
+          ring: pane == GridPane.cells ? frame.ring : null,
+          ringStrength: frame.ringStrength,
           matches: widget.matches,
           commented: widget.commented,
           raggedRows: widget.raggedRows,
@@ -741,28 +585,86 @@ class SheetGridState extends State<SheetGrid> with TickerProviderStateMixin {
         size: Size.infinite,
       ),
     );
-    if (pane == GridPane.cells && shown.body != null) {
+    if (pane == GridPane.cells && frame.goo != null) {
       paint = Stack(
         fit: StackFit.expand,
-        children: <Widget>[paint, _goo(at, shown)],
+        children: <Widget>[paint, _goo(at, frame)],
       );
     }
     return width == null ? paint : SizedBox(width: width, child: paint);
   }
 }
 
-/// Everything that shows the choice, worked out once for a frame and handed
-/// to every pane, so the panes cannot disagree about where it is.
-class _Shown {
-  const _Shown({
-    required this.ring,
-    required this.lit,
-    required this.body,
-    required this.fill,
-  });
+/// A flick on one axis: carried on by friction inside the sheet and caught by
+/// a spring at either end, which takes the speed it arrives with a little way
+/// past the end and brings it back, rather than stopping it dead against the
+/// edge. Starting outside the sheet, it is the spring back alone.
+class _EdgeGlide extends Simulation {
+  _EdgeGlide({
+    required double position,
+    required double velocity,
+    required this.end,
+  }) : super(tolerance: const Tolerance(distance: 0.05, velocity: 1)) {
+    if (position < 0 || position > end) {
+      _edgeAt = 0;
+      _spring = ScrollSpringSimulation(
+        _catch,
+        position,
+        position < 0 ? 0 : end,
+        velocity,
+        tolerance: tolerance,
+      );
+      return;
+    }
+    final friction = FrictionSimulation(kGridFriction, position, velocity);
+    _friction = friction;
+    final stop = friction.finalX;
+    final edge = stop < 0 ? 0.0 : (stop > end ? end : null);
+    if (edge == null) return;
+    final at = friction.timeAtX(edge);
+    if (!at.isFinite) return;
+    _edgeAt = at;
+    _spring = ScrollSpringSimulation(
+      _catch,
+      edge,
+      edge,
+      friction.dx(at),
+      tolerance: tolerance,
+    );
+  }
 
-  final ({Rect rect, double strength})? ring;
-  final ({Rect span, double round})? lit;
-  final ({Rect? from, Rect? to})? body;
-  final double fill;
+  /// The catch at an end, the same shape as a list's bounce.
+  static final _catch = SpringDescription.withDampingRatio(
+    mass: 0.5,
+    stiffness: 100,
+    ratio: 1.1,
+  );
+
+  final double end;
+  FrictionSimulation? _friction;
+  ScrollSpringSimulation? _spring;
+  double _edgeAt = double.infinity;
+
+  @override
+  double x(double time) {
+    final spring = _spring;
+    if (spring != null && time >= _edgeAt) return spring.x(time - _edgeAt);
+    return _friction!.x(time);
+  }
+
+  @override
+  double dx(double time) {
+    final spring = _spring;
+    if (spring != null && time >= _edgeAt) return spring.dx(time - _edgeAt);
+    return _friction!.dx(time);
+  }
+
+  @override
+  bool isDone(double time) {
+    final spring = _spring;
+    if (spring != null && time >= _edgeAt) {
+      return spring.isDone(time - _edgeAt);
+    }
+    return _friction!.isDone(time);
+  }
 }

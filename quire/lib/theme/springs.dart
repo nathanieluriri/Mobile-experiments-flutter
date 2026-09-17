@@ -37,14 +37,66 @@ abstract final class AppSprings {
     damping: 26,
   );
 
-  /// Anything in a spreadsheet made of the app's goo: the chosen cell's
-  /// ring opening, the formula well rising.
-  ///
-  /// Soft and a little under damped, so it arrives, goes a touch past where
-  /// it was going, and settles back, the way something thick does. A stiffer
-  /// spring gets there sooner and reads as a click, which is exactly what goo
-  /// is not.
-  static const goo = SpringDescription(mass: 1, stiffness: 70, damping: 13);
+  /// The body of goo carrying the choice of cell across a sheet: quick to
+  /// go, with a little give as it gets there.
+  static final gooHead = SpringDescription.withDampingRatio(
+    mass: 1,
+    stiffness: 110,
+    ratio: 0.88,
+  );
+
+  /// What the body leaves behind as it goes. Slower than the body, so it is
+  /// drawn out into a neck and then pulled in after it.
+  static final gooTail = SpringDescription.withDampingRatio(
+    mass: 1,
+    stiffness: 46,
+    ratio: 1,
+  );
+
+  /// The body gathering into a drop and spreading into a cell, going a little
+  /// past the cell's edges and settling back, the way something thick does.
+  static final gooSpread = SpringDescription.withDampingRatio(
+    mass: 1,
+    stiffness: 150,
+    ratio: 0.72,
+  );
+
+  /// The goo coming up as a choice sets off, and the ring drawing into it.
+  static final gooRise = SpringDescription.withDampingRatio(
+    mass: 1,
+    stiffness: 180,
+    ratio: 1,
+  );
+
+  /// The ring coming out of the goo once it has spread, and the goo giving
+  /// way to the ring. Slow, so the ring is seen to form rather than to switch
+  /// on.
+  static final gooSet = SpringDescription.withDampingRatio(
+    mass: 1,
+    stiffness: 80,
+    ratio: 1,
+  );
+
+  /// The goo giving way to the ring that has formed round it.
+  static final gooGiveWay = SpringDescription.withDampingRatio(
+    mass: 1,
+    stiffness: 120,
+    ratio: 1,
+  );
+
+  /// The lit letter and number: the edge on the side the choice is going,
+  /// and the edge that follows it in. Neither goes past where it is going,
+  /// so a letter is never lit and unlit and lit again.
+  static final litLead = SpringDescription.withDampingRatio(
+    mass: 1,
+    stiffness: 120,
+    ratio: 1,
+  );
+  static final litTrail = SpringDescription.withDampingRatio(
+    mass: 1,
+    stiffness: 60,
+    ratio: 1,
+  );
 
   /// The grid gliding to a cell it has been asked to show. Stopped dead, so
   /// it never runs past the row it was sent to, and soft enough that a
@@ -55,11 +107,24 @@ abstract final class AppSprings {
     ratio: 1,
   );
 
-  /// The cell bar rising from the sheet's bottom edge.
-  static const valueBarSpring = SpringDescription(
+  /// The cell bar rising, going back down, and opening or closing the room
+  /// for a comment. None of them goes past where it is going, because the
+  /// bar is held inside its own slot and a spring cut off at the slot's edge
+  /// would stop dead.
+  static final barRise = SpringDescription.withDampingRatio(
     mass: 1,
-    stiffness: 240,
-    damping: 28,
+    stiffness: 90,
+    ratio: 1,
+  );
+  static final barFall = SpringDescription.withDampingRatio(
+    mass: 1,
+    stiffness: 140,
+    ratio: 1,
+  );
+  static final barNote = SpringDescription.withDampingRatio(
+    mass: 1,
+    stiffness: 110,
+    ratio: 1,
   );
 
   /// The navigation drawer coming in and going out, and with it the hamburger
@@ -98,6 +163,68 @@ abstract final class AppSprings {
         (drawerWidth(kScreenWidth) / kScreenWidth),
     ratio: drawerRatio,
   );
+}
+
+/// A number carried on a spring towards wherever it was last sent.
+///
+/// Sending it somewhere new while it is still moving sets off from where it
+/// is, at the speed it has, which is what lets a motion be changed half way
+/// through without a jump and without a stop. Time is whatever clock the
+/// caller keeps, in seconds.
+class SpringValue {
+  SpringValue(double value, {this.tolerance = pointTolerance}) : _to = value;
+
+  /// Close enough to stop, for something measured in points.
+  static const pointTolerance = Tolerance(distance: 0.05, velocity: 1);
+
+  /// Close enough to stop, for a share from nought to one.
+  static const shareTolerance = Tolerance(distance: 0.004, velocity: 0.02);
+
+  final Tolerance tolerance;
+
+  SpringSimulation? _run;
+  double _began = 0;
+  double _to;
+
+  /// Where it was last sent.
+  double get target => _to;
+
+  double valueAt(double now) {
+    final run = _run;
+    return run == null ? _to : run.x(math.max(0, now - _began));
+  }
+
+  double velocityAt(double now) {
+    final run = _run;
+    if (run == null || run.isDone(math.max(0, now - _began))) return 0;
+    return run.dx(math.max(0, now - _began));
+  }
+
+  bool restingAt(double now) {
+    final run = _run;
+    return run == null || run.isDone(math.max(0, now - _began));
+  }
+
+  /// Sets off for [target] on [spring] from wherever it is at [now].
+  void sendTo(double target, double now, SpringDescription spring) {
+    if (target == _to) return;
+    _run = SpringSimulation(
+      spring,
+      valueAt(now),
+      target,
+      velocityAt(now),
+      tolerance: tolerance,
+      snapToEnd: true,
+    );
+    _began = now;
+    _to = target;
+  }
+
+  /// Puts it at [value] at once, at rest.
+  void jumpTo(double value) {
+    _run = null;
+    _to = value;
+  }
 }
 
 /// Runs a [SpringDescription] from 0 to 1 as a [Curve] over [duration], so a

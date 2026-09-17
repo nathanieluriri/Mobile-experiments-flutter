@@ -34,8 +34,10 @@ class SheetGeometry {
     final columns = _columnCount(table);
     final widths = <double>[
       for (var c = 0; c < columns; c++)
-        (c < table.columns.length ? table.columns[c].width : null)
-                ?.clamp(kGridColumnMin, kGridColumnMax) ??
+        (c < table.columns.length ? table.columns[c].width : null)?.clamp(
+              kGridColumnMin,
+              kGridColumnMax,
+            ) ??
             kGridColumnWidth,
     ];
     final heights = <double>[
@@ -125,21 +127,28 @@ class SheetGeometry {
   int rowAt(double y) => _at(tops, y, rowCount);
 
   /// The columns worth drawing for a viewport running from [from] to [to].
-  ({int first, int last}) columnsIn(double from, double to) => (
-    first: columnAt(from),
-    last: columnAt(to - 0.001),
-  );
+  ({int first, int last}) columnsIn(double from, double to) =>
+      (first: columnAt(from), last: columnAt(to - 0.001));
 
-  ({int first, int last}) rowsIn(double from, double to) => (
-    first: rowAt(from),
-    last: rowAt(to - 0.001),
-  );
+  ({int first, int last}) rowsIn(double from, double to) =>
+      (first: rowAt(from), last: rowAt(to - 0.001));
 
   /// How far the grid can be pushed on each axis before it runs out, given a
-  /// viewport of [view] and the frozen panes held out of it.
-  Offset limitFor(Size view) => Offset(
-    math.max(0, size.width - frozenWidth - (view.width - kRowHeaderWidth)),
-    math.max(0, size.height - frozenHeight - (view.height - kGridHeaderHeight)),
+  /// viewport of [view] and the frozen panes held out of it: as much of them
+  /// as there was room to hold, when that is less than the file asks for.
+  Offset limitFor(Size view, {Size? frozen}) => Offset(
+    math.max(
+      0,
+      size.width -
+          (frozen?.width ?? frozenWidth) -
+          (view.width - kRowHeaderWidth),
+    ),
+    math.max(
+      0,
+      size.height -
+          (frozen?.height ?? frozenHeight) -
+          (view.height - kGridHeaderHeight),
+    ),
   );
 
   static int _columnCount(TableBlock table) {

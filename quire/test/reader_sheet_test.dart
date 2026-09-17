@@ -5,7 +5,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:quire/format/csv_parser.dart';
 import 'package:quire/model/document.dart';
+import 'package:quire/painting/grid_painter.dart';
 import 'package:quire/painting/spine_glyph_painter.dart';
+import 'package:quire/painting/tab_goo_painter.dart';
 import 'package:quire/screens/reader/bodies/cell_bar.dart';
 import 'package:quire/screens/reader/bodies/parse_strip.dart';
 import 'package:quire/screens/reader/bodies/sheet_body.dart';
@@ -269,6 +271,110 @@ void main() {
     });
   });
 
+  group('the sheet moves like one thing', () {
+    testWidgets('the bar sent back half way never jumps', (tester) async {
+      final store = await storeFor(kPressRunCosts);
+      await _pumpSheet(tester, store);
+      final sheet = SheetController.of(store);
+      double risen() => tester.widget<CellBar>(find.byType(CellBar)).progress;
+
+      final seen = <double>[];
+      Future<void> frames(int count) async {
+        for (var i = 0; i < count; i++) {
+          await tester.pump(const Duration(milliseconds: 16));
+          seen.add(risen());
+        }
+      }
+
+      sheet.selected = const SheetCell(2, 1);
+      await frames(9);
+      sheet.selected = null;
+      await frames(3);
+      sheet.selected = const SheetCell(2, 1);
+      await frames(48);
+      for (var i = 1; i < seen.length; i++) {
+        expect(
+          (seen[i] - seen[i - 1]).abs(),
+          lessThan(0.1),
+          reason: 'frame $i',
+        );
+      }
+      expect(seen.last, greaterThan(0.95));
+    });
+
+    testWidgets('a third sheet tapped on the way sets off from the fill', (
+      tester,
+    ) async {
+      final store = await storeFor(kPressRunCosts);
+      await _pumpSheet(tester, store);
+      TabGooPainter goo() => tester
+          .widgetList<CustomPaint>(find.byType(CustomPaint))
+          .map((paint) => paint.painter)
+          .whereType<TabGooPainter>()
+          .single;
+
+      await tester.tap(find.text('Paper').last);
+      await tester.pump();
+      for (var i = 0; i < 10; i++) {
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      final was = goo();
+      final there = TabGooPainter.bodyAt(
+        from: was.from,
+        to: was.to,
+        t: was.t,
+        viscous: true,
+      );
+      await tester.tap(find.text('Summary').last);
+      await tester.pump();
+      final now = goo();
+      // Not the pill of the sheet it was on its way to, which would pop in
+      // at full size: the fill as it was, where it was.
+      expect((now.from.center - there.center).distance, lessThan(12));
+      expect(now.from.width, lessThan(there.width + 2));
+      await settle(tester);
+      expect(SheetController.of(store).sheet, 2);
+    });
+
+    testWidgets('locking the page holds the grid and takes no taps', (
+      tester,
+    ) async {
+      final store = await storeFor(kPressRunCosts);
+      await _pumpSheet(tester, store);
+      await tester.drag(
+        find.byType(SheetGrid),
+        const Offset(-200, -150),
+        warnIfMissed: false,
+      );
+      await settle(tester);
+      Offset pushed() => tester
+          .widgetList<CustomPaint>(find.byType(CustomPaint))
+          .map((paint) => paint.painter)
+          .whereType<GridPainter>()
+          .where((painter) => painter.pane == GridPane.cells)
+          .last
+          .offset;
+      final before = pushed();
+
+      store.lock = ReaderLock.page;
+      await settle(tester);
+      expect(pushed(), before);
+
+      store.toggleDogEar(store.position);
+      await settle(tester);
+      expect(pushed(), before);
+
+      await tester.drag(
+        find.byType(SheetGrid),
+        const Offset(0, -150),
+        warnIfMissed: false,
+      );
+      await settle(tester);
+      expect(pushed(), before);
+      expect(SheetController.of(store).selected, isNull);
+    });
+  });
+
   group('finding in a spreadsheet', () {
     testWidgets('rings the cell it found and takes the grid across to it', (
       tester,
@@ -294,6 +400,36 @@ void main() {
       expect(chosen!.column, 6);
       expect(find.text('Runs!G3'), findsOneWidget);
       await capture(tester, 'sheet__found');
+    });
+
+    testWidgets('a first match on another sheet is gone to, on that sheet', (
+      tester,
+    ) async {
+      final store = await storeFor(kPressRunCosts);
+      await pumpScreen(
+        tester,
+        MaterialApp(
+          debugShowCheckedModeBanner: false,
+          home: ReaderHost(store: store),
+        ),
+      );
+      await settle(tester);
+      expect(SheetController.of(store).sheet, 0);
+
+      await tester.tap(find.bySemanticsLabel('Find in document'));
+      await settle(tester);
+      // A word only the Paper sheet has.
+      await tester.enterText(find.byType(EditableText).last, 'Oatmeal');
+      await settle(tester);
+
+      final sheet = SheetController.of(store);
+      expect(sheet.sheet, 1, reason: 'the grid goes to the sheet it is on');
+      expect(sheet.selected, isNotNull);
+      expect(find.textContaining('Paper!'), findsOneWidget);
+      // Nothing on the sheet being left is washed for a match that is not
+      // there.
+      final grid = tester.widget<SheetGrid>(find.byType(SheetGrid).last);
+      expect(grid.matches, contains(sheet.selected));
     });
   });
 

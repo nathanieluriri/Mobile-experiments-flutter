@@ -83,15 +83,26 @@ double _furthestEdge(Rect a, Rect b) => <double>[
   (a.bottom - b.bottom).abs(),
 ].reduce(math.max);
 
+/// Long enough for any choice to come to rest.
+const _journey = Duration(milliseconds: 2400);
+
 /// Every frame of a journey, sixteen milliseconds apart, as the painter was
 /// handed it.
 Future<List<GridPainter>> _frames(WidgetTester tester, Duration journey) async {
   final seen = <GridPainter>[];
-  for (var ms = 0; ms <= journey.inMilliseconds + 64; ms += 16) {
+  for (var ms = 0; ms <= journey.inMilliseconds; ms += 16) {
     await tester.pump(const Duration(milliseconds: 16));
     seen.add(_cells(tester));
   }
   return seen;
+}
+
+/// Runs the clock on by [ms] a frame at a time, the way a phone does, since
+/// what the choice does next depends on where it has got to.
+Future<void> _run(WidgetTester tester, int ms) async {
+  for (var at = 0; at < ms; at += 16) {
+    await tester.pump(const Duration(milliseconds: 16));
+  }
 }
 
 /// The largest step any edge of a travelling rectangle takes between two
@@ -239,14 +250,14 @@ void main() {
       await tester.pump();
       // Setting off: the ring draws in to the goo gathering out of the cell,
       // and the lit letter and number start to crawl.
-      await pumpMs(tester, kGridRingMove.inMilliseconds * 10 ~/ 100);
+      await _run(tester, 64);
       await capture(tester, 'sheet__grid_ring_gathering');
-      // Early: the goo is crossing, and there is no ring anywhere, because
-      // the choice is in transit.
-      await pumpMs(tester, kGridRingMove.inMilliseconds * 25 ~/ 100);
+      // Crossing: a drop drawn out along its way with a neck behind it, and
+      // the lit stretch longer than one column.
+      await _run(tester, 128);
       await capture(tester, 'sheet__grid_ring_crossing');
-      // Late: the goo has reached the new cell and the ring opens out of it.
-      await pumpMs(tester, kGridRingMove.inMilliseconds * 35 ~/ 100);
+      // Arrived: the goo has spread into the cell and the ring forms round it.
+      await _run(tester, 400);
       await capture(tester, 'sheet__grid_ring_moving');
       await settle(tester);
       await capture(tester, 'sheet__grid_ring_arrived');
@@ -257,9 +268,9 @@ void main() {
       await settle(tester);
       await pumpScreen(tester, _app(_grid(), selected: const SheetCell(3, 1)));
       await tester.pump();
-      await pumpMs(tester, kGridRingAppear.inMilliseconds * 20 ~/ 100);
+      await _run(tester, 192);
       await capture(tester, 'sheet__grid_ring_condensing');
-      await pumpMs(tester, kGridRingAppear.inMilliseconds * 35 ~/ 100);
+      await _run(tester, 288);
       await capture(tester, 'sheet__grid_ring_opening');
       await settle(tester);
       expect(_cells(tester).ring, isNotNull);
@@ -271,9 +282,9 @@ void main() {
       await settle(tester);
       await pumpScreen(tester, _app(_grid()));
       await tester.pump();
-      await pumpMs(tester, kGridRingLeave.inMilliseconds * 30 ~/ 100);
+      await _run(tester, 160);
       await capture(tester, 'sheet__grid_ring_drawing_in');
-      await pumpMs(tester, kGridRingLeave.inMilliseconds * 35 ~/ 100);
+      await _run(tester, 352);
       await capture(tester, 'sheet__grid_ring_drying');
       await settle(tester);
       expect(_cells(tester).ring, isNull);
@@ -289,18 +300,26 @@ void main() {
       await settle(tester);
       await pumpScreen(tester, _app(_grid(), selected: const SheetCell(6, 3)));
       await tester.pump();
-      final frames = await _frames(tester, kGridRingMove);
-      final rings = <Rect?>[for (final frame in frames) frame.ring];
-      final steps = _steps(rings);
-      // A ring that turned up at full size, or was cut off still opening and
-      // jumped to its cell, would take one step as big as the cell.
-      expect(steps.largest, lessThan(kGridColumnWidth / 4));
+      final frames = await _frames(tester, _journey);
+      // Where the ring can be seen, it moves in small steps: a ring that
+      // turned up at full size, or was cut off still opening and jumped to
+      // its cell, would take one step as big as the cell.
+      final seen = <Rect?>[
+        for (final frame in frames)
+          frame.ringStrength >= 0.5 ? frame.ring : null,
+      ];
+      final steps = _steps(seen);
+      expect(steps.largest, lessThan(kGridRowHeight / 3));
       // It eases into its cell: the step onto its resting place is too small
       // to see.
       expect(steps.last, lessThan(0.5));
-      expect(rings.last, isNotNull);
-      for (final frame in frames) {
-        expect(frame.ringStrength, inInclusiveRange(0, 1));
+      expect(frames.last.ring, const Rect.fromLTWH(354, 204, 118, 34));
+      // And it never switches on or off: how much of it there is changes a
+      // little at a time.
+      for (var i = 1; i < frames.length; i++) {
+        final change = (frames[i].ringStrength - frames[i - 1].ringStrength)
+            .abs();
+        expect(change, lessThan(0.1), reason: 'frame $i');
       }
     });
 
@@ -309,7 +328,7 @@ void main() {
       await settle(tester);
       await pumpScreen(tester, _app(_grid(), selected: const SheetCell(2, 3)));
       await tester.pump();
-      final frames = await _frames(tester, kGridRingMove);
+      final frames = await _frames(tester, _journey);
       final spans = <Rect?>[for (final frame in frames) frame.lit];
       expect(spans, everyElement(isNotNull));
       final steps = _steps(spans);
@@ -332,15 +351,83 @@ void main() {
       await settle(tester);
       await pumpScreen(tester, _app(_grid(), selected: const SheetCell(8, 2)));
       await tester.pump();
-      await pumpMs(tester, kGridRingMove.inMilliseconds * 40 ~/ 100);
+      await _run(tester, 304);
       final before = _cells(tester).lit!;
       await pumpScreen(tester, _app(_grid(), selected: const SheetCell(3, 5)));
       await tester.pump();
+      await tester.pump(const Duration(milliseconds: 16));
       final after = _cells(tester).lit!;
       // It carries on from where it had got to, not from where it started.
       expect(_furthestEdge(before, after), lessThan(kGridRowHeight));
       await settle(tester);
       expect(_cells(tester).lit, _cells(tester).ring);
+    });
+  });
+
+  group('the ends of a sheet', () {
+    testWidgets('a flick into the top is caught, not stopped dead', (
+      tester,
+    ) async {
+      final pans = <Offset>[];
+      await pumpScreen(
+        tester,
+        _app(_grid(rows: 120), onPanned: (pan, _, _) => pans.add(pan)),
+      );
+      await settle(tester);
+      await tester.drag(
+        find.byType(SheetGrid),
+        const Offset(0, -300),
+        warnIfMissed: false,
+      );
+      await settle(tester);
+      pans.clear();
+
+      await tester.fling(
+        find.byType(SheetGrid),
+        const Offset(0, 200),
+        3000,
+        warnIfMissed: false,
+      );
+      await settle(tester);
+      final furthest = pans.map((pan) => pan.dy).reduce(math.min);
+      // It carries a little past the top and is brought back to it.
+      expect(furthest, lessThan(-4));
+      expect(pans.last.dy, 0);
+      // Slowing into the top rather than hitting it: no one step from speed
+      // to nothing.
+      var fastest = 0.0;
+      for (var i = 1; i < pans.length; i++) {
+        final step = (pans[i].dy - pans[i - 1].dy).abs();
+        if (step < 0.5 && fastest > 20) {
+          fail('stopped dead at $i after moving $fastest a frame');
+        }
+        fastest = step;
+      }
+    });
+
+    testWidgets('a pull past the end gives way and springs back', (
+      tester,
+    ) async {
+      final pans = <Offset>[];
+      await pumpScreen(
+        tester,
+        _app(_grid(), onPanned: (pan, _, _) => pans.add(pan)),
+      );
+      await settle(tester);
+      final gesture = await tester.startGesture(
+        tester.getCenter(find.byType(SheetGrid)),
+      );
+      for (var i = 0; i < 10; i++) {
+        await gesture.moveBy(const Offset(0, 20));
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      final pulled = pans.last.dy;
+      // Two hundred points of finger, but a sheet at its top gives less.
+      expect(pulled, lessThan(0));
+      expect(pulled, greaterThan(-100));
+      await gesture.up();
+      await settle(tester);
+      expect(pans.last.dy, 0);
     });
   });
 
