@@ -174,7 +174,8 @@ void main() {
       SheetController.of(store).selected = const SheetCell(2, 6);
       await settle(tester);
       expect(find.text('Runs!G3'), findsOneWidget);
-      expect(find.text('D3*E3+F3'), findsOneWidget);
+      // Printed the way the spreadsheet itself writes it, after an equals sign.
+      expect(find.text('=D3*E3+F3'), findsOneWidget);
     });
 
     testWidgets('the bar leaves when the reader pushes the grid', (

@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:quire/format/xlsx_parser.dart' show XlsxParser, xlsxToDocument;
 import 'package:quire/model/document.dart';
+import 'package:quire/screens/reader/bodies/cell_bar.dart';
 import 'package:quire/screens/reader/bodies/sheet_grid.dart';
 import 'package:quire/screens/reader/bodies/spine_table.dart';
 import 'package:quire/theme/colors.dart';
@@ -169,6 +170,39 @@ void main() {
       );
       await settle(tester);
       await capture(tester, 'sheet__grid_comment');
+    });
+  });
+
+  group('the bar for a discussed cell', () {
+    testWidgets('carries what was said, and who said it', (tester) async {
+      await pumpScreen(
+        tester,
+        const MaterialApp(
+          debugShowCheckedModeBanner: false,
+          home: Align(
+            alignment: Alignment.bottomCenter,
+            child: CellBar(
+              reference: 'Runs!B2',
+              value: 'Thornbury Tea Rooms',
+              comment: 'Check the discount before invoicing.',
+              commentBy: 'Bindery',
+              progress: 1,
+            ),
+          ),
+        ),
+      );
+      await settle(tester);
+      expect(find.text('Runs!B2'), findsOneWidget);
+      expect(find.text('Thornbury Tea Rooms'), findsOneWidget);
+      expect(
+        find.textContaining('Check the discount', findRichText: true),
+        findsOneWidget,
+      );
+      expect(
+        tester.getSize(find.byType(CellBar)).height,
+        CellBar.heightFor(commented: true),
+      );
+      await capture(tester, 'sheet__cell_bar_comment');
     });
   });
 }

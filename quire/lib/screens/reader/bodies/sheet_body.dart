@@ -617,6 +617,8 @@ class _SheetViewState extends State<SheetView> with TickerProviderStateMixin {
       reference: cell.reference,
       value: cell.value,
       formula: cell.formula,
+      comment: cell.comment,
+      commentBy: cell.commentBy,
       progress: _bar.status == AnimationStatus.reverse
           ? easeOutQuad.transform(_bar.value)
           : _barRise.transform(_bar.value),
@@ -629,13 +631,21 @@ class _SheetViewState extends State<SheetView> with TickerProviderStateMixin {
   );
 }
 
-/// The three things a cell bar prints.
+/// What a cell bar prints.
 class _BarText {
-  const _BarText(this.reference, this.value, this.formula);
+  const _BarText(
+    this.reference,
+    this.value,
+    this.formula,
+    this.comment,
+    this.commentBy,
+  );
 
   final String reference;
   final String value;
   final String? formula;
+  final String? comment;
+  final String? commentBy;
 
   static _BarText of(TableBlock table, String sheetName, SheetCell at) {
     final cell = cellAt(table, at.row, at.column);
@@ -643,6 +653,8 @@ class _BarText {
       cellReference(sheetName, at.column, at.row),
       cell == null ? '' : flattenCell(cell.text),
       cell?.formula,
+      cell?.comment,
+      cell?.commentBy,
     );
   }
 }

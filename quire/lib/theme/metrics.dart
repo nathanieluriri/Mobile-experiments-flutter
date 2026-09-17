@@ -231,7 +231,14 @@ const kSheetTabPadX = 14.0;
 /// The glyph on the button that lists every sheet.
 const kSheetTabGlyph = 19.0;
 const kParseStripHeight = 20.0;
-const kCellBarHeight = 40.0;
+const kCellBarHeight = 64.0;
+
+/// The line a comment takes under the formula well, the room round the well,
+/// and the well's own corner.
+const kCellBarNoteHeight = 52.0;
+const kCellBarPadX = 12.0;
+const kCellBarPadY = 10.0;
+const kCellBarWellRadius = 22.0;
 
 // The grid a spreadsheet is read on: letters across the top, numbers down the
 // side, and the sheet itself pannable under both.
