@@ -70,6 +70,7 @@ class FindField extends StatelessWidget {
     required this.focusNode,
     required this.onChanged,
     required this.onClose,
+    this.onSubmitted,
     this.tint = 0,
     this.accessory,
     this.accessoryWidth = 0,
@@ -82,6 +83,9 @@ class FindField extends StatelessWidget {
   final FocusNode focusNode;
   final ValueChanged<String> onChanged;
   final VoidCallback onClose;
+
+  /// The search key on the keyboard.
+  final ValueChanged<String>? onSubmitted;
 
   /// How far the fill has gone from paper toward [AppColors.damageTint], which
   /// is the whole of what a search finding nothing does to the field. No
@@ -193,6 +197,7 @@ class FindField extends StatelessWidget {
               cursorRadius: const Radius.circular(1),
               selectionColor: AppColors.foundWash,
               onChanged: onChanged,
+              onSubmitted: onSubmitted,
               textInputAction: TextInputAction.search,
               maxLines: 1,
             ),

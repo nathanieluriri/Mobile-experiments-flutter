@@ -96,8 +96,9 @@ void main() {
       expect(reader.matches.length, 11);
       expect(reader.liveMatch, isNotNull);
 
-      // Typing leaves the document where it was: the fore edge is the map and
-      // the chevrons are the step.
+      // Typing goes to the first match from where the reader is, which here
+      // is already on screen at the head of the document, so the reading does
+      // not move until a step takes it on.
       expect(store.position, 0);
       await tester.tap(find.bySemanticsLabel('Next match'));
       await settle(tester);

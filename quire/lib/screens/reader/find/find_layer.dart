@@ -5,6 +5,8 @@
 /// and the chevrons are the step.
 library;
 
+import 'dart:async';
+
 import 'package:flutter/widgets.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
@@ -48,6 +50,13 @@ const kChevronGlyph = 20.0;
 
 /// What a chevron drops to when there is nowhere to step.
 const kChevronDisabled = 0.3;
+
+/// How long typing has to stop before the reader is taken to the match.
+///
+/// Every keystroke still searches and sweeps at once. Only the going waits,
+/// because a document that set off for a new match with every letter of a
+/// word being typed would be one the reader could not see for moving.
+const kFindSettle = Duration(milliseconds: 350);
 
 /// How far down the part of the screen a page is read on the match a find goes
 /// to comes to rest: a little above the middle, where the eye already is.
@@ -231,7 +240,11 @@ class PdfFindSource implements FindSource {
 /// pure Dart, so a timer would buy nothing except a golden that depends on
 /// when the frame happened to land.
 class FindController extends ChangeNotifier {
-  FindController({required TickerProvider vsync, required this.source}) {
+  FindController({
+    required TickerProvider vsync,
+    required this.source,
+    this.readingAt,
+  }) {
     sweep = MatchSweep(vsync: vsync);
     _open = AnimationController(
       vsync: vsync,
@@ -334,6 +347,7 @@ class FindController extends ChangeNotifier {
   /// Closes the field and takes the washes off the page, in that order, so the
   /// marks outlive the field they were asked for by long enough to be seen.
   void closeField() {
+    _settle?.cancel();
     _open.reverse();
     sweep.fade();
     focusNode.unfocus();
@@ -345,13 +359,46 @@ class FindController extends ChangeNotifier {
     if (text.text != value) text.text = value;
     _matches = source.find(value);
     _unitCounts = _countByUnit(_matches, source.unitCount);
-    _current = 0;
+    _current = _firstFromReading();
     if (failed) {
       _tint.forward();
     } else {
       _tint.reverse();
     }
-    sweep.sweep(_matches.length);
+    sweep.sweep(_matches.length, current: _current);
+    _settle?.cancel();
+    _settle = _matches.isEmpty ? null : Timer(kFindSettle, _go);
+    notifyListeners();
+  }
+
+  /// Where the reader is, in the units the matches count in, so a query
+  /// starts from the page being read rather than from the top of the
+  /// document. Null starts from the top.
+  final int Function()? readingAt;
+
+  /// The first match at or after where the reader is, or the first of all
+  /// when every match is behind them, the way a search goes round.
+  int _firstFromReading() {
+    final at = readingAt?.call() ?? 0;
+    final ahead = _matches.indexWhere((match) => match.unit >= at);
+    return ahead < 0 ? 0 : ahead;
+  }
+
+  /// The wait for typing to stop.
+  Timer? _settle;
+
+  /// Takes the reader to the current match now, which is what the search key
+  /// on the keyboard does: the query is finished, so there is nothing to wait
+  /// for.
+  void submit() {
+    _settle?.cancel();
+    _go();
+  }
+
+  void _go() {
+    _settle = null;
+    if (_matches.isEmpty) return;
+    _reveals++;
     notifyListeners();
   }
 
@@ -367,6 +414,7 @@ class FindController extends ChangeNotifier {
   void _stepTo(int index) {
     if (_matches.length < 2) return;
     _current = index % _matches.length;
+    _settle?.cancel();
     _reveals++;
     sweep.relight(_current);
     notifyListeners();
@@ -452,6 +500,7 @@ class FindController extends ChangeNotifier {
 
   @override
   void dispose() {
+    _settle?.cancel();
     sweep.removeListener(notifyListeners);
     sweep.dispose();
     _openCurve.dispose();
@@ -527,6 +576,7 @@ class FindLayer extends StatelessWidget {
                   tint: controller.tint,
                   onChanged: controller.type,
                   onClose: controller.closeField,
+                  onSubmitted: (_) => controller.submit(),
                   accessory: controller.hasQuery
                       ? _Tally(controller: controller)
                       : null,

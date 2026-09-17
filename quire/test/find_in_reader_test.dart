@@ -15,6 +15,7 @@ import 'package:quire/screens/reader/find/find_field.dart';
 import 'package:quire/screens/reader/find/find_layer.dart';
 import 'package:quire/screens/reader/reader_chrome.dart';
 import 'package:quire/screens/reader/reader_host.dart';
+import 'package:quire/screens/reader/reader_screen.dart';
 import 'package:quire/services/document_store.dart';
 import 'package:quire/theme/colors.dart';
 import 'package:quire/theme/metrics.dart';
@@ -661,6 +662,63 @@ void main() {
         (after.$2 / midway.$2 - 1).abs(),
         lessThan(0.1),
         reason: 'the size carries on from where it was',
+      );
+      await _release(tester);
+    });
+  });
+
+  group('typing a query', () {
+    testWidgets('starts from where the reader is and goes there once they stop', (
+      tester,
+    ) async {
+      final store = await storeFor(kFieldGuide);
+      await pumpScreen(tester, _host(store));
+      await settle(tester);
+      store.position = 3;
+      await settle(tester);
+      expect(store.position, 3, reason: 'reading page four');
+
+      // Reading on took the band away, so find is opened the way the menu
+      // opens it.
+      tester.widget<ReaderScreen>(find.byType(ReaderScreen)).onFind?.call();
+      await settle(tester);
+      await tester.enterText(find.byType(EditableText), 'grain');
+      await tester.pump();
+      final finder = tester.widget<FindLayer>(find.byType(FindLayer)).controller;
+      final first = finder.matches.indexWhere((m) => m.unit >= 3);
+      expect(finder.current, first, reason: 'the first match from page four');
+
+      // Still typing: nothing has moved yet.
+      final before = _pdfScroll(tester);
+      await _frames(tester, 10);
+      expect(_pdfScroll(tester), before, reason: 'a keystroke does not move it');
+
+      // Stopped: it goes there.
+      await _frames(tester, 80);
+      final rect = _pdfMatchRect(tester, finder.matches[finder.current]);
+      expect(rect, isNotNull);
+      expect(_readable(tester, rect!), isTrue, reason: 'on screen at $rect');
+      expect(rect.height, greaterThanOrEqualTo(18), reason: 'big enough');
+      await _release(tester);
+    });
+
+    testWidgets('the search key on the keyboard goes there at once', (
+      tester,
+    ) async {
+      final store = await storeFor(kHouseStyle);
+      await pumpScreen(tester, _host(store));
+      await settle(tester);
+      await tester.tap(find.bySemanticsLabel('Find in document'));
+      await settle(tester);
+      await tester.enterText(find.byType(EditableText), 'punctuation');
+      await tester.pump();
+      final before = _proseScroll(tester);
+      await tester.testTextInput.receiveAction(TextInputAction.search);
+      await _frames(tester, 6);
+      expect(
+        _proseScroll(tester),
+        isNot(before),
+        reason: 'it set off without waiting for the pause',
       );
       await _release(tester);
     });

@@ -113,9 +113,8 @@ class _ReaderHostState extends State<ReaderHost> with TickerProviderStateMixin {
   /// for it.
   FindController? _find;
 
-  /// Which match the chevrons were standing on last, so a step moves the
-  /// reader and a keystroke does not. The fore edge is the map; the chevrons
-  /// are the step.
+  /// Which match the find was standing on last, so a grid is moved to a
+  /// match only when the match it stands on changes.
   int _steppedTo = 0;
 
   /// True once the mark has gone into the page, which is what takes the layer
@@ -494,8 +493,11 @@ class _ReaderHostState extends State<ReaderHost> with TickerProviderStateMixin {
       if (search == null) return null;
       source = DocFindSource(search);
     }
-    final find = FindController(vsync: this, source: source)
-      ..addListener(_onFind);
+    final find = FindController(
+      vsync: this,
+      source: source,
+      readingAt: () => widget.store.position,
+    )..addListener(_onFind);
     _find = find;
     return find;
   }
