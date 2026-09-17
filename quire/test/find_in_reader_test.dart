@@ -1,5 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:quire/model/document.dart';
+import 'package:quire/model/search.dart';
+import 'package:quire/pdf/display_list.dart';
+import 'package:quire/pdf/document.dart';
+import 'package:quire/pdf/interpreter.dart';
+import 'package:quire/pdf/pdf_search.dart';
 import 'package:quire/screens/reader/bodies/sheet_grid.dart';
 import 'package:quire/screens/reader/find/find_field.dart';
 import 'package:quire/screens/reader/find/find_layer.dart';
@@ -37,7 +43,66 @@ Future<void> _release(WidgetTester tester) async {
   await tester.pump(const Duration(seconds: 1));
 }
 
+/// Everything a block says, its table cells included, for asking whether a
+/// match really is where it claims to be.
+String _wordsIn(DocBlock block) => switch (block) {
+  ParagraphBlock() => block.text,
+  HeadingBlock() => block.text,
+  ListItemBlock() => block.text,
+  CodeBlock() => block.text,
+  ImageBlock() => block.alt ?? '',
+  DividerBlock() => '',
+  TableBlock() => <String>[
+    for (final row in block.rows)
+      for (final cell in row.cells)
+        for (final inner in cell.blocks) _wordsIn(inner),
+  ].join('\n'),
+};
+
 void main() {
+  group('where a match is', () {
+    test('a PDF match carries the box its word sits in on the page', () async {
+      final file = PdfFile.open(await documentBytes(kFieldGuide));
+      final search = PdfSearch.fromDisplayLists(<PageDisplayList>[
+        for (var i = 0; i < file.pageCount; i++)
+          ContentInterpreter(file).run(file.pages[i]),
+      ]);
+      final hits = search.search('grain');
+      final matches = PdfFindSource(search).find('grain');
+      expect(matches, hasLength(hits.length));
+      for (var i = 0; i < hits.length; i++) {
+        expect(matches[i].box, hits[i].rect, reason: 'match $i');
+      }
+    });
+
+    for (final (name, query, blocks) in <(String, String, int)>[
+      (kHouseStyle, 'about', 50),
+      (kBinderyNotes, 'grain', 57),
+      (kBinderyNotes, 'the', 57),
+    ]) {
+      test('a match in $name names the block "$query" is laid out in', () async {
+        final doc = await parsedDocument(name);
+        final laidOut = <DocBlock>[
+          for (final section in doc.sections) ...section.blocks,
+        ];
+        expect(laidOut, hasLength(blocks));
+        final source = DocFindSource(searchFor(doc));
+        // The reader lays a flowing document out block by block, so that is
+        // what a match has to be counted in for a step to land on it.
+        expect(source.unitCount, blocks);
+        final matches = source.find(query);
+        expect(matches, isNotEmpty);
+        for (final match in matches) {
+          expect(
+            _wordsIn(laidOut[match.unit]).toLowerCase(),
+            contains(query),
+            reason: 'match at ${match.path} named block ${match.unit}',
+          );
+        }
+      });
+    }
+  });
+
   group('the find bar', () {
     testWidgets('the count and the arrows sit on the bar, never on the page', (
       tester,

@@ -48,6 +48,17 @@ abstract interface class DocSearch {
 
   /// Where [hit] falls down the whole document, 0 at the top and 1 at the end.
   double positionOf(DocHit hit);
+
+  /// How many units the reader lays the whole document out in: top level
+  /// blocks for prose, counted across every section, and rows for a grid.
+  ///
+  /// It is not always [unitCount]. The prose index also counts every table
+  /// cell it walks into, and a reader that stepped by those would land on
+  /// the wrong block.
+  int get readerUnits;
+
+  /// The unit, out of [readerUnits], that the reader lays [hit] out in.
+  int unitOf(DocHit hit);
 }
 
 /// One searchable string and where it came from.
@@ -67,6 +78,8 @@ class DocIndexEntry {
 class ProseSearch implements DocSearch {
   ProseSearch(QuireDocument doc) {
     for (var s = 0; s < doc.sections.length; s++) {
+      _blocksBefore.add(_blocks);
+      _blocks += doc.sections[s].blocks.length;
       _walk(doc.sections[s].blocks, s, const <int>[], doc.sections[s].title);
     }
     for (var i = 0; i < entries.length; i++) {
@@ -77,6 +90,23 @@ class ProseSearch implements DocSearch {
   /// Every indexed block, in document order.
   final List<DocIndexEntry> entries = [];
   final Map<String, int> _ordinal = {};
+
+  /// How many top level blocks come before each section, and in all.
+  final List<int> _blocksBefore = [];
+  int _blocks = 0;
+
+  @override
+  int get readerUnits => _blocks;
+
+  @override
+  int unitOf(DocHit hit) {
+    if (_blocks <= 0) return 0;
+    final before = hit.sectionIndex < _blocksBefore.length
+        ? _blocksBefore[hit.sectionIndex]
+        : 0;
+    final block = hit.blockPath.isEmpty ? 0 : hit.blockPath.first;
+    return (before + block).clamp(0, _blocks - 1);
+  }
 
   static String _key(int section, List<int> path) => '$section/${path.join(".")}';
 
@@ -201,6 +231,17 @@ class GridSearch implements DocSearch {
 
   @override
   int get unitCount => _totalRows;
+
+  @override
+  int get readerUnits => _totalRows;
+
+  @override
+  int unitOf(DocHit hit) {
+    final before =
+        hit.sectionIndex < _rowsBefore.length ? _rowsBefore[hit.sectionIndex] : 0;
+    final row = hit.blockPath.length > 1 ? hit.blockPath[1] : 0;
+    return before + row;
+  }
 
   @override
   double positionOf(DocHit hit) {

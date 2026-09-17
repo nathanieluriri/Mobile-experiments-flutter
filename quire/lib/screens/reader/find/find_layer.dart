@@ -65,10 +65,15 @@ class FindMatch {
     required this.end,
     required this.snippet,
     required this.label,
+    this.box,
   });
 
   /// Where the match sits, 0 at the head of the document and 1 at its foot.
   final double position;
+
+  /// The box the match's letters occupy on its page, in PDF points from the
+  /// page's top left, or null for a document with no pages of its own.
+  final Rect? box;
 
   /// Which unit the match is in: the page for a page file, the block or the
   /// row for a parsed one. It is what the scrub bubble counts against.
@@ -111,24 +116,20 @@ class DocFindSource implements FindSource {
 
   final DocSearch search;
 
+  /// The units the reader lays the document out in, so a match and the page
+  /// it is stepped to are counted the same way.
   @override
-  int get unitCount => search.unitCount;
+  int get unitCount => search.readerUnits;
 
   @override
   List<FindMatch> find(String query) {
     final needle = query.trim();
     if (needle.isEmpty) return const <FindMatch>[];
-    final units = search.unitCount;
     return <FindMatch>[
       for (final hit in search.search(needle))
         FindMatch(
           position: search.positionOf(hit),
-          unit: units <= 1
-              ? 0
-              : (search.positionOf(hit) * (units - 1)).round().clamp(
-                  0,
-                  units - 1,
-                ),
+          unit: search.unitOf(hit),
           section: hit.sectionIndex,
           path: hit.blockPath,
           start: hit.start,
@@ -169,6 +170,7 @@ class PdfFindSource implements FindSource {
           end: hit.end,
           snippet: hit.snippet,
           label: 'p. ${hit.page + 1}',
+          box: hit.rect,
         ),
     ];
   }
