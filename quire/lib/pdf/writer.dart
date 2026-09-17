@@ -61,6 +61,185 @@ class PdfWriteError implements Exception {
   String toString() => 'PdfWriteError: $message';
 }
 
+/// Parsed objects put back into the file's own syntax.
+///
+/// Every writer in this library hands its objects to this one serialiser, so
+/// a file quire signs and a file quire seals cannot drift into two dialects of
+/// the same format. A name escaped one way here and another way there is the
+/// kind of fault that shows up only in somebody else's reader, long after the
+/// file has been sent and there is nothing left to compare it against.
+class PdfObjectWriter {
+  const PdfObjectWriter(this.encryptBytes);
+
+  /// [data] as it has to appear inside the object that holds it: under that
+  /// object's own key for a file carrying encryption, handed straight back for
+  /// one that is not.
+  final Uint8List Function(Uint8List data, int number, int generation)
+      encryptBytes;
+
+  /// One whole indirect object, header, body and `endobj`.
+  ///
+  /// [encrypt] is false for the /Encrypt dictionary alone, whose strings are
+  /// what a reader checks a password against and so cannot themselves be
+  /// behind the key that password is meant to find.
+  Uint8List object(
+    int number,
+    int generation,
+    Object? value, {
+    bool encrypt = true,
+  }) {
+    final buffer = StringBuffer()..write('$number $generation obj\n');
+    write(buffer, value, number, generation, encrypt: encrypt);
+    buffer.write('\nendobj\n');
+    return Uint8List.fromList(latin1.encode(buffer.toString()));
+  }
+
+  /// Writes [value]. Strings are encrypted only inside an ordinary object:
+  /// the trailer, a cross reference stream and the /Encrypt dictionary are all
+  /// read before any key is known, so a string in one of them, the file
+  /// identifier above all, has to be written exactly as it is.
+  void write(
+    StringBuffer out,
+    Object? value,
+    int number,
+    int gen, {
+    required bool encrypt,
+  }) {
+    switch (value) {
+      case null:
+        out.write('null');
+      case bool():
+        out.write(value ? 'true' : 'false');
+      case int():
+        out.write(value);
+      case double():
+        out.write(real(value));
+      case PdfName():
+        out.write(name(value.value));
+      case PdfRef():
+        out.write('${value.number} ${value.generation} R');
+      case PdfString():
+        // Strings were read in clear, so a string going into an encrypted file
+        // goes back in under the key of the object it is now part of, which is
+        // what a viewer will decrypt it with.
+        final bytes =
+            encrypt ? encryptBytes(value.bytes, number, gen) : value.bytes;
+        out.write('<');
+        for (final b in bytes) {
+          out.write(b.toRadixString(16).padLeft(2, '0'));
+        }
+        out.write('>');
+      case List():
+        out.write('[');
+        for (var i = 0; i < value.length; i++) {
+          if (i > 0) out.write(' ');
+          write(out, value[i], number, gen, encrypt: encrypt);
+        }
+        out.write(']');
+      case Map<String, Object?>():
+        // A key with nothing under it is a key the dictionary does not have.
+        // The page tree walk leaves such keys behind for attributes a page did
+        // not inherit, and writing them out would only be noise.
+        out.write('<<');
+        for (final entry in value.entries) {
+          if (entry.value == null) continue;
+          out
+            ..write(' ')
+            ..write(name(entry.key))
+            ..write(' ');
+          write(out, entry.value, number, gen, encrypt: encrypt);
+        }
+        out.write(' >>');
+      case PdfKeyword(value: 'true' || 'false' || 'null'):
+        out.write(value.value);
+      case PdfStream():
+        // A stream belongs to an indirect object of its own and is written by
+        // the caller that knows where its bytes go. One turning up nested in a
+        // dictionary is a file this writer cannot promise to reproduce.
+        throw const PdfWriteError('This page holds data that cannot be copied.');
+      default:
+        throw const PdfWriteError(
+          'This file holds something quire cannot copy into a new version.',
+        );
+    }
+  }
+
+  /// A name with every character the format reserves written as `#xx`.
+  static String name(String value) {
+    final out = StringBuffer('/');
+    for (final code in value.codeUnits) {
+      final reserved = code < 0x21 ||
+          code > 0x7e ||
+          code == 0x23 || // #
+          code == 0x2f || // /
+          code == 0x25 || // %
+          code == 0x28 || // (
+          code == 0x29 || // )
+          code == 0x3c || // <
+          code == 0x3e || // >
+          code == 0x5b || // [
+          code == 0x5d || // ]
+          code == 0x7b || // {
+          code == 0x7d; // }
+      if (reserved) {
+        out.write('#${code.toRadixString(16).padLeft(2, '0')}');
+      } else {
+        out.writeCharCode(code);
+      }
+    }
+    return out.toString();
+  }
+
+  /// A number the way the format likes them: no exponent, no trailing zeros,
+  /// and a whole value written without its point.
+  static String real(double value) {
+    if (value == value.roundToDouble() && value.abs() < 1e9) {
+      return value.toInt().toString();
+    }
+    var text = value.toStringAsFixed(4);
+    while (text.endsWith('0')) {
+      text = text.substring(0, text.length - 1);
+    }
+    if (text.endsWith('.')) text = text.substring(0, text.length - 1);
+    return text == '-0' ? '0' : text;
+  }
+
+  /// A classic cross reference table over [offsets], up to but not including
+  /// the trailer the caller writes after it.
+  ///
+  /// Both writers arrive here: an update's table covers only the objects it
+  /// added, a rewrite's covers the whole file, and either way a row is twenty
+  /// bytes wide to the character, because a reader seeks into this table by
+  /// arithmetic and cannot be one byte out.
+  static String xrefTable(
+    Map<int, int> offsets,
+    int Function(int number) generationOf,
+  ) {
+    final numbers = offsets.keys.toList()..sort();
+    final buffer = StringBuffer()
+      ..writeln('xref')
+      ..writeln('0 1')
+      ..write('0000000000 65535 f \n');
+    var i = 0;
+    while (i < numbers.length) {
+      var j = i;
+      while (j + 1 < numbers.length && numbers[j + 1] == numbers[j] + 1) {
+        j++;
+      }
+      buffer.writeln('${numbers[i]} ${j - i + 1}');
+      for (var k = i; k <= j; k++) {
+        final n = numbers[k];
+        buffer.write(
+          '${offsets[n]!.toString().padLeft(10, '0')} '
+          '${generationOf(n).toString().padLeft(5, '0')} n \n',
+        );
+      }
+      i = j + 1;
+    }
+    return buffer.toString();
+  }
+}
+
 /// Writes signatures into a PDF as an incremental update.
 ///
 /// Nothing in the original file is touched. The new file is the old bytes
@@ -83,6 +262,10 @@ class PdfSignatureWriter {
   final PdfFile file;
   int _next;
   final BytesBuilder _out;
+
+  /// Objects go out through the file's own key, so an update added to an
+  /// encrypted document is encrypted the way the rest of it already is.
+  late final PdfObjectWriter _writer = PdfObjectWriter(file.encryptForObject);
 
   /// New objects by number, each already serialised in full.
   final Map<int, Uint8List> _objects = <int, Uint8List>{};
@@ -199,7 +382,7 @@ class PdfSignatureWriter {
       ..['Contents'] = chain
       ..['Resources'] =
           xobjects.isEmpty ? page['Resources'] : _resourcesWith(page, xobjects);
-    _objects[ref.number] = _serialiseObject(ref.number, ref.generation, dict);
+    _objects[ref.number] = _writer.object(ref.number, ref.generation, dict);
     _generations[ref.number] = ref.generation;
   }
 
@@ -329,7 +512,7 @@ class PdfSignatureWriter {
       ..writeln('q');
     for (final value in place) {
       buffer
-        ..write(_num(value))
+        ..write(PdfObjectWriter.real(value))
         ..write(' ');
     }
     buffer
@@ -345,15 +528,15 @@ class PdfSignatureWriter {
         // placed from the foot of its box with its own axis flipped back.
         buffer
           ..writeln('q')
-          ..write(_num(mark.rect.width))
+          ..write(PdfObjectWriter.real(mark.rect.width))
           ..write(' 0 0 ')
-          ..write(_num(-mark.rect.height))
+          ..write(PdfObjectWriter.real(-mark.rect.height))
           ..write(' ')
-          ..write(_num(mark.rect.left))
+          ..write(PdfObjectWriter.real(mark.rect.left))
           ..write(' ')
-          ..write(_num(mark.rect.top + mark.rect.height))
+          ..write(PdfObjectWriter.real(mark.rect.top + mark.rect.height))
           ..writeln(' cm')
-          ..writeln('${_name(name)} Do')
+          ..writeln('${PdfObjectWriter.name(name)} Do')
           ..writeln('Q');
         continue;
       }
@@ -365,9 +548,9 @@ class PdfSignatureWriter {
           final x = mark.rect.left + point.dx * mark.rect.width;
           final y = mark.rect.top + point.dy * mark.rect.height;
           buffer
-            ..write(_num(x))
+            ..write(PdfObjectWriter.real(x))
             ..write(' ')
-            ..write(_num(y))
+            ..write(PdfObjectWriter.real(y))
             ..writeln(i == 0 ? ' m' : ' l');
         }
         buffer.writeln('h');
@@ -400,122 +583,6 @@ class PdfSignatureWriter {
     return Uint8List.fromList(<int>[...head, ...body, ...tail]);
   }
 
-  Uint8List _serialiseObject(int number, int generation, Object? value) {
-    final buffer = StringBuffer()..write('$number $generation obj\n');
-    _serialise(buffer, value, number, generation, encrypt: true);
-    buffer.write('\nendobj\n');
-    return Uint8List.fromList(latin1.encode(buffer.toString()));
-  }
-
-  /// Writes [value]. Strings are encrypted only inside an ordinary object:
-  /// the trailer and a cross reference stream are read before any key is
-  /// known, so a string in either, the file identifier above all, has to be
-  /// written exactly as it is.
-  void _serialise(
-    StringBuffer out,
-    Object? value,
-    int number,
-    int gen, {
-    required bool encrypt,
-  }) {
-    switch (value) {
-      case null:
-        out.write('null');
-      case bool():
-        out.write(value ? 'true' : 'false');
-      case int():
-        out.write(value);
-      case double():
-        out.write(_num(value));
-      case PdfName():
-        out.write(_name(value.value));
-      case PdfRef():
-        out.write('${value.number} ${value.generation} R');
-      case PdfString():
-        // Strings were read in clear, so a string that came out of an
-        // encrypted file goes back in under the key of the object it is now
-        // part of, which is what a viewer will decrypt it with.
-        final bytes = encrypt
-            ? file.encryptForObject(value.bytes, number, gen)
-            : value.bytes;
-        out.write('<');
-        for (final b in bytes) {
-          out.write(b.toRadixString(16).padLeft(2, '0'));
-        }
-        out.write('>');
-      case List():
-        out.write('[');
-        for (var i = 0; i < value.length; i++) {
-          if (i > 0) out.write(' ');
-          _serialise(out, value[i], number, gen, encrypt: encrypt);
-        }
-        out.write(']');
-      case Map<String, Object?>():
-        // A key with nothing under it is a key the dictionary does not have.
-        // The page tree walk leaves such keys behind for attributes a page
-        // did not inherit, and writing them out would only be noise.
-        out.write('<<');
-        for (final entry in value.entries) {
-          if (entry.value == null) continue;
-          out
-            ..write(' ')
-            ..write(_name(entry.key))
-            ..write(' ');
-          _serialise(out, entry.value, number, gen, encrypt: encrypt);
-        }
-        out.write(' >>');
-      case PdfKeyword(value: 'true' || 'false' || 'null'):
-        out.write(value.value);
-      case PdfStream():
-        // A page dictionary never holds a stream inline; a file where one
-        // does is not one this writer can promise to reproduce.
-        throw const PdfWriteError('This page holds data that cannot be copied.');
-      default:
-        throw const PdfWriteError(
-          'This file holds something quire cannot copy into a signed version.',
-        );
-    }
-  }
-
-  /// A name with every character the format reserves written as `#xx`.
-  static String _name(String value) {
-    final out = StringBuffer('/');
-    for (final code in value.codeUnits) {
-      final reserved = code < 0x21 ||
-          code > 0x7e ||
-          code == 0x23 || // #
-          code == 0x2f || // /
-          code == 0x25 || // %
-          code == 0x28 || // (
-          code == 0x29 || // )
-          code == 0x3c || // <
-          code == 0x3e || // >
-          code == 0x5b || // [
-          code == 0x5d || // ]
-          code == 0x7b || // {
-          code == 0x7d; // }
-      if (reserved) {
-        out.write('#${code.toRadixString(16).padLeft(2, '0')}');
-      } else {
-        out.writeCharCode(code);
-      }
-    }
-    return out.toString();
-  }
-
-  /// A number the way the format likes them: no exponent, no trailing zeros.
-  static String _num(double value) {
-    if (value == value.roundToDouble() && value.abs() < 1e9) {
-      return value.toInt().toString();
-    }
-    var text = value.toStringAsFixed(4);
-    while (text.endsWith('0')) {
-      text = text.substring(0, text.length - 1);
-    }
-    if (text.endsWith('.')) text = text.substring(0, text.length - 1);
-    return text == '-0' ? '0' : text;
-  }
-
   // ---------------------------------------------------------------- xref
 
   /// The entries the new trailer carries over from the old one.
@@ -541,29 +608,10 @@ class PdfSignatureWriter {
 
   /// A classic table, for a file whose own cross reference is one.
   void _xrefTable(Map<int, int> offsets) {
-    final numbers = offsets.keys.toList()..sort();
-    final buffer = StringBuffer()..writeln('xref');
-    buffer
-      ..writeln('0 1')
-      ..write('0000000000 65535 f \n');
-    var i = 0;
-    while (i < numbers.length) {
-      var j = i;
-      while (j + 1 < numbers.length && numbers[j + 1] == numbers[j] + 1) {
-        j++;
-      }
-      buffer.writeln('${numbers[i]} ${j - i + 1}');
-      for (var k = i; k <= j; k++) {
-        final number = numbers[k];
-        buffer.write(
-          '${offsets[number]!.toString().padLeft(10, '0')} '
-          '${(_generations[number] ?? 0).toString().padLeft(5, '0')} n \n',
-        );
-      }
-      i = j + 1;
-    }
-    buffer.write('trailer\n');
-    _serialise(buffer, _trailer(_size), 0, 0, encrypt: false);
+    final buffer = StringBuffer(
+      PdfObjectWriter.xrefTable(offsets, (n) => _generations[n] ?? 0),
+    )..write('trailer\n');
+    _writer.write(buffer, _trailer(_size), 0, 0, encrypt: false);
     buffer.write('\n');
     _out.add(latin1.encode(buffer.toString()));
   }
@@ -604,7 +652,7 @@ class PdfSignatureWriter {
       ..._trailer(size),
     };
     final buffer = StringBuffer()..write('$number 0 obj\n');
-    _serialise(buffer, dict, number, 0, encrypt: false);
+    _writer.write(buffer, dict, number, 0, encrypt: false);
     buffer.write('\nstream\n');
     _out.add(latin1.encode(buffer.toString()));
     _out.add(data);

@@ -115,6 +115,41 @@ Uint8List userEntryFor({
   return value;
 }
 
+/// Algorithm 3: what /O must hold for [ownerPassword] to reach a file whose
+/// user password is [userPassword].
+///
+/// This is [PdfCrypt.unlockAsOwner] read backwards, and the two only make
+/// sense together. /O is not a hash of the owner password: it is the user
+/// password locked up with it, which is what lets an owner open a file whose
+/// user password nobody ever wrote down, and why deriving it needs both.
+Uint8List ownerEntryFor({
+  required List<int> ownerPassword,
+  required List<int> userPassword,
+  required int revision,
+  required int keyBytes,
+}) {
+  // Step (a): an owner password left blank is the user password. A file sealed
+  // with one password still needs a well formed /O, or the owner's way in
+  // would decrypt to noise instead of to that password.
+  final owner = ownerPassword.isEmpty ? userPassword : ownerPassword;
+  var hash = md5(padPassword(owner));
+  if (revision >= 3) {
+    for (var i = 0; i < 50; i++) {
+      hash = md5(hash);
+    }
+  }
+  final key = Uint8List.sublistView(hash, 0, keyBytes);
+
+  var value = padPassword(userPassword);
+  if (revision < 3) return rc4(key, value);
+  // Twenty passes, keyed 0 to 19, which unlockAsOwner peels off from 19 down.
+  // Run them in the other order and the file opens for nobody.
+  for (var i = 0; i <= 19; i++) {
+    value = rc4(_keyXor(key, i), value);
+  }
+  return value;
+}
+
 Uint8List _keyXor(Uint8List key, int step) {
   final out = Uint8List(key.length);
   for (var i = 0; i < key.length; i++) {
