@@ -29,8 +29,20 @@ const kFindCancelLabel = 'Done';
 
 /// The field's top edge, shared with the pill it grows out of so the two are
 /// the same object moving rather than one replacing another.
-const kFindFieldTop =
-    kHeadBandTop + (kHeadBandHeight - kFindFieldHeight) / 2;
+const kFindFieldTop = kHeadBandTop + (kHeadBandHeight - kFindFieldHeight) / 2;
+
+/// The same edge on a phone whose own chrome ends at [safeTop].
+double findFieldTop(double safeTop) =>
+    safeTop + (kHeadBandHeight - kFindFieldHeight) / 2;
+
+/// The least of the query a reader is left to see their own typing in before
+/// whatever sits beside it steps out of the way.
+const kFindQueryMin = 48.0;
+
+/// Everything in the field that is not the query or what sits beside it: the
+/// magnifier, the query's inset, and Done.
+const kFindFieldFixed =
+    kFindGlyphInset + kFindGlyphOpen + kSpace8 + kFindCancelWidth;
 
 /// The field's right edge: the screen margin, where the search pill already
 /// ends.
@@ -59,6 +71,8 @@ class FindField extends StatelessWidget {
     required this.onChanged,
     required this.onClose,
     this.tint = 0,
+    this.accessory,
+    this.accessoryWidth = 0,
   });
 
   /// 0 closed, 1 open. Already eased by whatever is driving it.
@@ -75,6 +89,15 @@ class FindField extends StatelessWidget {
   /// the way somewhere.
   final double tint;
 
+  /// What sits between the query and Done, [accessoryWidth] wide: the count
+  /// and the arrows, once there is a query to count.
+  ///
+  /// It is part of the field rather than a line under it, so it is always
+  /// drawn on the field's own fill. Over a white page a count on nothing is a
+  /// count nobody can read.
+  final Widget? accessory;
+  final double accessoryWidth;
+
   @override
   Widget build(BuildContext context) {
     final ground = Color.lerp(
@@ -89,40 +112,59 @@ class FindField extends StatelessWidget {
         borderRadius: BorderRadius.circular(kFieldRadius),
         border: AppEdges.all(context),
       ),
-      child: Row(
-        children: [
-          SizedBox(
-            width: kFindGlyphInset + kFindGlyphOpen,
-            child: Align(
-              alignment: Alignment.centerRight,
-              child: Icon(
-                LucideIcons.search,
-                size: kFindGlyphClosed -
-                    (kFindGlyphClosed - kFindGlyphOpen) * open,
-                color: Color.lerp(AppColors.ink, AppColors.inkFaint, open),
-              ),
+      child: LayoutBuilder(
+        builder: (context, constraints) => _row(constraints.maxWidth),
+      ),
+    );
+  }
+
+  Widget _row(double width) {
+    // The field is only as wide as it has grown. What sits beside the query
+    // comes in once there is room for it and the query both, and fades up
+    // across the rest of the way, so it arrives and leaves with the field
+    // rather than popping in at some width along it.
+    final room = width - kFindFieldFixed - kFindQueryMin;
+    final full =
+        kFindFieldRight - kScreenPadding - kFindFieldFixed - kFindQueryMin;
+    final beside = accessory;
+    final fits = beside != null && room >= accessoryWidth;
+    final shown = full <= accessoryWidth
+        ? 1.0
+        : ((room - accessoryWidth) / (full - accessoryWidth)).clamp(0.0, 1.0);
+    return Row(
+      children: [
+        SizedBox(
+          width: kFindGlyphInset + kFindGlyphOpen,
+          child: Align(
+            alignment: Alignment.centerRight,
+            child: Icon(
+              LucideIcons.search,
+              size:
+                  kFindGlyphClosed - (kFindGlyphClosed - kFindGlyphOpen) * open,
+              color: Color.lerp(AppColors.ink, AppColors.inkFaint, open),
             ),
           ),
-          Expanded(child: _query()),
-          Opacity(
-            opacity: open,
-            child: PaperPress(
-              onTap: open <= 0 ? null : onClose,
-              semanticLabel: 'Close find',
-              child: SizedBox(
-                width: kFindCancelWidth,
-                height: kFindFieldHeight,
-                child: Center(
-                  child: Text(
-                    kFindCancelLabel,
-                    style: AppText.label.copyWith(color: AppColors.accentBright),
-                  ),
+        ),
+        Expanded(child: _query()),
+        if (fits) Opacity(opacity: shown * open, child: beside),
+        Opacity(
+          opacity: open,
+          child: PaperPress(
+            onTap: open <= 0 ? null : onClose,
+            semanticLabel: 'Close find',
+            child: SizedBox(
+              width: kFindCancelWidth,
+              height: kFindFieldHeight,
+              child: Center(
+                child: Text(
+                  kFindCancelLabel,
+                  style: AppText.label.copyWith(color: AppColors.accentBright),
                 ),
               ),
             ),
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 

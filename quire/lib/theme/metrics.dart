@@ -328,7 +328,6 @@ const kLeaderEvery = 5;
 
 // Section 6.5, find, riffle, dock, sign.
 const kFindFieldHeight = 38.5;
-const kStatusRowHeight = 22.0;
 const kChevronSize = 32.0;
 const kMatchTick = 2.0;
 const kMatchTickLive = 4.0;

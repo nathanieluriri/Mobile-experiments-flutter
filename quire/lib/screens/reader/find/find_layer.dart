@@ -30,8 +30,17 @@ const kFindTint = Duration(milliseconds: 160);
 /// a title that is still there reads as two screens at once.
 const kFindTitleFade = Duration(milliseconds: 120);
 
-/// What the status line says before anything has been typed.
-const kFindIdleStatus = 'searches this document';
+/// What the bar says in place of a count when the query found nothing.
+const kFindNoneLabel = 'No marks';
+
+/// How wide the count is allowed to be, which is room for `617 of 617` in the
+/// folio style. It is a fixed width so the query beside it never moves as the
+/// count grows a digit.
+const kFindCountWidth = 84.0;
+
+/// The whole of what sits between the query and Done: the count, a breath,
+/// and the two arrows.
+const kFindTallyWidth = kFindCountWidth + kSpace4 + kChevronSize * 2;
 
 /// The size of a chevron's glyph inside its 32 point box.
 const kChevronGlyph = 20.0;
@@ -359,10 +368,13 @@ class FindController extends ChangeNotifier {
   }
 }
 
-/// The find overlay: a field across the head band and one line under it.
+/// The find overlay: the head of the screen, and a field across it.
 ///
 /// It floats over the reader rather than replacing it, because a search that
-/// covered the document would be answering the wrong question.
+/// covered the document would be answering the wrong question. Everything it
+/// says is on its own ground: the count and the arrows sit in the field, and
+/// the head behind the field runs from the very top of the screen, so a page
+/// passing under it can never be read through what is being searched with.
 class FindLayer extends StatelessWidget {
   const FindLayer({super.key, required this.controller});
 
@@ -370,6 +382,10 @@ class FindLayer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Where the phone says its own chrome ends, the same as the band this
+    // lies over, so the two share an edge on every phone rather than on the
+    // one the design was drawn for.
+    final safeTop = MediaQuery.paddingOf(context).top;
     return ListenableBuilder(
       listenable: controller,
       builder: (context, _) {
@@ -384,18 +400,29 @@ class FindLayer extends StatelessWidget {
               Positioned(
                 left: 0,
                 right: 0,
-                top: kHeadBandTop,
-                height: kHeadBandHeight,
+                top: 0,
+                height: safeTop + kHeadBandHeight,
                 child: IgnorePointer(
                   child: Opacity(
                     opacity: controller.titleFade,
-                    child: const ColoredBox(color: AppColors.ground),
+                    child: const DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: AppColors.ground,
+                        border: Border(
+                          bottom: BorderSide(
+                            color: AppColors.hairline,
+                            width: kHairline,
+                          ),
+                        ),
+                      ),
+                      child: SizedBox.expand(),
+                    ),
                   ),
                 ),
               ),
               Positioned(
                 left: left,
-                top: kFindFieldTop,
+                top: findFieldTop(safeTop),
                 width: kFindFieldRight - left,
                 child: FindField(
                   open: open,
@@ -404,26 +431,10 @@ class FindLayer extends StatelessWidget {
                   tint: controller.tint,
                   onChanged: controller.type,
                   onClose: controller.closeField,
-                ),
-              ),
-              Positioned(
-                left: kScreenPadding,
-                top: kHeadBandTop + kHeadBandHeight,
-                width: kFindFieldRight - kScreenPadding,
-                height: kStatusRowHeight,
-                child: Opacity(
-                  opacity: open,
-                  child: _StatusLine(controller: controller),
-                ),
-              ),
-              Positioned(
-                left: kFindFieldRight - kChevronSize * 2 - kSpace8,
-                top: kHeadBandTop +
-                    kHeadBandHeight +
-                    (kStatusRowHeight - kChevronSize) / 2,
-                child: Opacity(
-                  opacity: open,
-                  child: _Chevrons(controller: controller),
+                  accessory: controller.hasQuery
+                      ? _Tally(controller: controller)
+                      : null,
+                  accessoryWidth: kFindTallyWidth,
                 ),
               ),
             ],
@@ -434,72 +445,58 @@ class FindLayer extends StatelessWidget {
   }
 }
 
-/// The one line under the field: what the search knows so far.
-class _StatusLine extends StatelessWidget {
-  const _StatusLine({required this.controller});
-
-  final FindController controller;
-
-  @override
-  Widget build(BuildContext context) {
-    if (!controller.hasQuery) {
-      return Align(
-        alignment: Alignment.centerLeft,
-        child: Text(
-          kFindIdleStatus,
-          style: AppText.hint.copyWith(color: AppColors.inkFaint),
-        ),
-      );
-    }
-    if (controller.matches.isEmpty) {
-      return Align(
-        alignment: Alignment.centerLeft,
-        child: Text(
-          'No marks for "${controller.query.trim()}"',
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: AppText.hint.copyWith(color: AppColors.inkSoft),
-        ),
-      );
-    }
-    // The count is set in the tabular folio style rather than in hint, because
-    // it is a number that changes under the eye and a proportional digit
-    // would make the whole line shuffle every time a keystroke changed it.
-    return Align(
-      alignment: Alignment.centerLeft,
-      child: DigitRoll(
-        '${controller.current + 1} of ${controller.matches.length}',
-        style: AppText.folio,
-        color: AppColors.ink,
-      ),
-    );
-  }
-}
-
-/// The step: back a match, forward a match, and nothing else.
-class _Chevrons extends StatelessWidget {
-  const _Chevrons({required this.controller});
+/// What the search knows so far, and the step: the count, then back a match
+/// and forward a match.
+class _Tally extends StatelessWidget {
+  const _Tally({required this.controller});
 
   final FindController controller;
 
   @override
   Widget build(BuildContext context) {
     final live = controller.canStep;
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        _Chevron(
-          icon: LucideIcons.chevronUp,
-          label: 'Previous match',
-          onTap: live ? controller.previous : null,
-        ),
-        const SizedBox(width: kSpace8),
-        _Chevron(
-          icon: LucideIcons.chevronDown,
-          label: 'Next match',
-          onTap: live ? controller.next : null,
-        ),
-      ],
+    return SizedBox(
+      width: kFindTallyWidth,
+      child: Row(
+        children: [
+          SizedBox(
+            width: kFindCountWidth,
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: FittedBox(fit: BoxFit.scaleDown, child: _count()),
+            ),
+          ),
+          const SizedBox(width: kSpace4),
+          _Chevron(
+            icon: LucideIcons.chevronUp,
+            label: 'Previous match',
+            onTap: live ? controller.previous : null,
+          ),
+          _Chevron(
+            icon: LucideIcons.chevronDown,
+            label: 'Next match',
+            onTap: live ? controller.next : null,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _count() {
+    if (controller.matches.isEmpty) {
+      return Text(
+        kFindNoneLabel,
+        maxLines: 1,
+        style: AppText.hint.copyWith(color: AppColors.inkSoft),
+      );
+    }
+    // The count is set in the tabular folio style rather than in hint, because
+    // it is a number that changes under the eye and a proportional digit
+    // would make the whole bar shuffle every time a keystroke changed it.
+    return DigitRoll(
+      '${controller.current + 1} of ${controller.matches.length}',
+      style: AppText.folio,
+      color: AppColors.inkSoft,
     );
   }
 }

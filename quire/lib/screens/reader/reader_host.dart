@@ -591,11 +591,7 @@ class _ReaderHostState extends State<ReaderHost> with TickerProviderStateMixin {
     final document = store.document;
     if (document == null) return _NoBody(store: store);
     if (store.isGrid) {
-      return SheetBody(
-        store: store,
-        matches: _matchedCells,
-        findOpen: _find?.open ?? 0,
-      );
+      return SheetBody(store: store, matches: _matchedCells);
     }
     return ProseBody(
       store: store,
