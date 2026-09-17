@@ -247,8 +247,12 @@ class _SheetViewState extends State<SheetView> with TickerProviderStateMixin {
       // with the tab that is lit.
       _moveTo(_rowOffset(sheet) + _rowsScrolled(sheet));
     }
-    if (_sheet.selected != null) {
+    final chosen = _sheet.selected;
+    if (chosen != null) {
       _bar.forward();
+      // A cell chosen from somewhere other than the grid, such as the list of
+      // comments, has to be brought into view as well as ringed.
+      _reveal = chosen;
     } else {
       _bar.reverse();
     }
@@ -438,6 +442,50 @@ class _SheetViewState extends State<SheetView> with TickerProviderStateMixin {
     _sheet.sheet = picked;
   }
 
+  /// Everything said about the cells of the sheet showing.
+  ///
+  /// A spreadsheet is often argued over in its margins, and the marks alone
+  /// only say that an argument happened. This is where it can be read, and
+  /// picking one takes the grid to the cell it was made about.
+  Future<void> showComments() async {
+    final document = _document;
+    if (document == null) return;
+    final index = _sheetIndex;
+    final table = _tableOn(index);
+    if (table == null) return;
+    await comments(table, document.sections[index].title);
+  }
+
+  Future<void> comments(TableBlock table, String sheetName) async {
+    final said = commentsOn(table);
+    final picked = await showDeskSheet<SheetCell>(
+      context,
+      (context) => DeskSheet(
+        title: 'Comments',
+        note: said.isEmpty
+            ? 'Nobody has said anything about this sheet.'
+            : 'Tap one to go to the cell it is about.',
+        children: <Widget>[
+          for (final at in said.keys)
+            DeskSheetRow(
+              label: said[at]!.text,
+              icon: LucideIcons.messageSquare,
+              note: _saidBy(said[at]!, sheetName, at),
+              onTap: () => Navigator.of(context).pop(at),
+            ),
+        ],
+      ),
+    );
+    if (picked == null || !mounted) return;
+    _sheet.selected = picked;
+    setState(() => _reveal = picked);
+  }
+
+  String _saidBy(CellComment said, String sheetName, SheetCell at) {
+    final where = cellReference(sheetName, at.column, at.row);
+    return said.author.isEmpty ? where : '$where · ${said.author}';
+  }
+
   /// How many rows a sheet holds, in the words the desk uses for a count.
   String _rowsOn(DocSection section) {
     final table = _tableIn(section);
@@ -517,11 +565,15 @@ class _SheetViewState extends State<SheetView> with TickerProviderStateMixin {
                       startAt: _sheet.panOf(index),
                       onSelect: (cell) =>
                           _sheet.selected = cell == selected ? null : cell,
-                      onPanned: (pan, topRow) {
+                      onPanned: (pan, topRow, byHand) {
                         // The bar is a wide thing over a grid, so moving the
-                        // grid puts it away: what you are reading is the sheet
-                        // again, not the cell you tapped a moment ago.
-                        if (_sheet.selected != null) _sheet.selected = null;
+                        // grid by hand puts it away: what you are reading is
+                        // the sheet again, not the cell you tapped a moment
+                        // ago. A move the grid made itself, to bring a cell
+                        // into view, leaves the choice that asked for it.
+                        if (byHand && _sheet.selected != null) {
+                          _sheet.selected = null;
+                        }
                         _sheet.rememberPan(index, pan);
                         _moveTo(_rowOffset(index) + topRow);
                       },

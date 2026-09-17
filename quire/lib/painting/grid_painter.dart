@@ -148,7 +148,7 @@ class GridPainter extends CustomPainter {
         header: row < geometry.frozenRows,
       );
     }
-    if (commented.contains(SheetCell(row, column))) {
+    if (held.comment != null || commented.contains(SheetCell(row, column))) {
       _commentMark(canvas, rect);
     }
   }

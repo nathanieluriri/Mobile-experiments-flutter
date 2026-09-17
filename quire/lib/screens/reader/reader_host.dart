@@ -7,6 +7,7 @@ import 'package:share_plus/share_plus.dart';
 
 import '../../painting/signature_painter.dart';
 import '../../painting/overflow_dots_painter.dart';
+import '../../model/document.dart' show TableBlock;
 import '../../pdf/pdf_search.dart';
 import '../../pdf/writer.dart' show PdfWriteError;
 import '../../services/document_store.dart';
@@ -218,6 +219,7 @@ class _ReaderHostState extends State<ReaderHost> with TickerProviderStateMixin {
             ? ReaderAction.undogEar
             : ReaderAction.dogEar,
         if (widget.store.dogEared.isNotEmpty) ReaderAction.dogEars,
+        if (_hasComments) ReaderAction.comments,
         ReaderAction.find,
         ReaderAction.view,
         ReaderAction.lock,
@@ -235,6 +237,8 @@ class _ReaderHostState extends State<ReaderHost> with TickerProviderStateMixin {
         _dogEars();
       case ReaderAction.shareSigned:
         _shareSigned();
+      case ReaderAction.comments:
+        _comments();
       case ReaderAction.find:
         _openFind();
       case ReaderAction.view:
@@ -332,6 +336,56 @@ class _ReaderHostState extends State<ReaderHost> with TickerProviderStateMixin {
     // No line in the band: the band is the first thing either lock takes
     // away. The chip at the bottom introduces itself instead.
     widget.store.lock = wanted;
+  }
+
+  /// True when the sheet showing carries a discussion in its margins.
+  bool get _hasComments => _commentsHere().isNotEmpty;
+
+  /// What has been said about the cells of the sheet showing.
+  Map<SheetCell, CellComment> _commentsHere() {
+    final document = widget.store.document;
+    if (document == null || !widget.store.isGrid) {
+      return const <SheetCell, CellComment>{};
+    }
+    final sheet = SheetController.of(widget.store).sheet;
+    if (sheet < 0 || sheet >= document.sections.length) {
+      return const <SheetCell, CellComment>{};
+    }
+    for (final block in document.sections[sheet].blocks) {
+      if (block is TableBlock) return commentsOn(block);
+    }
+    return const <SheetCell, CellComment>{};
+  }
+
+  /// Everything said about this sheet, and a jump to the cell it was said
+  /// about.
+  Future<void> _comments() async {
+    final document = widget.store.document;
+    if (document == null) return;
+    final controller = SheetController.of(widget.store);
+    final sheetName = document.sections[controller.sheet].title;
+    final said = _commentsHere();
+    final picked = await showDeskSheet<SheetCell>(
+      context,
+      (context) => DeskSheet(
+        title: 'Comments',
+        note: 'Tap one to go to the cell it is about.',
+        children: <Widget>[
+          for (final at in said.keys)
+            DeskSheetRow(
+              label: said[at]!.text,
+              icon: LucideIcons.messageSquare,
+              note: said[at]!.author.isEmpty
+                  ? cellReference(sheetName, at.column, at.row)
+                  : '${cellReference(sheetName, at.column, at.row)} · '
+                        '${said[at]!.author}',
+              onTap: () => Navigator.of(context).pop(at),
+            ),
+        ],
+      ),
+    );
+    if (picked == null || !mounted) return;
+    controller.selected = picked;
   }
 
   /// The list of dog ears, and a jump to the one picked.

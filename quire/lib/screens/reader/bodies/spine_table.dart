@@ -173,3 +173,28 @@ String rawValueOf(DocCell cell) {
       return flattenCell(raw.toString());
   }
 }
+
+/// One thing said about one cell.
+class CellComment {
+  const CellComment(this.author, this.text);
+  final String author;
+  final String text;
+}
+
+/// Everything said about [table]'s cells, in reading order.
+///
+/// Read off the cells themselves rather than kept beside them, so a comment
+/// cannot outlive the cell it was made about or land on the wrong one after a
+/// sheet is reparsed.
+Map<SheetCell, CellComment> commentsOn(TableBlock table) {
+  final out = <SheetCell, CellComment>{};
+  for (var r = 0; r < table.rows.length; r++) {
+    final cells = table.rows[r].cells;
+    for (var c = 0; c < cells.length; c++) {
+      final said = cells[c].comment;
+      if (said == null || said.isEmpty) continue;
+      out[SheetCell(r, c)] = CellComment(cells[c].commentBy ?? '', said);
+    }
+  }
+  return out;
+}

@@ -201,6 +201,8 @@ class DocCell {
     this.numeric = false,
     this.raw,
     this.formula,
+    this.comment,
+    this.commentBy,
   });
   final List<DocBlock> blocks;
   final int colSpan;
@@ -211,6 +213,14 @@ class DocCell {
   final bool merged;
   final DocAlign? align;
   final int? background;
+
+  /// What somebody said about this cell, and who said it.
+  ///
+  /// A spreadsheet is often argued over in its margins, and a reader who
+  /// cannot see the argument is reading half the document. Both are null for
+  /// a cell nobody has discussed.
+  final String? comment;
+  final String? commentBy;
 
   /// Right align plus tabular figures.
   final bool numeric;

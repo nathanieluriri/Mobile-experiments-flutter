@@ -63,10 +63,14 @@ class SheetGrid extends StatefulWidget {
 
   final double textScale;
 
-  /// Where the grid has been pushed to and which row is at the top of it,
-  /// reported so a sheet keeps its place when the reader steps away to
-  /// another one, and so the reader's own place follows the grid.
-  final void Function(Offset pan, int topRow)? onPanned;
+  /// Where the grid has been pushed to, which row is at the top of it, and
+  /// whether a finger did it.
+  ///
+  /// A push by hand is the reader moving through the document. A push the
+  /// grid made itself, to bring a cell into view, is not, and treating the
+  /// two alike would mean showing somebody a cell and then throwing away the
+  /// choice that asked for it.
+  final void Function(Offset pan, int topRow, bool byHand)? onPanned;
   final Offset startAt;
 
   @override
@@ -116,8 +120,14 @@ class SheetGridState extends State<SheetGrid> with TickerProviderStateMixin {
       _ringTo = _rectOf(widget.selected);
     }
     if (oldWidget.selected != widget.selected) _moveRing();
-    if (widget.reveal != null && widget.reveal != oldWidget.reveal) {
-      _bring(widget.reveal!);
+    final reveal = widget.reveal;
+    if (reveal != null && reveal != oldWidget.reveal) {
+      // After this frame rather than during it: bringing a cell into view
+      // moves the reader's place in the document, and the document cannot be
+      // told it has moved while the screen showing it is still being built.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _bring(reveal);
+      });
     }
   }
 
@@ -174,7 +184,7 @@ class SheetGridState extends State<SheetGrid> with TickerProviderStateMixin {
     Size(_view.width + kRowHeaderWidth, _view.height + kGridHeaderHeight),
   );
 
-  void _pushTo(Offset next) {
+  void _pushTo(Offset next, {bool byHand = true}) {
     final limit = _limit;
     final held = Offset(
       next.dx.clamp(0.0, limit.dx),
@@ -182,7 +192,11 @@ class SheetGridState extends State<SheetGrid> with TickerProviderStateMixin {
     );
     if (held == _pan) return;
     setState(() => _pan = held);
-    widget.onPanned?.call(held, _geometry.rowAt(held.dy + _geometry.frozenHeight));
+    widget.onPanned?.call(
+      held,
+      _geometry.rowAt(held.dy + _geometry.frozenHeight),
+      byHand,
+    );
   }
 
   void _drag(DragUpdateDetails details) {
@@ -234,7 +248,7 @@ class SheetGridState extends State<SheetGrid> with TickerProviderStateMixin {
       y = rect.bottom - frozen.dy - _view.height;
     }
     _stopGliding();
-    _pushTo(Offset(x, y));
+    _pushTo(Offset(x, y), byHand: false);
   }
 
   /// Which cell the finger landed on, in whichever pane it landed in.

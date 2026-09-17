@@ -54,11 +54,22 @@ class SheetModel {
   final Map<int, double> colWidths = {}; // col index -> characters
   final Map<int, double> rowHeights = {}; // row index -> points
   final List<List<int>> merges = []; // [r1, c1, r2, c2]
+
+  /// What has been said about a cell, by reference: `B2` to the discussion
+  /// held on it.
+  final Map<String, SheetNote> notes = {};
   int frozenRows = 0;
   int frozenCols = 0;
   int maxCol = 0;
 
   SheetCell? cell(String a1) => byRef[a1.toUpperCase()];
+}
+
+/// One discussion held on a cell: who said it, and what they said.
+class SheetNote {
+  const SheetNote(this.author, this.text);
+  final String author;
+  final String text;
 }
 
 /// A parsed workbook. [date1904] belongs here rather than on a sheet because
@@ -185,9 +196,68 @@ class XlsxParser {
           : 'xl/${target.replaceAll('../', '')}';
       final xml = _text(path);
       if (xml == null) continue;
-      sheets.add(_sheet(name, xml));
+      final sheet = _sheet(name, xml);
+      _readNotes(sheet, path);
+      sheets.add(sheet);
     }
     return XlsxWorkbook(sheets, date1904: _date1904);
+  }
+
+  /// Reads whatever has been said about the cells of [sheet].
+  ///
+  /// The comments live in a part of their own, found through the sheet's
+  /// relationships. A file without them is the usual case and leaves the
+  /// sheet exactly as it was.
+  void _readNotes(SheetModel sheet, String sheetPath) {
+    final cut = sheetPath.lastIndexOf('/');
+    if (cut < 0) return;
+    final folder = sheetPath.substring(0, cut);
+    final file = sheetPath.substring(cut + 1);
+    final relXml = _text('$folder/_rels/$file.rels');
+    if (relXml == null) return;
+    String? target;
+    for (final r in XmlDocument.parse(relXml).rootElement.childElements) {
+      final type = _at(r, 'Type') ?? '';
+      if (!type.endsWith('/comments')) continue;
+      target = _at(r, 'Target');
+    }
+    if (target == null) return;
+    final path = target.startsWith('/')
+        ? target.substring(1)
+        : target.startsWith('../')
+            ? 'xl/${target.replaceAll('../', '')}'
+            : '$folder/$target';
+    final xml = _text(path);
+    if (xml == null) return;
+    final root = XmlDocument.parse(xml).rootElement;
+    final authors = <String>[];
+    final authorsEl = _kid(root, 'authors');
+    if (authorsEl != null) {
+      for (final a in authorsEl.childElements) {
+        authors.add(a.innerText.trim());
+      }
+    }
+    final list = _kid(root, 'commentList');
+    if (list == null) return;
+    for (final c in list.childElements) {
+      if (_ln(c) != 'comment') continue;
+      final ref = _at(c, 'ref')?.toUpperCase();
+      if (ref == null) continue;
+      final who = int.tryParse(_at(c, 'authorId') ?? '') ?? -1;
+      final said = StringBuffer();
+      for (final t in c.descendantElements) {
+        if (_ln(t) == 't') said.write(t.innerText);
+      }
+      var text = said.toString().trim();
+      final author = who >= 0 && who < authors.length ? authors[who] : '';
+      // Excel writes the author's name into the first line of the note as
+      // well. Printing it twice would be the file's habit, not the reader's.
+      if (author.isNotEmpty && text.startsWith('$author:')) {
+        text = text.substring(author.length + 1).trim();
+      }
+      if (text.isEmpty) continue;
+      sheet.notes[ref] = SheetNote(author, text);
+    }
   }
 
   void _loadSharedStrings() {
@@ -496,6 +566,8 @@ QuireDocument xlsxToDocument(XlsxWorkbook wb, String title) {
           align: sc?.align ?? (numeric ? DocAlign.end : DocAlign.start),
           raw: sc?.raw,
           formula: sc?.formula,
+          comment: sc == null ? null : s.notes[sc.ref]?.text,
+          commentBy: sc == null ? null : s.notes[sc.ref]?.author,
         ));
       }
       rows.add(DocRow(cells,
