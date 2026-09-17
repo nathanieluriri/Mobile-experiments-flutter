@@ -522,7 +522,12 @@ class _ReaderHostState extends State<ReaderHost> with TickerProviderStateMixin {
       _steppedTo = 0;
     } else if (find.current != _steppedTo) {
       _steppedTo = find.current;
-      widget.store.position = _unitOf(find.matches[find.current]);
+      // A flowing document goes to the match itself, gliding, and does it
+      // from the find it is handed. Setting its position here as well would
+      // jump it to the block first and leave the glide nothing to do.
+      if (widget.store.isPdf || widget.store.isGrid) {
+        widget.store.position = _unitOf(find.matches[find.current]);
+      }
     }
     _ringMatch(find);
     setState(() {});

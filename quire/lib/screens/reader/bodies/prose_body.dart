@@ -1,10 +1,12 @@
 import 'dart:typed_data';
 
+import 'package:flutter/rendering.dart';
 import 'package:flutter/widgets.dart';
 
 import '../../../model/document.dart';
 import '../../../services/document_store.dart';
 import '../../../theme/colors.dart';
+import '../../../theme/easings.dart';
 import '../../../theme/metrics.dart';
 import '../../../theme/typography.dart';
 import '../../../widgets/marked_text.dart';
@@ -481,10 +483,7 @@ class ProseTable extends StatelessWidget {
       if (within.length != 3 || within[0] != row || within[1] != column) {
         continue;
       }
-      var before = 0;
-      for (var b = 0; b < within[2] && b < cell.blocks.length; b++) {
-        before += _lineOf(cell.blocks[b]).length + 1;
-      }
+      final before = lineStartOf(cell, within[2]);
       out.add(
         TextMark(
           start: before + mark.start,
@@ -495,6 +494,35 @@ class ProseTable extends StatelessWidget {
       );
     }
     return out;
+  }
+
+  /// Where the text of block [index] of [cell] starts in the cell's own text,
+  /// which sets each of its blocks on a line of its own.
+  static int lineStartOf(DocCell cell, int index) {
+    var before = 0;
+    for (var b = 0; b < index && b < cell.blocks.length; b++) {
+      before += _lineOf(cell.blocks[b]).length + 1;
+    }
+    return before;
+  }
+
+  /// Which of [table]'s drawn cells, counted across and then down, is the cell
+  /// at [row] and [column], or -1 for one swallowed by a span. A cell a span
+  /// swallows is not drawn, so it is not counted.
+  static int cellOrdinal(TableBlock table, int row, int column) {
+    if (row < 0 || row >= table.rows.length) return -1;
+    final cells = table.rows[row].cells;
+    if (column < 0 || column >= cells.length || cells[column].merged) return -1;
+    var ordinal = 0;
+    for (var r = 0; r < row; r++) {
+      for (final cell in table.rows[r].cells) {
+        if (!cell.merged) ordinal++;
+      }
+    }
+    for (var c = 0; c < column; c++) {
+      if (!cells[c].merged) ordinal++;
+    }
+    return ordinal;
   }
 
   static String _lineOf(DocBlock block) => switch (block) {
@@ -852,12 +880,17 @@ class ProseColumn extends StatelessWidget {
             if (i > 0) SizedBox(height: proseGap(blocks[i - 1], blocks[i])),
             KeyedSubtree(
               key: i == anchorBlock ? anchorKey : null,
-              child: ProseBlockView(
-                block: blocks[i],
-                assets: assets,
-                measure: measure,
-                foldBreaks: foldBreaks,
-                marks: marksFor?.call(i) ?? const <BlockMark>[],
+              // Each block carries its own place in the column, so a match can
+              // be found on the laid out page without a key for every block.
+              child: MetaData(
+                metaData: i,
+                child: ProseBlockView(
+                  block: blocks[i],
+                  assets: assets,
+                  measure: measure,
+                  foldBreaks: foldBreaks,
+                  marks: marksFor?.call(i) ?? const <BlockMark>[],
+                ),
               ),
             ),
           ],
@@ -914,6 +947,7 @@ class ProseBody extends ReaderBody {
       anchorBlock: anchorBlock,
       foldBreaks: document.sourceFormat == 'md',
       marksFor: _marksFor(),
+      find: find,
     );
   }
 
@@ -993,6 +1027,7 @@ class ProseSheet extends StatefulWidget {
     this.anchorBlock = 0,
     this.foldBreaks = false,
     this.marksFor,
+    this.find,
   });
 
   final DocumentStore store;
@@ -1006,6 +1041,10 @@ class ProseSheet extends StatefulWidget {
   /// See [ProseBlockView.foldBreaks].
   final bool foldBreaks;
 
+  /// The search open over the document, whose current match the sheet goes to
+  /// each time it is sent there.
+  final FindController? find;
+
   @override
   State<ProseSheet> createState() => _ProseSheetState();
 }
@@ -1013,7 +1052,12 @@ class ProseSheet extends StatefulWidget {
 class _ProseSheetState extends State<ProseSheet> {
   final ScrollController _controller = ScrollController();
   final GlobalKey _anchor = GlobalKey();
+  final GlobalKey _columnKey = GlobalKey();
   bool _anchored = false;
+
+  /// How many times the sheet has gone to a match, so it goes once each time
+  /// it is sent and not again every frame the find repaints.
+  late int _revealed = widget.find?.reveals ?? 0;
 
   @override
   void initState() {
@@ -1026,7 +1070,123 @@ class _ProseSheetState extends State<ProseSheet> {
   void didUpdateWidget(ProseSheet old) {
     super.didUpdateWidget(old);
     if (old.anchorBlock != widget.anchorBlock) _anchored = false;
+    final reveals = widget.find?.reveals ?? _revealed;
+    if (reveals != _revealed) {
+      _revealed = reveals;
+      WidgetsBinding.instance.addPostFrameCallback((_) => _goToMatch());
+    }
     WidgetsBinding.instance.addPostFrameCallback((_) => _afterFrame());
+  }
+
+  /// Glides the sheet until the current match rests on the reading line.
+  ///
+  /// The match is measured where the column actually set it, down to the line
+  /// it starts on, rather than worked out from how far through the document
+  /// its block is: blocks are all different heights, and a share of the
+  /// document lands on the wrong one often enough to lose the word entirely.
+  /// A second step while the sheet is still moving sets off again from
+  /// wherever the sheet has got to, so the page never jumps back or ahead.
+  void _goToMatch() {
+    final finder = widget.find;
+    if (!mounted || finder == null || !_controller.hasClients) return;
+    if (finder.matches.isEmpty) return;
+    final rect = _rectOf(finder.matches[finder.current]);
+    if (rect == null) return;
+    final position = _controller.position;
+    final target = (position.pixels + rect.top - _readingLine()).clamp(
+      position.minScrollExtent,
+      position.maxScrollExtent,
+    );
+    final distance = target - position.pixels;
+    if (distance.abs() < 1) return;
+    _controller.animateTo(
+      target,
+      duration: findGlideFor(distance),
+      curve: easeInOutCubic,
+    );
+  }
+
+  /// Where on the sheet a match comes to rest: [kFindRevealLine] of the way
+  /// down what is left of the screen under the find bar and above the foot.
+  double _readingLine() {
+    final safeArea = MediaQuery.paddingOf(context);
+    final top = safeArea.top + kHeadBandHeight;
+    final bottom = _controller.position.viewportDimension -
+        readerContentBottom(safeArea);
+    return top + (bottom - top) * kFindRevealLine;
+  }
+
+  /// Where [match] is set, relative to the top of the sheet as it is scrolled
+  /// now: the line the match starts on, or its whole block when the letters
+  /// cannot be measured, as for a picture found by its description.
+  Rect? _rectOf(FindMatch match) {
+    final column = _columnKey.currentContext?.findRenderObject();
+    final sheet = context.findRenderObject();
+    if (column is! RenderBox || sheet is! RenderBox) return null;
+    RenderBox? block;
+    void visit(RenderObject object) {
+      if (block != null) return;
+      if (object is RenderMetaData && object.metaData == match.unit) {
+        block = object;
+        return;
+      }
+      if (object is RenderMetaData) return;
+      object.visitChildren(visit);
+    }
+
+    column.visitChildren(visit);
+    final found = block;
+    if (found == null || match.unit >= widget.blocks.length) return null;
+    final local = _lineIn(found, widget.blocks[match.unit], match) ??
+        (Offset.zero & found.size);
+    return MatrixUtils.transformRect(found.getTransformTo(sheet), local);
+  }
+
+  /// The line [match] starts on inside [box], the laid out [block], or null
+  /// when the block sets no letters for it.
+  Rect? _lineIn(RenderBox box, DocBlock block, FindMatch match) {
+    final marked = <RenderParagraphMarks>[];
+    void visit(RenderObject object) {
+      if (object is RenderParagraphMarks) {
+        marked.add(object);
+        return;
+      }
+      object.visitChildren(visit);
+    }
+
+    box.visitChildren(visit);
+    if (marked.isEmpty) return null;
+    final RenderParagraphMarks paragraph;
+    final int start;
+    final int end;
+    final path = match.path;
+    switch (block) {
+      case HeadingBlock(:final spans) ||
+          ParagraphBlock(:final spans) ||
+          ListItemBlock(:final spans) when path.length == 1:
+        paragraph = marked.first;
+        (start, end) = proseRangeOf(
+          spans,
+          match.start,
+          match.end,
+          foldBreaks: widget.foldBreaks,
+        );
+      case CodeBlock() when path.length == 1:
+        paragraph = marked.first;
+        (start, end) = (match.start, match.end);
+      case TableBlock() when path.length == 4:
+        final ordinal = ProseTable.cellOrdinal(block, path[1], path[2]);
+        if (ordinal < 0 || ordinal >= marked.length) return null;
+        paragraph = marked[ordinal];
+        final cell = block.rows[path[1]].cells[path[2]];
+        final before = ProseTable.lineStartOf(cell, path[3]);
+        (start, end) = (before + match.start, before + match.end);
+      default:
+        return null;
+    }
+    final lines = paragraph.rectsOf(start, end);
+    if (lines.isEmpty) return null;
+    return MatrixUtils.transformRect(paragraph.getTransformTo(box), lines.first);
   }
 
   @override
@@ -1128,6 +1288,7 @@ class _ProseSheetState extends State<ProseSheet> {
       ),
       child: Center(
         child: ProseColumn(
+          key: _columnKey,
           blocks: widget.blocks,
           assets: widget.assets,
           anchorBlock: widget.anchorBlock,

@@ -8,6 +8,7 @@ import 'package:quire/pdf/display_list.dart';
 import 'package:quire/pdf/document.dart';
 import 'package:quire/pdf/interpreter.dart';
 import 'package:quire/pdf/pdf_search.dart';
+import 'package:quire/screens/reader/bodies/page_states.dart';
 import 'package:quire/screens/reader/bodies/pdf_body.dart';
 import 'package:quire/screens/reader/bodies/sheet_grid.dart';
 import 'package:quire/screens/reader/find/find_field.dart';
@@ -38,6 +39,20 @@ Future<FindController> _search(WidgetTester tester, String query) async {
   await pumpMs(tester, 700);
   return tester.widget<FindLayer>(find.byType(FindLayer)).controller;
 }
+
+/// Runs [count] frames at sixty a second, the way a glide is actually seen.
+Future<void> _frames(WidgetTester tester, int count) async {
+  for (var frame = 0; frame < count; frame++) {
+    await pumpMs(tester, 16);
+  }
+}
+
+/// How far down a flowing document's sheet is scrolled.
+double _proseScroll(WidgetTester tester) => tester
+    .stateList<ScrollableState>(find.byType(Scrollable))
+    .firstWhere((s) => s.position.axis == Axis.vertical)
+    .position
+    .pixels;
 
 /// Lets go of the field, so the caret's blink timer is not still pending when
 /// the tree comes down.
@@ -423,6 +438,115 @@ void main() {
         await _release(tester);
       });
     }
+  });
+
+  group('going to a match in a flowing document', () {
+    for (final (name, query) in <(String, String)>[
+      (kHouseStyle, 'about'),
+      (kBinderyNotes, 'grain'),
+    ]) {
+      testWidgets('every match in $name is brought on screen', (tester) async {
+        final store = await storeFor(name);
+        await pumpScreen(tester, _host(store));
+        await settle(tester);
+        final finder = await _search(tester, query);
+        final blocks = <DocBlock>[
+          for (final section in store.document!.sections) ...section.blocks,
+        ];
+        for (var step = 0; step < finder.matches.length; step++) {
+          await tester.tap(find.bySemanticsLabel('Next match'));
+          await _frames(tester, 70);
+          if (blocks[finder.matches[finder.current].unit] is ImageBlock) {
+            // A picture found by what it is described as has no letters to
+            // mark, so what has to be on screen is the picture.
+            final pictures = <Rect>[
+              for (final element in <Element>[
+                ...find.byType(Image).evaluate(),
+                ...find.byType(UnsupportedImageBox).evaluate(),
+              ])
+                tester.getRect(find.byWidget(element.widget)),
+            ];
+            expect(
+              pictures.any((rect) => _readable(tester, rect)),
+              isTrue,
+              reason: 'match ${finder.current + 1}, a picture, is on screen',
+            );
+            continue;
+          }
+          final screen = await Screen.of(tester);
+          final live = _proseOccurrences(tester, query).where(
+            (rect) =>
+                _readable(tester, rect) && _washOf(screen, rect) > 100,
+          );
+          expect(
+            live,
+            isNotEmpty,
+            reason: 'match ${finder.current + 1} of ${finder.matches.length} '
+                'is on screen and marked as the one stood on',
+          );
+        }
+        await _release(tester);
+      });
+    }
+
+    testWidgets('a step glides there rather than jumping', (tester) async {
+      final store = await storeFor(kHouseStyle);
+      await pumpScreen(tester, _host(store));
+      await settle(tester);
+      final finder = await _search(tester, 'about');
+      // From the fifth match to the sixth is most of the document.
+      for (var step = 0; step < 4; step++) {
+        await tester.tap(find.bySemanticsLabel('Next match'));
+        await _frames(tester, 70);
+      }
+      expect(finder.current, 4);
+      final from = _proseScroll(tester);
+      await tester.tap(find.bySemanticsLabel('Next match'));
+      final path = <double>[from];
+      for (var frame = 0; frame < 70; frame++) {
+        await pumpMs(tester, 16);
+        path.add(_proseScroll(tester));
+      }
+      final to = path.last;
+      final distance = (to - from).abs();
+      expect(distance, greaterThan(400), reason: 'a long way to go');
+      final between = path
+          .where((p) => (p - from).abs() > 2 && (p - to).abs() > 2)
+          .length;
+      expect(between, greaterThanOrEqualTo(12), reason: 'it is seen moving');
+      for (var i = 1; i < path.length; i++) {
+        expect(
+          (path[i] - path[i - 1]).abs(),
+          lessThan(distance * 0.2),
+          reason: 'no one frame covers a fifth of the way (frame $i)',
+        );
+      }
+      await _release(tester);
+    });
+
+    testWidgets('a second step mid glide carries on from where the page is', (
+      tester,
+    ) async {
+      final store = await storeFor(kHouseStyle);
+      await pumpScreen(tester, _host(store));
+      await settle(tester);
+      await _search(tester, 'about');
+      await tester.tap(find.bySemanticsLabel('Next match'));
+      await _frames(tester, 70);
+
+      await tester.tap(find.bySemanticsLabel('Next match'));
+      await _frames(tester, 6);
+      final midway = _proseScroll(tester);
+      await tester.tap(find.bySemanticsLabel('Next match'));
+      await pumpMs(tester, 16);
+      final after = _proseScroll(tester);
+      expect(
+        (after - midway).abs(),
+        lessThan(60),
+        reason: 'the page carries on from where it was, it does not leap',
+      );
+      await _release(tester);
+    });
   });
 
   group('its goldens', () {

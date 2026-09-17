@@ -49,6 +49,28 @@ const kChevronGlyph = 20.0;
 /// What a chevron drops to when there is nowhere to step.
 const kChevronDisabled = 0.3;
 
+/// How far down the part of the screen a page is read on the match a find goes
+/// to comes to rest: a little above the middle, where the eye already is.
+const kFindRevealLine = 0.36;
+
+/// How long going to a match takes: never less than [kFindGlideMin], never
+/// more than [kFindGlideMax], and longer the further there is to go, so a
+/// match on the next line is a nudge and one at the other end of the document
+/// is seen being travelled to.
+const kFindGlideMin = Duration(milliseconds: 280);
+const kFindGlideMax = Duration(milliseconds: 720);
+const kFindGlideMsPerPoint = 0.22;
+
+/// How long a glide over [distance] points takes.
+Duration findGlideFor(double distance) {
+  final ms = kFindGlideMin.inMilliseconds + distance.abs() * kFindGlideMsPerPoint;
+  return Duration(
+    milliseconds: ms
+        .clamp(kFindGlideMin.inMilliseconds, kFindGlideMax.inMilliseconds)
+        .round(),
+  );
+}
+
 /// One occurrence of the query, addressed well enough for the fore edge to
 /// tick it and for a body to find it again and paint under it.
 ///
@@ -345,9 +367,16 @@ class FindController extends ChangeNotifier {
   void _stepTo(int index) {
     if (_matches.length < 2) return;
     _current = index % _matches.length;
+    _reveals++;
     sweep.relight(_current);
     notifyListeners();
   }
+
+  /// How many times the reader has been sent to the current match. A body goes
+  /// to the match each time this moves, which is how being sent to the match
+  /// already stood on still brings it back into view.
+  int get reveals => _reveals;
+  int _reveals = 0;
 
   /// Every match inside one block, with its place in the sweep, which is all a
   /// body needs to paint its share of the highlighter.
