@@ -12,12 +12,53 @@ import 'package:quire/theme/metrics.dart';
 
 import 'support/golden.dart';
 
-DocCell _cell(String text, {int colSpan = 1, bool merged = false}) => DocCell(
+DocCell _cell(
+  String text, {
+  int colSpan = 1,
+  int rowSpan = 1,
+  bool merged = false,
+  int? background,
+}) => DocCell(
   <DocBlock>[
     ParagraphBlock(<DocSpan>[DocSpan(text)]),
   ],
   colSpan: colSpan,
+  rowSpan: rowSpan,
   merged: merged,
+  background: background,
+);
+
+/// A sheet with a long title in A1 and nothing beside it, a note in A3 with a
+/// neighbour, and a tall merge down column B that starts near the top.
+TableBlock _laidOut() => TableBlock(
+  <DocRow>[
+    DocRow(<DocCell>[
+      _cell('Quarterly revenue by region, in thousands'),
+      _cell(''),
+      _cell(''),
+      _cell(''),
+    ]),
+    DocRow(<DocCell>[
+      _cell('Region'),
+      _cell('Held for review', rowSpan: 12, background: 0xFFF6F1E7),
+      _cell('Q1'),
+      _cell('Q2'),
+    ]),
+    for (var r = 2; r < 40; r++)
+      DocRow(<DocCell>[
+        _cell(r == 2 ? 'A note far too long for its column' : 'North $r'),
+        _cell('', merged: r < 13),
+        _cell('${r * 3}'),
+        _cell('${r * 4}'),
+      ]),
+  ],
+  columns: const <DocColumn>[
+    DocColumn(),
+    DocColumn(),
+    DocColumn(),
+    DocColumn(),
+  ],
+  grid: true,
 );
 
 /// A grid [columns] wide and [rows] deep, named by its own address so a test
@@ -361,6 +402,42 @@ void main() {
       expect(_furthestEdge(before, after), lessThan(kGridRowHeight));
       await settle(tester);
       expect(_cells(tester).lit, _cells(tester).ring);
+    });
+  });
+
+  group('what a sheet lays out', () {
+    testWidgets('words run on across empty cells, and stop at a full one', (
+      tester,
+    ) async {
+      await pumpScreen(tester, _app(_laidOut()));
+      await settle(tester);
+      // The title in A1 is read in full across B1 to D1, which are empty;
+      // the note in A3 stops at B, which is part of a merge.
+      await capture(tester, 'sheet__grid_overflow');
+    });
+
+    testWidgets('a merge is drawn while any of it shows', (tester) async {
+      await pumpScreen(tester, _app(_laidOut()));
+      await settle(tester);
+      await tester.drag(
+        find.byType(SheetGrid),
+        const Offset(0, -kGridRowHeight * 6),
+        warnIfMissed: false,
+      );
+      await settle(tester);
+      // The merge starts in row 2, now above the top of the grid, and still
+      // fills the part of column B that shows.
+      final cells = tester
+          .widgetList<CustomPaint>(find.byType(CustomPaint))
+          .where(
+            (paint) =>
+                paint.painter is GridPainter &&
+                (paint.painter! as GridPainter).pane == GridPane.cells,
+          )
+          .last;
+      final painter = cells.painter! as GridPainter;
+      expect(painter.offset.dy, greaterThan(kGridRowHeight * 2));
+      await capture(tester, 'sheet__grid_merge_scrolled');
     });
   });
 
