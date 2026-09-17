@@ -340,6 +340,7 @@ class FindController extends ChangeNotifier {
 
   /// Opens the field out of the reader's search pill.
   void openField() {
+    _opens++;
     _open.forward();
     focusNode.requestFocus();
   }
@@ -348,6 +349,7 @@ class FindController extends ChangeNotifier {
   /// marks outlive the field they were asked for by long enough to be seen.
   void closeField() {
     _settle?.cancel();
+    _closes++;
     _open.reverse();
     sweep.fade();
     focusNode.unfocus();
@@ -425,6 +427,13 @@ class FindController extends ChangeNotifier {
   /// already stood on still brings it back into view.
   int get reveals => _reveals;
   int _reveals = 0;
+
+  /// How many times the field has been opened and put away, so a body can
+  /// note how the reading was before a search and go back to it after.
+  int get opens => _opens;
+  int _opens = 0;
+  int get closes => _closes;
+  int _closes = 0;
 
   /// Every match inside one block, with its place in the sweep, which is all a
   /// body needs to paint its share of the highlighter.

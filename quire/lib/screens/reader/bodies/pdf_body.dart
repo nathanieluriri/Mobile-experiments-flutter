@@ -800,6 +800,19 @@ class _PdfPageBlockState extends State<PdfPageBlock>
   PdfCamera? _glideFrom;
   PdfCamera? _glideTo;
 
+  /// How many times the find has been opened and put away, as last seen.
+  late int _opened = widget.find?.opens ?? 0;
+  late int _closed = widget.find?.closes ?? 0;
+
+  /// The size the reading was at when find was opened, and the size find last
+  /// brought it to, so putting find away can go back to the first when the
+  /// second is still what the page is at.
+  (FitMode, double)? _sizeBeforeFind;
+  double? _sizeFromFind;
+
+  /// The named size to hand back once a glide back out has landed.
+  FitMode? _fitAfterGlide;
+
   /// One sweep of the loading band. It runs only while something on screen is
   /// still being read, so a document that has arrived holds still and a test
   /// that settles the tree terminates.
@@ -883,12 +896,55 @@ class _PdfPageBlockState extends State<PdfPageBlock>
       widget.pages.addListener(_onPages);
       _relayout();
     }
+    final opens = widget.find?.opens ?? _opened;
+    if (opens != _opened) {
+      _opened = opens;
+      _sizeBeforeFind = (widget.store.fit, widget.store.zoom);
+      _sizeFromFind = null;
+    }
     final reveals = widget.find?.reveals ?? _revealed;
     if (reveals != _revealed) {
       _revealed = reveals;
       SchedulerBinding.instance.addPostFrameCallback((_) => _goToMatch());
     }
+    final closes = widget.find?.closes ?? _closed;
+    if (closes != _closed) {
+      _closed = closes;
+      SchedulerBinding.instance.addPostFrameCallback((_) => _putFindAway());
+    }
     _schedule();
+  }
+
+  /// Glides the page back to the size it was read at before the search, with
+  /// whatever is on the reading line kept there.
+  ///
+  /// Only when the page is still at the size the search brought it to. A
+  /// reader who pinched to a size of their own while searching chose it, and
+  /// putting find away is not a reason to take it off them.
+  void _putFindAway() {
+    final before = _sizeBeforeFind;
+    final fromFind = _sizeFromFind;
+    _sizeBeforeFind = null;
+    _sizeFromFind = null;
+    if (!mounted || before == null || fromFind == null) return;
+    final store = widget.store;
+    if (store.fit != FitMode.free || (store.zoom - fromFind).abs() > 0.01) {
+      return;
+    }
+    final (fit, zoom) = before;
+    final from = _cameraNow();
+    if (from == null) return;
+    final target = switch (fit) {
+      FitMode.width => 1.0,
+      FitMode.page => _pageFit,
+      FitMode.actual => _actualFit,
+      FitMode.free => zoom,
+    };
+    _glideFrom = from;
+    _glideTo = PdfCamera(page: from.page, x: from.x, y: from.y, zoom: target);
+    _fitAfterGlide = fit == FitMode.free ? null : fit;
+    _glide.duration = _glideLength(from, _glideTo!);
+    _glide.forward(from: 0);
   }
 
   @override
@@ -921,6 +977,8 @@ class _PdfPageBlockState extends State<PdfPageBlock>
     if (from == null || to == null) return;
     _glideFrom = from;
     _glideTo = to;
+    _fitAfterGlide = null;
+    _sizeFromFind = to.zoom;
     _glide.duration = _glideLength(from, to);
     _glide.forward(from: 0);
   }
@@ -937,6 +995,15 @@ class _PdfPageBlockState extends State<PdfPageBlock>
     final to = _glideTo;
     if (to == null) return;
     _look(to);
+    final fit = _fitAfterGlide;
+    if (fit != null) {
+      // Landed on the named size's own width, so handing the name back moves
+      // nothing: it only means the size follows the page again.
+      _fitAfterGlide = null;
+      _anchored = true;
+      widget.store.fit = fit;
+      return;
+    }
     // The sideways scroll may only have been built by the frame that took the
     // pages past the width of the screen, so it is set once more after it.
     SchedulerBinding.instance.addPostFrameCallback((_) {
@@ -1053,7 +1120,8 @@ class _PdfPageBlockState extends State<PdfPageBlock>
     var zoom = from.zoom * math.pow(to.zoom / from.zoom, t).toDouble();
     final screens = (end - start).abs() / math.max(_viewport, 1);
     final pull = ((screens - 1) * 0.15).clamp(0.0, kPdfGlidePullBack);
-    zoom = math.max(1.0, zoom / (1 + pull * math.sin(math.pi * t)));
+    final floor = math.min(1.0, math.min(from.zoom, to.zoom));
+    zoom = math.max(floor, zoom / (1 + pull * math.sin(math.pi * t)));
     return PdfCamera(
       page: page,
       x: from.x + (to.x - from.x) * t,

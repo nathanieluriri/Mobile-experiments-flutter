@@ -667,6 +667,61 @@ void main() {
     });
   });
 
+  group('putting find away', () {
+    testWidgets('Done glides a PDF back out to the size it was read at', (
+      tester,
+    ) async {
+      final store = await storeFor(kFieldGuide);
+      await pumpScreen(tester, _host(store));
+      await settle(tester);
+      expect(store.fit, FitMode.width);
+      final finder = await _search(tester, 'grain');
+      await tester.tap(find.bySemanticsLabel('Next match'));
+      await _frames(tester, 70);
+      expect(store.zoom, greaterThan(2), reason: 'find brought the page up');
+      final stoodOn = finder.matches[finder.current];
+
+      await tester.tap(find.text(kFindCancelLabel));
+      final sizes = <double>[store.zoom];
+      for (var frame = 0; frame < 70; frame++) {
+        await pumpMs(tester, 16);
+        sizes.add(store.fit == FitMode.width ? 1.0 : store.zoom);
+      }
+      expect(store.fit, FitMode.width, reason: 'back to fitting the width');
+      final shrinking = sizes
+          .where((z) => z < sizes.first - 0.05 && z > 1.05)
+          .length;
+      expect(shrinking, greaterThanOrEqualTo(8), reason: 'seen going back');
+      final rect = _pdfMatchRect(tester, stoodOn);
+      expect(rect, isNotNull);
+      expect(
+        rect!.top >= 0 && rect.bottom <= 874,
+        isTrue,
+        reason: 'the match it stood on is still on screen, at $rect',
+      );
+      await _release(tester);
+    });
+
+    testWidgets('Done keeps a size the reader chose while searching', (
+      tester,
+    ) async {
+      final store = await storeFor(kFieldGuide);
+      await pumpScreen(tester, _host(store));
+      await settle(tester);
+      await _search(tester, 'grain');
+      await tester.tap(find.bySemanticsLabel('Next match'));
+      await _frames(tester, 70);
+      store.zoomTo(4.5);
+      await _frames(tester, 4);
+
+      await tester.tap(find.text(kFindCancelLabel));
+      await _frames(tester, 70);
+      expect(store.fit, FitMode.free);
+      expect(store.zoom, 4.5, reason: 'a size somebody chose is theirs');
+      await _release(tester);
+    });
+  });
+
   group('typing a query', () {
     testWidgets('starts from where the reader is and goes there once they stop', (
       tester,
