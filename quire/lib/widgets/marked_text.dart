@@ -1,6 +1,8 @@
 import 'package:flutter/semantics.dart';
 import 'package:flutter/widgets.dart';
 
+import '../painting/marker_stroke.dart';
+
 /// One run of text under a highlighter stroke.
 ///
 /// [fill] is how much of the stroke has been drawn, 0 to 1 from the left, so a
@@ -259,43 +261,15 @@ class RenderMarkedText extends RenderBox {
         TextSelection(baseOffset: run.start, extentOffset: run.end),
       );
       for (final box in boxes) {
-        final rect = box.toRect().shift(offset);
-        if (run.fill >= 1) {
-          canvas.drawPath(_stroke(rect), paint);
-          continue;
-        }
-        // A part drawn stroke is clipped from the left, so the marker looks
-        // like it is still travelling across the word.
-        canvas.save();
-        canvas.clipRect(
-          Rect.fromLTWH(
-            rect.left - _overhang - _lean,
-            rect.top,
-            rect.width * run.fill + (_overhang + _lean) * 2,
-            rect.height,
-          ),
+        paintMarkerStroke(
+          canvas,
+          box.toRect().shift(offset),
+          paint,
+          fill: run.fill,
         );
-        canvas.drawPath(_stroke(rect), paint);
-        canvas.restore();
       }
     }
     _painter.paint(canvas, offset);
-  }
-
-  static const _lean = 1.6;
-  static const _overhang = 2.0;
-
-  /// A marker stroke over the word: a touch wider than the glyphs, sitting off
-  /// the baseline, and leaning the way a hand holding a pen would lean it.
-  Path _stroke(Rect box) {
-    final top = box.top + box.height * 0.14;
-    final bottom = box.bottom - box.height * 0.08;
-    return Path()
-      ..moveTo(box.left - _overhang + _lean, top)
-      ..lineTo(box.right + _overhang + _lean, top)
-      ..lineTo(box.right + _overhang - _lean, bottom)
-      ..lineTo(box.left - _overhang - _lean, bottom)
-      ..close();
   }
 
   @override

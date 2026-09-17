@@ -7,7 +7,10 @@ import '../../../services/document_store.dart';
 import '../../../theme/colors.dart';
 import '../../../theme/metrics.dart';
 import '../../../theme/typography.dart';
+import '../../../widgets/marked_text.dart';
+import '../../../widgets/paragraph_marks.dart';
 import '../back_layer.dart';
+import '../find/find_layer.dart';
 import '../sheet_surface.dart';
 import 'page_states.dart';
 
@@ -244,9 +247,16 @@ class QuoteBar extends StatelessWidget {
 /// A fenced block, on its own slab, scrolling sideways inside its own clip so
 /// the reading column never scrolls with it.
 class CodeSlab extends StatelessWidget {
-  const CodeSlab({super.key, required this.block});
+  const CodeSlab({
+    super.key,
+    required this.block,
+    this.marks = const <BlockMark>[],
+  });
 
   final CodeBlock block;
+
+  /// What a find has turned up in the block, set as its own text is.
+  final List<BlockMark> marks;
 
   @override
   Widget build(BuildContext context) {
@@ -272,9 +282,22 @@ class CodeSlab extends StatelessWidget {
             ),
             child: SingleChildScrollView(
               scrollDirection: Axis.horizontal,
-              child: Text(
-                block.text,
-                style: AppText.code.copyWith(color: AppColors.inkSoft),
+              child: ParagraphMarks(
+                marks: <TextMark>[
+                  for (final mark in marks)
+                    if (mark.within.isEmpty)
+                      TextMark(
+                        start: mark.start,
+                        end: mark.end,
+                        fill: mark.fill,
+                        color: mark.color,
+                      ),
+                ],
+                markerColor: AppColors.foundWash,
+                child: Text(
+                  block.text,
+                  style: AppText.code.copyWith(color: AppColors.inkSoft),
+                ),
               ),
             ),
           ),
@@ -315,10 +338,18 @@ class ProseRule extends StatelessWidget {
 /// reading measure and set a step smaller than the text around it, inside a
 /// hairline box so it reads as an inset rather than as the column itself.
 class ProseTable extends StatelessWidget {
-  const ProseTable({super.key, required this.table, this.measure = kProseMeasure});
+  const ProseTable({
+    super.key,
+    required this.table,
+    this.measure = kProseMeasure,
+    this.marks = const <BlockMark>[],
+  });
 
   final TableBlock table;
   final double measure;
+
+  /// What a find has turned up in the table's cells.
+  final List<BlockMark> marks;
 
   @override
   Widget build(BuildContext context) {
@@ -394,7 +425,7 @@ class ProseTable extends StatelessWidget {
             if (!row.cells[c].merged)
               SizedBox(
                 width: _spanWidth(row.cells[c], c, widths),
-                child: _cell(row.cells[c], row.header, c),
+                child: _cell(row.cells[c], row.header, c, index),
               ),
         ],
       ),
@@ -409,7 +440,7 @@ class ProseTable extends StatelessWidget {
     return width;
   }
 
-  Widget _cell(DocCell cell, bool header, int index) {
+  Widget _cell(DocCell cell, bool header, int index, int row) {
     final align = cell.align ??
         (index < table.columns.length ? table.columns[index].align : null) ??
         (cell.numeric ? DocAlign.end : DocAlign.start);
@@ -424,16 +455,55 @@ class ProseTable extends StatelessWidget {
           DocAlign.end => Alignment.centerRight,
           _ => Alignment.centerLeft,
         },
-        child: Text(
-          cell.text,
-          textAlign: align == DocAlign.center ? TextAlign.center : null,
-          style: header
-              ? AppText.cellHeader.copyWith(color: AppColors.ink)
-              : AppText.cell.copyWith(color: AppColors.inkSoft),
+        child: ParagraphMarks(
+          marks: _cellMarks(cell, row, index),
+          markerColor: AppColors.foundWash,
+          child: Text(
+            cell.text,
+            textAlign: align == DocAlign.center ? TextAlign.center : null,
+            style: header
+                ? AppText.cellHeader.copyWith(color: AppColors.ink)
+                : AppText.cell.copyWith(color: AppColors.inkSoft),
+          ),
         ),
       ),
     );
   }
+
+  /// The strokes for one cell, moved from the offsets inside the cell's own
+  /// block to the offsets in the cell's text, which sets its blocks one line
+  /// each.
+  List<TextMark> _cellMarks(DocCell cell, int row, int column) {
+    if (marks.isEmpty) return const <TextMark>[];
+    final out = <TextMark>[];
+    for (final mark in marks) {
+      final within = mark.within;
+      if (within.length != 3 || within[0] != row || within[1] != column) {
+        continue;
+      }
+      var before = 0;
+      for (var b = 0; b < within[2] && b < cell.blocks.length; b++) {
+        before += _lineOf(cell.blocks[b]).length + 1;
+      }
+      out.add(
+        TextMark(
+          start: before + mark.start,
+          end: before + mark.end,
+          fill: mark.fill,
+          color: mark.color,
+        ),
+      );
+    }
+    return out;
+  }
+
+  static String _lineOf(DocBlock block) => switch (block) {
+    ParagraphBlock() => block.text,
+    HeadingBlock() => block.text,
+    ListItemBlock() => block.text,
+    CodeBlock() => block.text,
+    _ => '',
+  };
 }
 
 /// One block of a document, in the reading column.
@@ -448,9 +518,13 @@ class ProseBlockView extends StatelessWidget {
     this.assets = const <String, Uint8List>{},
     this.measure = kProseMeasure,
     this.foldBreaks = false,
+    this.marks = const <BlockMark>[],
   });
 
   final DocBlock block;
+
+  /// What a find has turned up in this block, for the highlighter.
+  final List<BlockMark> marks;
 
   /// A document's own media, keyed by the path the file stored it under.
   final Map<String, Uint8List> assets;
@@ -467,37 +541,70 @@ class ProseBlockView extends StatelessWidget {
       HeadingBlock() => _heading(block as HeadingBlock),
       ParagraphBlock() => _paragraph(block as ParagraphBlock),
       ListItemBlock() => _listItem(block as ListItemBlock),
-      CodeBlock() => CodeSlab(block: block as CodeBlock),
+      CodeBlock() => CodeSlab(block: block as CodeBlock, marks: marks),
       DividerBlock() => ProseRule(measure: measure),
       ImageBlock() => _image(block as ImageBlock),
-      TableBlock() => ProseTable(table: block as TableBlock, measure: measure),
+      TableBlock() => ProseTable(
+        table: block as TableBlock,
+        measure: measure,
+        marks: marks,
+      ),
     };
   }
 
-  Widget _heading(HeadingBlock block) => Text.rich(
-    proseSpansOf(
-      block.spans,
-      base: proseHeadingStyle(block),
-      color: AppColors.ink,
-      foldBreaks: foldBreaks,
+  Widget _heading(HeadingBlock block) => _marked(
+    block.spans,
+    Text.rich(
+      proseSpansOf(
+        block.spans,
+        base: proseHeadingStyle(block),
+        color: AppColors.ink,
+        foldBreaks: foldBreaks,
+      ),
+      style: proseHeadingStyle(block).copyWith(color: AppColors.ink),
     ),
-    style: proseHeadingStyle(block).copyWith(color: AppColors.ink),
   );
+
+  /// [text] with the highlighter under whatever a find turned up in [spans],
+  /// moved from the block's own text to the text [text] lays out.
+  Widget _marked(List<DocSpan> spans, Widget text) {
+    final laidOut = <TextMark>[];
+    for (final mark in marks) {
+      if (mark.within.isNotEmpty) continue;
+      final (start, end) = proseRangeOf(
+        spans,
+        mark.start,
+        mark.end,
+        foldBreaks: foldBreaks,
+      );
+      laidOut.add(
+        TextMark(start: start, end: end, fill: mark.fill, color: mark.color),
+      );
+    }
+    return ParagraphMarks(
+      marks: laidOut,
+      markerColor: AppColors.foundWash,
+      child: text,
+    );
+  }
 
   Widget _paragraph(ParagraphBlock block) {
     // A caption belongs to the picture above it, so it is set as metadata
     // rather than as prose. The file's own style name is what says so.
     final caption = block.styleId == 'Caption';
-    final text = Text.rich(
-      proseSpansOf(
-        block.spans,
-        color: caption ? AppColors.inkFaint : null,
-        base: caption ? AppText.docMeta : null,
-        foldBreaks: foldBreaks,
-      ),
-      textAlign: _align(block.align),
-      style: (caption ? AppText.docMeta : AppText.pageBody).copyWith(
-        color: caption ? AppColors.inkFaint : AppColors.inkSoft,
+    final text = _marked(
+      block.spans,
+      Text.rich(
+        proseSpansOf(
+          block.spans,
+          color: caption ? AppColors.inkFaint : null,
+          base: caption ? AppText.docMeta : null,
+          foldBreaks: foldBreaks,
+        ),
+        textAlign: _align(block.align),
+        style: (caption ? AppText.docMeta : AppText.pageBody).copyWith(
+          color: caption ? AppColors.inkFaint : AppColors.inkSoft,
+        ),
       ),
     );
     final quoted = block.quote ? QuoteBar(child: text) : text;
@@ -509,9 +616,12 @@ class ProseBlockView extends StatelessWidget {
   }
 
   Widget _listItem(ListItemBlock block) {
-    final text = Text.rich(
-      proseSpansOf(block.spans, foldBreaks: foldBreaks),
-      style: AppText.pageBody.copyWith(color: AppColors.inkSoft),
+    final text = _marked(
+      block.spans,
+      Text.rich(
+        proseSpansOf(block.spans, foldBreaks: foldBreaks),
+        style: AppText.pageBody.copyWith(color: AppColors.inkSoft),
+      ),
     );
     final checked = block.checked;
     final Widget marker;
@@ -619,6 +729,46 @@ String foldLineBreak(String text) =>
 
 final RegExp _lineBreak = RegExp('[ \t]*\r?\n[ \t]*');
 
+/// Where a run of a block's own text, [start] to [end], ends up in the text
+/// [proseSpansOf] lays out for it.
+///
+/// The two differ in two ways. Inline code and raised or lowered letters are
+/// set as pictures of themselves, each one character of the laid out text
+/// however long it is, so a run inside one covers the whole picture. And a
+/// Markdown paragraph's line breaks are folded into single spaces, which
+/// shortens the text after each of them.
+(int, int) proseRangeOf(
+  List<DocSpan> spans,
+  int start,
+  int end, {
+  bool foldBreaks = false,
+}) {
+  int laidOut(int offset, {required bool closing}) {
+    var raw = 0;
+    var laid = 0;
+    for (final span in spans) {
+      final length = span.text.length;
+      final pictured = span.mono || span.script != 0;
+      final inside = offset - raw;
+      if (inside < length || (inside == length && !closing)) {
+        if (inside <= 0) return laid;
+        if (pictured) return closing ? laid + 1 : laid;
+        if (!foldBreaks) return laid + inside;
+        return laid + foldLineBreak(span.text.substring(0, inside)).length;
+      }
+      raw += length;
+      laid += pictured
+          ? 1
+          : (foldBreaks ? foldLineBreak(span.text).length : length);
+    }
+    return laid;
+  }
+
+  final laidStart = laidOut(start, closing: false);
+  final laidEnd = laidOut(end, closing: true);
+  return (laidStart, laidEnd < laidStart ? laidStart : laidEnd);
+}
+
 /// The runs of a paragraph as one span tree.
 InlineSpan proseSpansOf(
   List<DocSpan> spans, {
@@ -672,10 +822,14 @@ class ProseColumn extends StatelessWidget {
     this.anchorKey,
     this.measure = kProseMeasure,
     this.foldBreaks = false,
+    this.marksFor,
   });
 
   final List<DocBlock> blocks;
   final Map<String, Uint8List> assets;
+
+  /// What a find has turned up in the block at a given place in [blocks].
+  final List<BlockMark> Function(int block)? marksFor;
 
   /// The block the sheet opens at, and the key that finds it after layout.
   final int anchorBlock;
@@ -703,6 +857,7 @@ class ProseColumn extends StatelessWidget {
                 assets: assets,
                 measure: measure,
                 foldBreaks: foldBreaks,
+                marks: marksFor?.call(i) ?? const <BlockMark>[],
               ),
             ),
           ],
@@ -725,10 +880,14 @@ class ProseBody extends ReaderBody {
     required this.document,
     this.source,
     this.anchorBlock = 0,
+    this.find,
   });
 
   final DocumentStore store;
   final QuireDocument document;
+
+  /// The search open over this document, if there is one.
+  final FindController? find;
 
   /// The file's own bytes as text, for the back of a Markdown sheet. A Word
   /// file has no source to show, so its back carries style names instead.
@@ -754,7 +913,24 @@ class ProseBody extends ReaderBody {
       assets: document.assets,
       anchorBlock: anchorBlock,
       foldBreaks: document.sourceFormat == 'md',
+      marksFor: _marksFor(),
     );
+  }
+
+  /// Turns a place in the laid out column back into the section and block a
+  /// match names, and asks the search what it found there.
+  List<BlockMark> Function(int block)? _marksFor() {
+    final search = find;
+    if (search == null) return null;
+    final places = <(int, int)>[
+      for (var s = 0; s < document.sections.length; s++)
+        for (var b = 0; b < document.sections[s].blocks.length; b++) (s, b),
+    ];
+    return (block) {
+      if (block < 0 || block >= places.length) return const <BlockMark>[];
+      final (section, index) = places[block];
+      return search.marksInBlock(section, index);
+    };
   }
 
   /// The back of a flowing sheet: a Markdown file's own source, or the style
@@ -816,12 +992,16 @@ class ProseSheet extends StatefulWidget {
     this.assets = const <String, Uint8List>{},
     this.anchorBlock = 0,
     this.foldBreaks = false,
+    this.marksFor,
   });
 
   final DocumentStore store;
   final List<DocBlock> blocks;
   final Map<String, Uint8List> assets;
   final int anchorBlock;
+
+  /// See [ProseColumn.marksFor].
+  final List<BlockMark> Function(int block)? marksFor;
 
   /// See [ProseBlockView.foldBreaks].
   final bool foldBreaks;
@@ -953,6 +1133,7 @@ class _ProseSheetState extends State<ProseSheet> {
           anchorBlock: widget.anchorBlock,
           anchorKey: _anchor,
           foldBreaks: widget.foldBreaks,
+          marksFor: widget.marksFor,
         ),
       ),
     );

@@ -586,7 +586,7 @@ class _ReaderHostState extends State<ReaderHost> with TickerProviderStateMixin {
     final pages = _pages;
     if (store.isPdf) {
       if (pages == null) return _NoBody(store: store);
-      return PdfBody(store: store, pages: pages, frames: _frames);
+      return PdfBody(store: store, pages: pages, frames: _frames, find: _find);
     }
     final document = store.document;
     if (document == null) return _NoBody(store: store);
@@ -598,6 +598,7 @@ class _ReaderHostState extends State<ReaderHost> with TickerProviderStateMixin {
       document: document,
       source: _markdownSource(),
       anchorBlock: _openedAt,
+      find: _find,
     );
   }
 

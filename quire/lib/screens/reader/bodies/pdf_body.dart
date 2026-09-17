@@ -7,6 +7,7 @@ import '../../../theme/feedback.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/widgets.dart';
 
+import '../../../painting/page_marks_painter.dart';
 import '../../../painting/pdf_page_painter.dart';
 import '../../../painting/signature_painter.dart';
 import '../../../pdf/display_list.dart';
@@ -19,6 +20,7 @@ import '../../../theme/colors.dart';
 import '../../../theme/metrics.dart';
 import '../../../theme/typography.dart';
 import '../back_layer.dart';
+import '../find/find_layer.dart';
 import '../page_frames.dart';
 import '../sheet_surface.dart';
 import 'page_states.dart';
@@ -490,9 +492,13 @@ class PdfPageView extends StatelessWidget {
     required this.width,
     this.shimmer = 0,
     this.signatures = const <PlacedSignature>[],
+    this.marks = const <PageMark>[],
   });
 
   final PdfPageRender page;
+
+  /// What a find has turned up on this page, to go over with the highlighter.
+  final List<PageMark> marks;
 
   /// Every signature the document holds. The painter takes the ones that
   /// belong to this page.
@@ -567,6 +573,16 @@ class PdfPageView extends StatelessWidget {
             ),
           ),
         ),
+        Positioned.fill(
+          child: IgnorePointer(
+            child: CustomPaint(
+              painter: PageMarksPainter(
+                marks: _measured(),
+                pageWidthPts: list.widthPts,
+              ),
+            ),
+          ),
+        ),
         if (page.plan == RenderPlan.textOnly)
           for (final image in list.images)
             if (page.images[image.name] == null)
@@ -587,6 +603,28 @@ class PdfPageView extends StatelessWidget {
           _folio(AppColors.pageInk.withValues(alpha: kPaperMarkAlpha)),
       ],
     );
+  }
+
+  /// [marks] over the letters as this page sets them, rather than over the
+  /// share of each line the search could only estimate.
+  List<PageMark> _measured() {
+    if (marks.isEmpty) return marks;
+    final runs = page.runs;
+    return <PageMark>[
+      for (final mark in marks)
+        if (mark.run case final run? when run >= 0 && run < runs.length)
+          mark.over(
+            paintedSlice(
+              runs[run],
+              mark.start,
+              mark.end,
+              serifFamily: kPdfSerifFamily,
+              sansFamily: kPdfSansFamily,
+            ),
+          )
+        else
+          mark,
+    ];
   }
 
   /// The page's own number, inside its own corner, the way a printed book
@@ -622,6 +660,7 @@ class PdfBody extends ReaderBody {
     required this.store,
     required this.pages,
     this.frames,
+    this.find,
   });
 
   final DocumentStore store;
@@ -631,9 +670,12 @@ class PdfBody extends ReaderBody {
   /// placement, which cannot record a mark against paper it cannot find.
   final PageFrames? frames;
 
+  /// The search open over this document, if there is one.
+  final FindController? find;
+
   @override
   Widget buildFront(BuildContext context) =>
-      PdfPageBlock(store: store, pages: pages, frames: frames);
+      PdfPageBlock(store: store, pages: pages, frames: frames, find: find);
 
   /// Makes the current page's text layer ready before a corner can move.
   ///
@@ -684,6 +726,7 @@ class PdfPageBlock extends StatefulWidget {
     required this.pages,
     this.frames,
     this.width = kSheetWidth,
+    this.find,
   });
 
   final DocumentStore store;
@@ -691,6 +734,9 @@ class PdfPageBlock extends StatefulWidget {
 
   /// Reported to after every frame, with the current page's rectangle.
   final PageFrames? frames;
+
+  /// The search open over the document, whose matches the pages mark.
+  final FindController? find;
 
   final double width;
 
@@ -988,6 +1034,7 @@ class _PdfPageBlockState extends State<PdfPageBlock>
                   width: drawn,
                   shimmer: _shimmer.value,
                   signatures: widget.store.signatures,
+                  marks: widget.find?.marksOnPage(index) ?? const <PageMark>[],
                 ),
                 if (index < _layout.pageCount - 1)
                   const SizedBox(

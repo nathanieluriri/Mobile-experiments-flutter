@@ -9,6 +9,7 @@ import 'package:flutter/widgets.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../../model/search.dart';
+import '../../../painting/page_marks_painter.dart';
 import '../../../pdf/pdf_search.dart';
 import '../../../theme/colors.dart';
 import '../../../theme/easings.dart';
@@ -94,6 +95,31 @@ class FindMatch {
 
   /// The section or sheet name the match was found under.
   final String label;
+}
+
+/// One match inside a block of a flowing document, as the block needs it to
+/// put the highlighter under it.
+@immutable
+class BlockMark {
+  const BlockMark({
+    required this.within,
+    required this.start,
+    required this.end,
+    required this.fill,
+    required this.color,
+  });
+
+  /// Where in the block the match is: empty for the block's own text, or the
+  /// row, the column and the block inside a table cell.
+  final List<int> within;
+
+  /// Character offsets inside the text [within] names, as the index read it.
+  final int start;
+  final int end;
+
+  /// How much of the stroke is drawn, and in what.
+  final double fill;
+  final Color color;
 }
 
 /// Where a find layer gets its matches.
@@ -336,6 +362,45 @@ class FindController extends ChangeNotifier {
       out.add(SweptRange(start: match.start, end: match.end, ordinal: i));
     }
     return out;
+  }
+
+  /// The strokes for every match on [page] of a page file, where the sweep has
+  /// got to with each of them.
+  List<PageMark> marksOnPage(int page) {
+    if (_matches.isEmpty) return const <PageMark>[];
+    final now = frame;
+    return <PageMark>[
+      for (var i = 0; i < _matches.length; i++)
+        if (_matches[i].unit == page && _matches[i].box != null)
+          PageMark(
+            box: _matches[i].box!,
+            fill: now.fillOf(i),
+            color: now.colorOf(i),
+            run: _matches[i].path.isEmpty ? null : _matches[i].path.first,
+            start: _matches[i].start,
+            end: _matches[i].end,
+          ),
+    ];
+  }
+
+  /// The strokes for every match inside top level block [block] of [section]
+  /// of a flowing document, its table cells included.
+  List<BlockMark> marksInBlock(int section, int block) {
+    if (_matches.isEmpty) return const <BlockMark>[];
+    final now = frame;
+    return <BlockMark>[
+      for (var i = 0; i < _matches.length; i++)
+        if (_matches[i].section == section &&
+            _matches[i].path.isNotEmpty &&
+            _matches[i].path.first == block)
+          BlockMark(
+            within: _matches[i].path.sublist(1),
+            start: _matches[i].start,
+            end: _matches[i].end,
+            fill: now.fillOf(i),
+            color: now.colorOf(i),
+          ),
+    ];
   }
 
   static bool _samePath(List<int> a, List<int> b) {

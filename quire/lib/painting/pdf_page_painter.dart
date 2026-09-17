@@ -6,6 +6,81 @@ import '../theme/colors.dart';
 
 export '../pdf/display_list.dart' show LaidOutRun, mergeRuns, kWordGapEm;
 
+/// A merged line of a page, set in the app's typeface the way the page paints
+/// it, laid out and ready to paint or measure.
+TextPainter setRun(
+  LaidOutRun r, {
+  required String serifFamily,
+  required String sansFamily,
+}) {
+  return TextPainter(
+    text: TextSpan(
+      text: r.text,
+      style: TextStyle(
+        fontFamily: (r.style & 4) != 0 ? serifFamily : sansFamily,
+        fontSize: r.size,
+        height: 1.0,
+        fontWeight: (r.style & 1) != 0 ? FontWeight.w700 : FontWeight.w400,
+        fontStyle: (r.style & 2) != 0 ? FontStyle.italic : FontStyle.normal,
+        color: Color(r.color),
+      ),
+    ),
+    textDirection: TextDirection.ltr,
+    maxLines: 1,
+  )..layout();
+}
+
+/// How far [set] is squeezed or stretched across to fill the width the file
+/// says the line occupies, so line breaks and column edges land where they
+/// should. A line that would have to go past half again or half as much again
+/// is left at its own width, because by then the file's width is the wrong
+/// one rather than the typeface's.
+double runSqueeze(LaidOutRun r, TextPainter set) {
+  final sx = (r.width > 0 && set.width > 0) ? r.width / set.width : 1.0;
+  return sx > 0.55 && sx < 1.8 ? sx : 1.0;
+}
+
+/// The box characters [start] to [end] of [run] occupy as the page paints
+/// them, in the page's own points.
+///
+/// The search can only interpolate across a line, because it never sees the
+/// typeface. This measures the letters where they are actually set, so a
+/// highlighter over a word covers that word and not a slice of the line that
+/// happens to be as long. Each answer is kept against its line, because a
+/// sweep asks again every frame it runs.
+Rect paintedSlice(
+  LaidOutRun run,
+  int start,
+  int end, {
+  required String serifFamily,
+  required String sansFamily,
+}) {
+  final held = _slices[run] ??= <(int, int), Rect>{};
+  return held[(start, end)] ??= () {
+    final set = setRun(run, serifFamily: serifFamily, sansFamily: sansFamily);
+    final squeeze = runSqueeze(run, set);
+    final letters = set.getBoxesForSelection(
+      TextSelection(baseOffset: start, extentOffset: end),
+    );
+    set.dispose();
+    if (letters.isEmpty) return run.sliceBounds(start, end);
+    var left = double.infinity;
+    var right = double.negativeInfinity;
+    for (final box in letters) {
+      left = math.min(left, box.left);
+      right = math.max(right, box.right);
+    }
+    return Rect.fromLTWH(
+      run.x + left * squeeze,
+      run.y - run.size * 0.8,
+      (right - left) * squeeze,
+      run.size,
+    );
+  }();
+}
+
+final Expando<Map<(int, int), Rect>> _slices = Expando<Map<(int, int), Rect>>();
+
 /// Paints one page of a PDF from its display list.
 ///
 /// Decoded images arrive from the caller, keyed by [ImageCmd.name], because a
@@ -125,27 +200,10 @@ class PageListPainter extends CustomPainter {
   }
 
   void _text(Canvas canvas, LaidOutRun r) {
-    final tp = TextPainter(
-      text: TextSpan(
-        text: r.text,
-        style: TextStyle(
-          fontFamily: (r.style & 4) != 0 ? serifFamily : sansFamily,
-          fontSize: r.size,
-          height: 1.0,
-          fontWeight: (r.style & 1) != 0 ? FontWeight.w700 : FontWeight.w400,
-          fontStyle: (r.style & 2) != 0 ? FontStyle.italic : FontStyle.normal,
-          color: Color(r.color),
-        ),
-      ),
-      textDirection: TextDirection.ltr,
-      maxLines: 1,
-    )..layout();
-    // Squeeze or stretch the laid-out text onto the width the PDF says the
-    // run occupies, so line breaks and column edges land where they should.
-    final sx = (r.width > 0 && tp.width > 0) ? r.width / tp.width : 1.0;
+    final tp = setRun(r, serifFamily: serifFamily, sansFamily: sansFamily);
     canvas.save();
     canvas.translate(r.x, r.y - r.size * 0.8);
-    if (sx > 0.55 && sx < 1.8) canvas.scale(sx, 1);
+    canvas.scale(runSqueeze(r, tp), 1);
     tp.paint(canvas, Offset.zero);
     canvas.restore();
   }
