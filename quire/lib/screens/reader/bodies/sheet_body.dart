@@ -7,6 +7,9 @@ import '../../../services/document_store.dart';
 import '../../../theme/easings.dart';
 import '../../../theme/metrics.dart';
 import '../../../theme/springs.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
+
+import '../../desk/desk_sheet.dart';
 import '../sheet_surface.dart';
 import 'cell_bar.dart';
 import 'page_states.dart';
@@ -412,6 +415,37 @@ class _SheetViewState extends State<SheetView> with TickerProviderStateMixin {
     setState(() => _under = want);
   }
 
+  /// Every sheet in the workbook, for a file with more of them than the foot
+  /// of a phone can hold.
+  Future<void> _allSheets(QuireDocument document, int showing) async {
+    final picked = await showDeskSheet<int>(
+      context,
+      (context) => DeskSheet(
+        title: 'Sheets',
+        note: 'One workbook, however many sheets it was written on.',
+        children: <Widget>[
+          for (var i = 0; i < document.sections.length; i++)
+            DeskSheetRow(
+              label: document.sections[i].title,
+              icon: i == showing ? LucideIcons.squareCheck : LucideIcons.table2,
+              note: _rowsOn(document.sections[i]),
+              onTap: () => Navigator.of(context).pop(i),
+            ),
+        ],
+      ),
+    );
+    if (picked == null || !mounted) return;
+    _sheet.sheet = picked;
+  }
+
+  /// How many rows a sheet holds, in the words the desk uses for a count.
+  String _rowsOn(DocSection section) {
+    final table = _tableIn(section);
+    if (table == null) return 'Nothing on it';
+    final rows = table.rows.length;
+    return rows == 1 ? '1 row' : '$rows rows';
+  }
+
   /// The cell the grid is being asked to bring into view, if any.
   ///
   /// It is a cell rather than a row because the grid moves in two directions
@@ -504,6 +538,7 @@ class _SheetViewState extends State<SheetView> with TickerProviderStateMixin {
                     ],
                     active: index,
                     onSelect: (next) => _sheet.sheet = next,
+                    onAll: () => _allSheets(document, index),
                   ),
               ],
             ),

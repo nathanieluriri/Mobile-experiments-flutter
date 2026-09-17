@@ -222,7 +222,14 @@ const kOpenColumnMax = 272.0;
 const kTableHeaderHeight = 32.0;
 const kTableRowHeight = 30.0;
 const kCellPaddingX = 8.0;
-const kSheetTabHeight = 28.0;
+const kSheetTabHeight = 44.0;
+
+/// The pill a sheet's name sits in, and the room round the name inside it.
+const kSheetTabPill = 30.0;
+const kSheetTabPadX = 14.0;
+
+/// The glyph on the button that lists every sheet.
+const kSheetTabGlyph = 19.0;
 const kParseStripHeight = 20.0;
 const kCellBarHeight = 40.0;
 

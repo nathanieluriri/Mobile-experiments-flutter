@@ -199,7 +199,7 @@ void main() {
     testWidgets('switching sheets changes the grid', (tester) async {
       final store = await storeFor(kPressRunCosts);
       await _pumpSheet(tester, store);
-      await tester.tap(find.text('Paper'));
+      await tester.tap(find.text('Paper').last);
       await settle(tester);
       expect(SheetController.of(store).sheet, 1);
       await capture(tester, 'reader__sheet_second');
@@ -238,6 +238,35 @@ void main() {
     });
   });
 
+  group('the sheets of a workbook', () {
+    testWidgets('the fill travels from one sheet to the next', (tester) async {
+      final store = await storeFor(kPressRunCosts);
+      await _pumpSheet(tester, store);
+      await tester.tap(find.text('Paper').last);
+      await tester.pump();
+      await pumpMs(tester, kTabTravel.inMilliseconds ~/ 2);
+      await capture(tester, 'sheet__tabs_travelling');
+      await settle(tester);
+      expect(SheetController.of(store).sheet, 1);
+    });
+
+    testWidgets('every sheet is a tap away, whatever the foot can show', (
+      tester,
+    ) async {
+      final store = await storeFor(kPressRunCosts);
+      await _pumpSheet(tester, store);
+
+      await tester.tap(find.bySemanticsLabel('Every sheet in this workbook'));
+      await settle(tester);
+      expect(find.text('Sheets'), findsOneWidget);
+      await capture(tester, 'sheet__all_sheets');
+
+      await tester.tap(find.text('Summary').last);
+      await settle(tester);
+      expect(SheetController.of(store).sheet, 2);
+    });
+  });
+
   group('the goldens', () {
     testWidgets('reader__sheet_xlsx', (tester) async {
       final store = await storeFor(kPressRunCosts);
@@ -248,7 +277,7 @@ void main() {
     testWidgets('reader__sheet_tabs', (tester) async {
       final store = await storeFor(kPressRunCosts);
       await _pumpSheet(tester, store);
-      await tester.tap(find.text('Paper'));
+      await tester.tap(find.text('Paper').last);
       await settle(tester);
       await capture(tester, 'reader__sheet_tabs');
     });
