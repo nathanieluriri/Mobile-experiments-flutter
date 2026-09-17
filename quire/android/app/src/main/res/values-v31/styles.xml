@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Android 12 took the splash off the app and gave it to the system, which
+         reads it from these three values: the ground behind everything, the
+         mark in the middle, and the name at the foot. NormalTheme is untouched
+         and still comes from values/styles.xml, because what the window does
+         once the app is up has not changed. -->
+    <style name="LaunchTheme" parent="@android:style/Theme.Light.NoTitleBar">
+        <item name="android:windowSplashScreenBackground">@color/launch_ground</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/quire_splash_icon</item>
+        <item name="android:windowSplashScreenBrandingImage">@drawable/quire_wordmark</item>
+        <!-- What is left once the system's icon has gone and before Flutter has
+             drawn: the ground on its own. The mark and the name are the
+             system's to draw here, and a second copy of them underneath would
+             show through the frame that has not arrived yet. -->
+        <item name="android:windowBackground">@color/launch_ground</item>
+    </style>
+</resources>

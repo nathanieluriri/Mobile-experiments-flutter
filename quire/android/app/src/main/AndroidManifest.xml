@@ -37,15 +37,50 @@
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
+        </activity>
 
-            <!-- Opening a document from a file manager, a mail client, or a
-                 browser download. Kept apart from the launcher filter above,
-                 because a filter that carried both would make every one of
-                 these a way of starting the app with no document at all.
+        <!-- Opening a document from a file manager, a mail client or a browser
+             download, and being sent one from another app's share sheet. One
+             alias for each kind of file quire reads.
 
-                 text/plain is deliberately not here. It would put quire in
-                 front of every note, log and config file on the phone, which
-                 is a claim this app has no business making. -->
+             They are aliases and not filters on the activity because an icon
+             and a label hang off a component, and there is only one activity:
+             with the filters up there, every chooser in the phone showed the
+             bare logo and left the reader to remember what they had tapped.
+             Each of these is the same activity wearing the mark of the file it
+             is about to open. None of them is a way into the app on its own,
+             and none carries a launcher category, so the home screen still has
+             exactly the one icon it had before.
+
+             The types are split so that no file can match two aliases, which
+             would stand quire in the chooser twice. An intent names exactly one
+             type, so the whole of the rule is this: a type string appears on
+             one alias and on no other, and nothing here uses a wildcard. A
+             text/* on the markdown alias would take in text/csv as well, and
+             then a csv would match two of these at once. A csv offered as
+             text/csv is the csv alias's; the same file offered as text/plain is
+             the markdown alias's. Which of the two the phone says is the
+             phone's business, and either way one alias answers.
+
+             Every alias repeats the activity's two meta-data lines because the
+             engine reads them off the component it was launched through, and an
+             alias is not the activity it points at. Left off, a document opened
+             through one of these would be read as a deep link again, a blank
+             page for every segment of its address. -->
+        <activity-alias
+            android:name=".OpenPdf"
+            android:targetActivity=".MainActivity"
+            android:enabled="true"
+            android:exported="true"
+            android:icon="@mipmap/ic_open_pdf"
+            android:label="Quire · PDF">
+            <meta-data
+              android:name="io.flutter.embedding.android.NormalTheme"
+              android:resource="@style/NormalTheme"
+              />
+            <meta-data
+              android:name="flutter_deeplinking_enabled"
+              android:value="false" />
             <intent-filter>
                 <action android:name="android.intent.action.VIEW"/>
                 <category android:name="android.intent.category.DEFAULT"/>
@@ -53,38 +88,183 @@
                 <data android:scheme="content"/>
                 <data android:scheme="file"/>
                 <data android:mimeType="application/pdf"/>
-                <data android:mimeType="application/vnd.openxmlformats-officedocument.wordprocessingml.document"/>
-                <data android:mimeType="application/msword"/>
-                <data android:mimeType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"/>
-                <data android:mimeType="application/vnd.ms-excel"/>
-                <data android:mimeType="text/csv"/>
-                <data android:mimeType="text/markdown"/>
             </intent-filter>
-
-            <!-- And being sent one from another app's share sheet. -->
             <intent-filter>
                 <action android:name="android.intent.action.SEND"/>
-                <category android:name="android.intent.category.DEFAULT"/>
-                <data android:mimeType="application/pdf"/>
-                <data android:mimeType="application/vnd.openxmlformats-officedocument.wordprocessingml.document"/>
-                <data android:mimeType="application/msword"/>
-                <data android:mimeType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"/>
-                <data android:mimeType="application/vnd.ms-excel"/>
-                <data android:mimeType="text/csv"/>
-                <data android:mimeType="text/markdown"/>
-            </intent-filter>
-            <intent-filter>
                 <action android:name="android.intent.action.SEND_MULTIPLE"/>
                 <category android:name="android.intent.category.DEFAULT"/>
                 <data android:mimeType="application/pdf"/>
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".OpenDoc"
+            android:targetActivity=".MainActivity"
+            android:enabled="true"
+            android:exported="true"
+            android:icon="@mipmap/ic_open_doc"
+            android:label="Quire · DOC">
+            <meta-data
+              android:name="io.flutter.embedding.android.NormalTheme"
+              android:resource="@style/NormalTheme"
+              />
+            <meta-data
+              android:name="flutter_deeplinking_enabled"
+              android:value="false" />
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="content"/>
+                <data android:scheme="file"/>
                 <data android:mimeType="application/vnd.openxmlformats-officedocument.wordprocessingml.document"/>
                 <data android:mimeType="application/msword"/>
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND"/>
+                <action android:name="android.intent.action.SEND_MULTIPLE"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <data android:mimeType="application/vnd.openxmlformats-officedocument.wordprocessingml.document"/>
+                <data android:mimeType="application/msword"/>
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".OpenXls"
+            android:targetActivity=".MainActivity"
+            android:enabled="true"
+            android:exported="true"
+            android:icon="@mipmap/ic_open_xls"
+            android:label="Quire · XLS">
+            <meta-data
+              android:name="io.flutter.embedding.android.NormalTheme"
+              android:resource="@style/NormalTheme"
+              />
+            <meta-data
+              android:name="flutter_deeplinking_enabled"
+              android:value="false" />
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="content"/>
+                <data android:scheme="file"/>
                 <data android:mimeType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"/>
                 <data android:mimeType="application/vnd.ms-excel"/>
-                <data android:mimeType="text/csv"/>
-                <data android:mimeType="text/markdown"/>
             </intent-filter>
-        </activity>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND"/>
+                <action android:name="android.intent.action.SEND_MULTIPLE"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <data android:mimeType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"/>
+                <data android:mimeType="application/vnd.ms-excel"/>
+            </intent-filter>
+        </activity-alias>
+
+        <!-- Slides are the newest of these and the only one with no older
+             binary beside it: quire reads the zipped presentation and says so,
+             and claims nothing it cannot open. -->
+        <activity-alias
+            android:name=".OpenPpt"
+            android:targetActivity=".MainActivity"
+            android:enabled="true"
+            android:exported="true"
+            android:icon="@mipmap/ic_open_ppt"
+            android:label="Quire · PPT">
+            <meta-data
+              android:name="io.flutter.embedding.android.NormalTheme"
+              android:resource="@style/NormalTheme"
+              />
+            <meta-data
+              android:name="flutter_deeplinking_enabled"
+              android:value="false" />
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="content"/>
+                <data android:scheme="file"/>
+                <data android:mimeType="application/vnd.openxmlformats-officedocument.presentationml.presentation"/>
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND"/>
+                <action android:name="android.intent.action.SEND_MULTIPLE"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <data android:mimeType="application/vnd.openxmlformats-officedocument.presentationml.presentation"/>
+            </intent-filter>
+        </activity-alias>
+
+        <!-- Tab separated files are read as csv, delimiter and all, so they
+             belong to the csv mark rather than to a mark of their own. -->
+        <activity-alias
+            android:name=".OpenCsv"
+            android:targetActivity=".MainActivity"
+            android:enabled="true"
+            android:exported="true"
+            android:icon="@mipmap/ic_open_csv"
+            android:label="Quire · CSV">
+            <meta-data
+              android:name="io.flutter.embedding.android.NormalTheme"
+              android:resource="@style/NormalTheme"
+              />
+            <meta-data
+              android:name="flutter_deeplinking_enabled"
+              android:value="false" />
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="content"/>
+                <data android:scheme="file"/>
+                <data android:mimeType="text/csv"/>
+                <data android:mimeType="text/tab-separated-values"/>
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND"/>
+                <action android:name="android.intent.action.SEND_MULTIPLE"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <data android:mimeType="text/csv"/>
+                <data android:mimeType="text/tab-separated-values"/>
+            </intent-filter>
+        </activity-alias>
+
+        <!-- Markdown, and plain text with it. quire reads a .txt as markdown,
+             so the MD mark says what it would open one as. This is the one
+             claim on the list that reaches past documents, because every note,
+             log and config file on the phone is text/plain too: quire is
+             offered for all of them and is the default for none, which is the
+             price of being reachable from a text file at all. -->
+        <activity-alias
+            android:name=".OpenMd"
+            android:targetActivity=".MainActivity"
+            android:enabled="true"
+            android:exported="true"
+            android:icon="@mipmap/ic_open_md"
+            android:label="Quire · MD">
+            <meta-data
+              android:name="io.flutter.embedding.android.NormalTheme"
+              android:resource="@style/NormalTheme"
+              />
+            <meta-data
+              android:name="flutter_deeplinking_enabled"
+              android:value="false" />
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="content"/>
+                <data android:scheme="file"/>
+                <data android:mimeType="text/markdown"/>
+                <data android:mimeType="text/plain"/>
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND"/>
+                <action android:name="android.intent.action.SEND_MULTIPLE"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <data android:mimeType="text/markdown"/>
+                <data android:mimeType="text/plain"/>
+            </intent-filter>
+        </activity-alias>
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data

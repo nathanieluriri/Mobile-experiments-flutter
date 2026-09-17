@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Adaptive, so that every launcher's own mask lands on the same paper the
+     launcher icon is drawn on rather than on a square nobody asked for. No
+     monochrome layer: the whole point of this one is the pane that is not
+     black. -->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@color/ic_launcher_background" />
+    <foreground android:drawable="@drawable/ic_open_csv_foreground" />
+</adaptive-icon>
