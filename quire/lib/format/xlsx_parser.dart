@@ -5,6 +5,7 @@ import 'package:archive/archive.dart';
 import 'package:xml/xml.dart';
 
 import '../model/document.dart';
+import 'formula_shift.dart';
 import 'number_format.dart';
 
 /// What a worksheet cell actually holds, before any formatting is applied.
@@ -55,6 +56,16 @@ class SheetModel {
   final Map<int, double> rowHeights = {}; // row index -> points
   final List<List<int>> merges = []; // [r1, c1, r2, c2]
 
+  /// Rows and columns the file hides.
+  final Set<int> hiddenRows = {};
+  final Set<int> hiddenCols = {};
+
+  /// What the sheet gives a column or a row it says nothing else about: a
+  /// width in characters, as a column's own, and a height in points.
+  double? defaultColWidth;
+  double baseColWidth = 8;
+  double? defaultRowHeight;
+
   /// What has been said about a cell, by reference: `B2` to the discussion
   /// held on it.
   final Map<String, SheetNote> notes = {};
@@ -101,6 +112,15 @@ class XlsxParser {
   final List<int?> _fontColor = [];
   final List<int?> _fillColor = [];
   bool _date1904 = false;
+
+  /// The workbook's theme colours, in the order a cell's `theme` index
+  /// counts them: the first two pairs, light then dark, come swapped from
+  /// the order the theme part writes them in.
+  final List<int> _theme = [];
+
+  /// Formulas filled over a range, by their shared index: the formula and
+  /// the cell it was written in.
+  final Map<String, (String, int, int)> _sharedFormulas = {};
 
   static String _ln(XmlElement e) => e.name.local;
   static String? _at(XmlElement e, String local) {
@@ -160,6 +180,7 @@ class XlsxParser {
   XlsxWorkbook parse() {
     _zip = ZipDecoder().decodeBytes(bytes);
     _loadSharedStrings();
+    _loadTheme();
     _loadStyles();
     final sheets = <SheetModel>[];
 
@@ -173,20 +194,30 @@ class XlsxParser {
     }
 
     final rels = <String, String>{};
+    String? personsPath;
     final relXml = _text('xl/_rels/workbook.xml.rels');
     if (relXml != null) {
       for (final r in XmlDocument.parse(relXml).rootElement.childElements) {
         final id = _at(r, 'Id');
         final t = _at(r, 'Target');
         if (id != null && t != null) rels[id] = t;
+        if (t != null && (_at(r, 'Type') ?? '').endsWith('/person')) {
+          personsPath = t.startsWith('/')
+              ? t.substring(1)
+              : 'xl/${t.replaceAll('../', '')}';
+        }
       }
     }
+    final people = _people(personsPath);
 
     final sheetsEl = _kid(wb, 'sheets');
     if (sheetsEl == null) return XlsxWorkbook(sheets, date1904: _date1904);
     var fallbackIndex = 0;
     for (final s in sheetsEl.childElements) {
       fallbackIndex++;
+      // A sheet the file hides is not one of the sheets it shows.
+      final state = _at(s, 'state') ?? 'visible';
+      if (state == 'hidden' || state == 'veryHidden') continue;
       final name = _at(s, 'name') ?? 'Sheet$fallbackIndex';
       final rid = _at(s, 'id');
       var target = rid == null ? null : rels[rid];
@@ -196,8 +227,9 @@ class XlsxParser {
           : 'xl/${target.replaceAll('../', '')}';
       final xml = _text(path);
       if (xml == null) continue;
+      _sharedFormulas.clear();
       final sheet = _sheet(name, xml);
-      _readNotes(sheet, path);
+      _readNotes(sheet, path, people);
       sheets.add(sheet);
     }
     return XlsxWorkbook(sheets, date1904: _date1904);
@@ -208,7 +240,11 @@ class XlsxParser {
   /// The comments live in a part of their own, found through the sheet's
   /// relationships. A file without them is the usual case and leaves the
   /// sheet exactly as it was.
-  void _readNotes(SheetModel sheet, String sheetPath) {
+  void _readNotes(
+    SheetModel sheet,
+    String sheetPath,
+    Map<String, String> people,
+  ) {
     final cut = sheetPath.lastIndexOf('/');
     if (cut < 0) return;
     final folder = sheetPath.substring(0, cut);
@@ -216,17 +252,26 @@ class XlsxParser {
     final relXml = _text('$folder/_rels/$file.rels');
     if (relXml == null) return;
     String? target;
+    String? threaded;
     for (final r in XmlDocument.parse(relXml).rootElement.childElements) {
       final type = _at(r, 'Type') ?? '';
-      if (!type.endsWith('/comments')) continue;
-      target = _at(r, 'Target');
+      if (type.endsWith('/comments')) target = _at(r, 'Target');
+      if (type.endsWith('/threadedComment')) threaded = _at(r, 'Target');
     }
-    if (target == null) return;
-    final path = target.startsWith('/')
+    String partPath(String target) => target.startsWith('/')
         ? target.substring(1)
         : target.startsWith('../')
-            ? 'xl/${target.replaceAll('../', '')}'
-            : '$folder/$target';
+        ? 'xl/${target.replaceAll('../', '')}'
+        : '$folder/$target';
+    if (target != null) _readLegacyNotes(sheet, partPath(target));
+    // A conversation held in current Excel is kept in a part of its own,
+    // with the names of the people in it. Where there is one it is the real
+    // discussion, and the plain note beside it is only Excel's notice that
+    // older versions cannot edit it.
+    if (threaded != null) _readThreads(sheet, partPath(threaded), people);
+  }
+
+  void _readLegacyNotes(SheetModel sheet, String path) {
     final xml = _text(path);
     if (xml == null) return;
     final root = XmlDocument.parse(xml).rootElement;
@@ -249,15 +294,122 @@ class XlsxParser {
         if (_ln(t) == 't') said.write(t.innerText);
       }
       var text = said.toString().trim();
-      final author = who >= 0 && who < authors.length ? authors[who] : '';
+      var author = who >= 0 && who < authors.length ? authors[who] : '';
       // Excel writes the author's name into the first line of the note as
       // well. Printing it twice would be the file's habit, not the reader's.
       if (author.isNotEmpty && text.startsWith('$author:')) {
         text = text.substring(author.length + 1).trim();
       }
+      // A threaded comment's stand in: an author that is only an id, and a
+      // notice before the words. The words are what is kept.
+      if (author.startsWith('tc=')) author = '';
+      if (text.startsWith('[Threaded comment]')) {
+        final at = text.indexOf('Comment:');
+        text = at < 0 ? '' : text.substring(at + 'Comment:'.length).trim();
+      }
       if (text.isEmpty) continue;
       sheet.notes[ref] = SheetNote(author, text);
     }
+  }
+
+  /// The people a workbook's conversations name, by their id.
+  Map<String, String> _people(String? path) {
+    final people = <String, String>{};
+    final xml = path == null ? null : _text(path);
+    if (xml == null) return people;
+    for (final p in XmlDocument.parse(xml).rootElement.childElements) {
+      if (_ln(p) != 'person') continue;
+      final id = _at(p, 'id');
+      final name = _at(p, 'displayName');
+      if (id != null && name != null) people[id] = name;
+    }
+    return people;
+  }
+
+  /// A sheet's conversations: the first comment on a cell, who made it, and
+  /// the replies after it, each on a line of its own with who made it.
+  void _readThreads(SheetModel sheet, String path, Map<String, String> people) {
+    final xml = _text(path);
+    if (xml == null) return;
+    final opened = <String, (String, StringBuffer)>{};
+    for (final c in XmlDocument.parse(xml).rootElement.childElements) {
+      if (_ln(c) != 'threadedComment') continue;
+      final ref = _at(c, 'ref')?.toUpperCase();
+      if (ref == null) continue;
+      final who = people[_at(c, 'personId') ?? ''] ?? '';
+      final textEl = _kid(c, 'text');
+      final said = (textEl?.innerText ?? '').trim();
+      if (said.isEmpty) continue;
+      final thread = opened[ref];
+      if (thread == null || _at(c, 'parentId') == null) {
+        if (thread == null) opened[ref] = (who, StringBuffer(said));
+        continue;
+      }
+      thread.$2.write(who.isEmpty ? '\n$said' : '\n$who: $said');
+    }
+    for (final entry in opened.entries) {
+      sheet.notes[entry.key] = SheetNote(
+        entry.value.$1,
+        entry.value.$2.toString(),
+      );
+    }
+  }
+
+  /// The theme's colours, from the theme part the workbook names.
+  void _loadTheme() {
+    final xml = _text('xl/theme/theme1.xml');
+    if (xml == null) return;
+    final scheme = XmlDocument.parse(
+      xml,
+    ).descendantElements.where((e) => _ln(e) == 'clrScheme').firstOrNull;
+    if (scheme == null) return;
+    final byName = <String, int>{};
+    for (final slot in scheme.childElements) {
+      for (final colour in slot.childElements) {
+        final value = _ln(colour) == 'sysClr'
+            ? _at(colour, 'lastClr')
+            : _ln(colour) == 'srgbClr'
+            ? _at(colour, 'val')
+            : null;
+        final argb = _argb(value);
+        if (argb != null) byName[_ln(slot)] = argb;
+      }
+    }
+    for (final name in const <String>[
+      'lt1',
+      'dk1',
+      'lt2',
+      'dk2',
+      'accent1',
+      'accent2',
+      'accent3',
+      'accent4',
+      'accent5',
+      'accent6',
+      'hlink',
+      'folHlink',
+    ]) {
+      _theme.add(byName[name] ?? 0xFF000000);
+    }
+  }
+
+  /// A colour however the file states it: as red, green and blue, as one of
+  /// the theme's colours lightened or darkened by a tint, or as one of the
+  /// old sixty four indexed colours. Null for automatic.
+  int? _colour(XmlElement? element) {
+    if (element == null) return null;
+    final rgb = _argb(_at(element, 'rgb'));
+    if (rgb != null) return rgb;
+    final tint = double.tryParse(_at(element, 'tint') ?? '') ?? 0;
+    final theme = int.tryParse(_at(element, 'theme') ?? '');
+    if (theme != null && theme >= 0 && theme < _theme.length) {
+      return tinted(_theme[theme], tint);
+    }
+    final indexed = int.tryParse(_at(element, 'indexed') ?? '');
+    if (indexed != null && indexed >= 0 && indexed < kIndexedColours.length) {
+      return tinted(kIndexedColours[indexed], tint);
+    }
+    return null;
   }
 
   void _loadSharedStrings() {
@@ -269,7 +421,9 @@ class XlsxParser {
       final sb = StringBuffer();
       for (final t in si.descendantElements) {
         if (_ln(t) == 't') {
-          final parentName = t.parentElement == null ? '' : _ln(t.parentElement!);
+          final parentName = t.parentElement == null
+              ? ''
+              : _ln(t.parentElement!);
           if (parentName == 'rPh') continue;
           sb.write(t.innerText);
         }
@@ -305,8 +459,7 @@ class XlsxParser {
     if (fonts != null) {
       for (final f in fonts.childElements) {
         _fontBold.add(_kid(f, 'b') != null);
-        final c = _kid(f, 'color');
-        _fontColor.add(c == null ? null : _argb(_at(c, 'rgb')));
+        _fontColor.add(_colour(_kid(f, 'color')));
       }
     }
     final fills = _kid(root, 'fills');
@@ -315,7 +468,7 @@ class XlsxParser {
         final pf = _kid(f, 'patternFill');
         final fg = pf == null ? null : _kid(pf, 'fgColor');
         final type = pf == null ? 'none' : (_at(pf, 'patternType') ?? 'none');
-        _fillColor.add(type == 'solid' && fg != null ? _argb(_at(fg, 'rgb')) : null);
+        _fillColor.add(type == 'solid' ? _colour(fg) : null);
       }
     }
     final cellXfs = _kid(root, 'cellXfs');
@@ -325,15 +478,17 @@ class XlsxParser {
         _xfFontId.add(int.tryParse(_at(xf, 'fontId') ?? '0') ?? 0);
         _xfFillId.add(int.tryParse(_at(xf, 'fillId') ?? '0') ?? 0);
         final al = _kid(xf, 'alignment');
-        _xfAlign.add(al == null
-            ? null
-            : switch (_at(al, 'horizontal')) {
-                'center' || 'centerContinuous' => DocAlign.center,
-                'right' => DocAlign.end,
-                'justify' || 'distributed' => DocAlign.justify,
-                'left' => DocAlign.start,
-                _ => null,
-              });
+        _xfAlign.add(
+          al == null
+              ? null
+              : switch (_at(al, 'horizontal')) {
+                  'center' || 'centerContinuous' => DocAlign.center,
+                  'right' => DocAlign.end,
+                  'justify' || 'distributed' => DocAlign.justify,
+                  'left' => DocAlign.start,
+                  _ => null,
+                },
+        );
       }
     }
   }
@@ -352,11 +507,23 @@ class XlsxParser {
     if (views != null) {
       for (final v in views.childElements) {
         final pane = _kid(v, 'pane');
-        if (pane != null && (_at(pane, 'state') ?? '') .startsWith('frozen')) {
-          m.frozenCols = (double.tryParse(_at(pane, 'xSplit') ?? '0') ?? 0).toInt();
-          m.frozenRows = (double.tryParse(_at(pane, 'ySplit') ?? '0') ?? 0).toInt();
+        if (pane != null && (_at(pane, 'state') ?? '').startsWith('frozen')) {
+          m.frozenCols = (double.tryParse(_at(pane, 'xSplit') ?? '0') ?? 0)
+              .toInt();
+          m.frozenRows = (double.tryParse(_at(pane, 'ySplit') ?? '0') ?? 0)
+              .toInt();
         }
       }
+    }
+
+    final format = _kid(root, 'sheetFormatPr');
+    if (format != null) {
+      m.defaultColWidth = double.tryParse(_at(format, 'defaultColWidth') ?? '');
+      m.baseColWidth =
+          double.tryParse(_at(format, 'baseColWidth') ?? '') ?? m.baseColWidth;
+      m.defaultRowHeight = double.tryParse(
+        _at(format, 'defaultRowHeight') ?? '',
+      );
     }
 
     final cols = _kid(root, 'cols');
@@ -364,10 +531,12 @@ class XlsxParser {
       for (final c in cols.childElements) {
         final min = int.tryParse(_at(c, 'min') ?? '');
         final max = int.tryParse(_at(c, 'max') ?? '');
+        if (min == null || max == null) continue;
         final w = double.tryParse(_at(c, 'width') ?? '');
-        if (min == null || max == null || w == null) continue;
+        final hidden = _at(c, 'hidden') == '1' || _at(c, 'hidden') == 'true';
         for (var i = min; i <= max && i <= min + 4096; i++) {
-          m.colWidths[i - 1] = w;
+          if (w != null) m.colWidths[i - 1] = w;
+          if (hidden) m.hiddenCols.add(i - 1);
         }
       }
     }
@@ -379,6 +548,10 @@ class XlsxParser {
         final rIdx = (int.tryParse(_at(row, 'r') ?? '') ?? 0) - 1;
         final ht = double.tryParse(_at(row, 'ht') ?? '');
         if (ht != null && rIdx >= 0) m.rowHeights[rIdx] = ht;
+        final hidden = _at(row, 'hidden');
+        if ((hidden == '1' || hidden == 'true') && rIdx >= 0) {
+          m.hiddenRows.add(rIdx);
+        }
         for (final c in row.childElements) {
           if (_ln(c) != 'c') continue;
           final cell = _cell(c, rIdx);
@@ -430,7 +603,22 @@ class XlsxParser {
     final code = _numFmtCode(styleIndex);
 
     final fEl = _kid(c, 'f');
-    final formula = fEl?.innerText;
+    var formula = fEl?.innerText;
+    // A formula filled down or across is written once, on the first cell of
+    // the range, and every other cell of it holds only a pointer back. What
+    // such a cell holds is that formula moved to where the cell is.
+    if (fEl != null && _at(fEl, 't') == 'shared') {
+      final index = _at(fEl, 'si') ?? '';
+      if (formula != null && formula.isNotEmpty) {
+        _sharedFormulas[index] = (formula, row, col);
+      } else {
+        final first = _sharedFormulas[index];
+        formula = first == null
+            ? null
+            : shiftFormula(first.$1, row - first.$2, col - first.$3);
+      }
+    }
+    if (formula != null && formula.isEmpty) formula = null;
     final vEl = _kid(c, 'v');
     final isEl = _kid(c, 'is');
 
@@ -474,7 +662,22 @@ class XlsxParser {
         }
     }
 
-    if (raw == null && formula == null) return null;
+    final fillId = styleIndex >= 0 && styleIndex < _xfFillId.length
+        ? _xfFillId[styleIndex]
+        : 0;
+    final background = fillId < _fillColor.length ? _fillColor[fillId] : null;
+    if (raw == null && formula == null) {
+      // An empty cell still wears the fill the file gave it.
+      if (background == null) return null;
+      return SheetCell(
+        ref: ref.toUpperCase(),
+        row: row,
+        col: col,
+        kind: CellKind.blank,
+        numFmt: code,
+        background: background,
+      );
+    }
 
     String formatted;
     if (kind == CellKind.date && raw is num) {
@@ -494,9 +697,6 @@ class XlsxParser {
     final fontId = styleIndex >= 0 && styleIndex < _xfFontId.length
         ? _xfFontId[styleIndex]
         : 0;
-    final fillId = styleIndex >= 0 && styleIndex < _xfFillId.length
-        ? _xfFillId[styleIndex]
-        : 0;
 
     return SheetCell(
       ref: ref.toUpperCase(),
@@ -511,7 +711,7 @@ class XlsxParser {
       numFmt: code,
       bold: fontId < _fontBold.length && _fontBold[fontId],
       color: fontId < _fontColor.length ? _fontColor[fontId] : null,
-      background: fillId < _fillColor.length ? _fillColor[fillId] : null,
+      background: background,
       align: styleIndex >= 0 && styleIndex < _xfAlign.length
           ? _xfAlign[styleIndex]
           : null,
@@ -536,60 +736,98 @@ QuireDocument xlsxToDocument(XlsxWorkbook wb, String title) {
         }
       }
     }
+    // A cell somebody commented on is a cell, even with nothing in it.
+    var rowCount = s.grid.length;
+    var columnCount = s.maxCol + 1;
+    for (final ref in s.notes.keys) {
+      final (r, c) = XlsxParser.refToRowCol(ref);
+      if (r + 1 > rowCount) rowCount = r + 1;
+      if (c + 1 > columnCount) columnCount = c + 1;
+    }
     final rows = <DocRow>[];
-    for (var r = 0; r < s.grid.length; r++) {
+    for (var r = 0; r < rowCount; r++) {
       final cells = <DocCell>[];
-      for (var c = 0; c < s.grid[r].length; c++) {
+      for (var c = 0; c < columnCount; c++) {
         final key = '$r:$c';
         if (continuation.contains(key)) {
           cells.add(const DocCell([], merged: true));
           continue;
         }
-        final sc = s.grid[r][c];
+        final sc = r < s.grid.length && c < s.grid[r].length
+            ? s.grid[r][c]
+            : null;
+        final note = s.notes['${XlsxParser.colName(c)}${r + 1}'];
         final span = mergedAt[key];
-        final numeric = sc != null &&
+        final numeric =
+            sc != null &&
             (sc.kind == CellKind.number || sc.kind == CellKind.date);
-        cells.add(DocCell(
-          [
-            ParagraphBlock([
-              DocSpan(
-                sc?.formatted ?? '',
-                bold: sc?.bold ?? false,
-                color: sc?.color,
-              )
-            ], align: sc?.align ?? (numeric ? DocAlign.end : DocAlign.start))
-          ],
-          colSpan: span == null ? 1 : span[3] - span[1] + 1,
-          rowSpan: span == null ? 1 : span[2] - span[0] + 1,
-          background: sc?.background,
-          numeric: numeric,
-          align: sc?.align ?? (numeric ? DocAlign.end : DocAlign.start),
-          raw: sc?.raw,
-          formula: sc?.formula,
-          comment: sc == null ? null : s.notes[sc.ref]?.text,
-          commentBy: sc == null ? null : s.notes[sc.ref]?.author,
-        ));
+        cells.add(
+          DocCell(
+            [
+              ParagraphBlock([
+                DocSpan(
+                  sc?.formatted ?? '',
+                  bold: sc?.bold ?? false,
+                  color: sc?.color,
+                ),
+              ], align: sc?.align ?? (numeric ? DocAlign.end : DocAlign.start)),
+            ],
+            colSpan: span == null ? 1 : span[3] - span[1] + 1,
+            rowSpan: span == null ? 1 : span[2] - span[0] + 1,
+            background: sc?.background,
+            numeric: numeric,
+            align: sc?.align ?? (numeric ? DocAlign.end : DocAlign.start),
+            raw: sc?.raw,
+            formula: sc?.formula,
+            comment: note?.text,
+            commentBy: note?.author,
+          ),
+        );
       }
-      rows.add(DocRow(cells,
-          header: r < s.frozenRows, height: s.rowHeights[r]));
+      final points = s.rowHeights[r];
+      rows.add(
+        DocRow(
+          cells,
+          header: r < s.frozenRows,
+          height: s.hiddenRows.contains(r)
+              ? 0
+              : points == null
+              ? null
+              : points * kPixelsPerPoint,
+        ),
+      );
     }
     final columns = <DocColumn>[];
-    for (var c = 0; c <= s.maxCol; c++) {
+    for (var c = 0; c < columnCount; c++) {
       final w = s.colWidths[c];
-      // Excel width is in "characters"; ~7px per character at default font.
-      columns.add(DocColumn(width: w == null ? null : w * 7.0));
+      columns.add(
+        DocColumn(
+          width: s.hiddenCols.contains(c)
+              ? 0
+              : w == null
+              ? null
+              : columnPixels(w),
+        ),
+      );
     }
-    sections.add(DocSection(
-      s.name,
-      [
-        TableBlock(rows,
-            columns: columns,
-            frozenRows: s.frozenRows,
-            frozenColumns: s.frozenCols,
-            grid: true)
-      ],
-      kind: 'sheet',
-    ));
+    final defaultWidth = s.defaultColWidth;
+    sections.add(
+      DocSection(s.name, [
+        TableBlock(
+          rows,
+          columns: columns,
+          frozenRows: s.frozenRows,
+          frozenColumns: s.frozenCols,
+          grid: true,
+          defaultColumnWidth: defaultWidth == null
+              ? defaultColumnPixels(s.baseColWidth)
+              : columnPixels(defaultWidth),
+          defaultRowHeight: s.defaultRowHeight == null
+              ? null
+              : s.defaultRowHeight! * kPixelsPerPoint,
+        ),
+      ], kind: 'sheet'),
+    );
   }
   return QuireDocument(
     title: title,
@@ -597,7 +835,142 @@ QuireDocument xlsxToDocument(XlsxWorkbook wb, String title) {
     sourceFormat: 'xlsx',
     outline: [
       for (var i = 0; i < sections.length; i++)
-        OutlineEntry(sections[i].title, 1, i, 0)
+        OutlineEntry(sections[i].title, 1, i, 0),
     ],
   );
 }
+
+/// How many of a sheet's own measuring points a typographic point of row
+/// height is: a sheet measures at 96 to the inch and type at 72.
+const kPixelsPerPoint = 96 / 72;
+
+/// A column width in characters as a sheet draws it: characters of the
+/// widest digit at the default font, seven points each, with the width's own
+/// rounding.
+double columnPixels(double characters) =>
+    ((256 * characters + (128 / 7).truncate()) / 256 * 7).truncateToDouble();
+
+/// The width of a column nothing is said about, from the sheet's base width
+/// in characters: that many digits, the padding either side and the rule,
+/// rounded up to the next eight, which is how a plain column comes to be 64.
+double defaultColumnPixels(double baseCharacters) =>
+    ((baseCharacters * 7 + 5) / 8).ceil() * 8.0;
+
+/// A colour lightened towards white by a positive [tint] or darkened towards
+/// black by a negative one, in lightness rather than in each channel, which
+/// is how a theme's paler and deeper shades are made.
+int tinted(int argb, double tint) {
+  if (tint == 0) return argb;
+  final r = ((argb >> 16) & 0xFF) / 255;
+  final g = ((argb >> 8) & 0xFF) / 255;
+  final b = (argb & 0xFF) / 255;
+  final most = [r, g, b].reduce((a, c) => a > c ? a : c);
+  final least = [r, g, b].reduce((a, c) => a < c ? a : c);
+  var l = (most + least) / 2;
+  var h = 0.0;
+  var s = 0.0;
+  if (most != least) {
+    final d = most - least;
+    s = l > 0.5 ? d / (2 - most - least) : d / (most + least);
+    if (most == r) {
+      h = (g - b) / d + (g < b ? 6 : 0);
+    } else if (most == g) {
+      h = (b - r) / d + 2;
+    } else {
+      h = (r - g) / d + 4;
+    }
+    h /= 6;
+  }
+  l = tint < 0 ? l * (1 + tint) : l * (1 - tint) + tint;
+  double channel(double p, double q, double t) {
+    var x = t;
+    if (x < 0) x += 1;
+    if (x > 1) x -= 1;
+    if (x < 1 / 6) return p + (q - p) * 6 * x;
+    if (x < 1 / 2) return q;
+    if (x < 2 / 3) return p + (q - p) * (2 / 3 - x) * 6;
+    return p;
+  }
+
+  double nr, ng, nb;
+  if (s == 0) {
+    nr = ng = nb = l;
+  } else {
+    final q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+    final p = 2 * l - q;
+    nr = channel(p, q, h + 1 / 3);
+    ng = channel(p, q, h);
+    nb = channel(p, q, h - 1 / 3);
+  }
+  int byte(double v) => (v.clamp(0.0, 1.0) * 255).round();
+  return (argb & 0xFF000000) | (byte(nr) << 16) | (byte(ng) << 8) | byte(nb);
+}
+
+/// The sixty four colours a file may still name by number, as every
+/// spreadsheet since the first has kept them.
+const kIndexedColours = <int>[
+  0xFF000000,
+  0xFFFFFFFF,
+  0xFFFF0000,
+  0xFF00FF00,
+  0xFF0000FF,
+  0xFFFFFF00,
+  0xFFFF00FF,
+  0xFF00FFFF,
+  0xFF000000,
+  0xFFFFFFFF,
+  0xFFFF0000,
+  0xFF00FF00,
+  0xFF0000FF,
+  0xFFFFFF00,
+  0xFFFF00FF,
+  0xFF00FFFF,
+  0xFF800000,
+  0xFF008000,
+  0xFF000080,
+  0xFF808000,
+  0xFF800080,
+  0xFF008080,
+  0xFFC0C0C0,
+  0xFF808080,
+  0xFF9999FF,
+  0xFF993366,
+  0xFFFFFFCC,
+  0xFFCCFFFF,
+  0xFF660066,
+  0xFFFF8080,
+  0xFF0066CC,
+  0xFFCCCCFF,
+  0xFF000080,
+  0xFFFF00FF,
+  0xFFFFFF00,
+  0xFF00FFFF,
+  0xFF800080,
+  0xFF800000,
+  0xFF008080,
+  0xFF0000FF,
+  0xFF00CCFF,
+  0xFFCCFFFF,
+  0xFFCCFFCC,
+  0xFFFFFF99,
+  0xFF99CCFF,
+  0xFFFF99CC,
+  0xFFCC99FF,
+  0xFFFFCC99,
+  0xFF3366FF,
+  0xFF33CCCC,
+  0xFF99CC00,
+  0xFFFFCC00,
+  0xFFFF9900,
+  0xFFFF6600,
+  0xFF666699,
+  0xFF969696,
+  0xFF003366,
+  0xFF339966,
+  0xFF003300,
+  0xFF333300,
+  0xFF993300,
+  0xFF993366,
+  0xFF333399,
+  0xFF333333,
+];

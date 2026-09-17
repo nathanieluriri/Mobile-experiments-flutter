@@ -131,8 +131,7 @@ const kSheetHeight = kScreenHeight;
 /// a band of dead ground between the clock and the buttons, which on this
 /// screen is worth about seventy pixels of reading. Where a widget can ask
 /// the phone what its own inset is, it should.
-double readerBandHeight(EdgeInsets safeArea) =>
-    safeArea.top + kHeadBandHeight;
+double readerBandHeight(EdgeInsets safeArea) => safeArea.top + kHeadBandHeight;
 
 double readerContentTop(EdgeInsets safeArea) => readerBandHeight(safeArea);
 
@@ -251,12 +250,19 @@ const kGridHeaderHeight = 34.0;
 /// one four points wide cannot be read at all.
 const kGridColumnWidth = 118.0;
 const kGridColumnMin = 40.0;
-const kGridColumnMax = 320.0;
+const kGridColumnMax = 720.0;
 
 /// The same for a row.
 const kGridRowHeight = 34.0;
 const kGridRowMin = 22.0;
-const kGridRowMax = 160.0;
+const kGridRowMax = 400.0;
+
+/// A plain column and a plain row in a spreadsheet's own measure. Whatever a
+/// file states is scaled by the ratio of the reader's plain column and row to
+/// these, so a column the file made twice as wide as a plain one is still
+/// twice as wide as a plain one here.
+const kSheetColumnPoints = 64.0;
+const kSheetRowPoints = 20.0;
 
 /// Room round a cell's own text.
 const kGridCellPadX = 8.0;
@@ -308,8 +314,10 @@ const kLeaderEvery = 5;
   var spine = kSpineWidth;
   var open = avail - spines * spine;
   if (open > kOpenColumnMax) {
-    spine =
-        ((avail - kOpenColumnMax) / spines).clamp(kSpineWidth, kSpineWidthMax);
+    spine = ((avail - kOpenColumnMax) / spines).clamp(
+      kSpineWidth,
+      kSpineWidthMax,
+    );
     open = avail - spines * spine;
   }
   return (open: open.clamp(kOpenColumnMin, avail), spine: spine);
@@ -317,7 +325,6 @@ const kLeaderEvery = 5;
 
 // Section 6.5, find, riffle, dock, sign.
 const kFindFieldHeight = 38.5;
-const kStatusRowHeight = 22.0;
 const kChevronSize = 32.0;
 const kMatchTick = 2.0;
 const kMatchTickLive = 4.0;
@@ -355,6 +362,7 @@ const kPadBaselineFraction = 0.70;
 /// The pad's own corner, which a picture laid on it keeps.
 const kPadRadius = 14.0;
 const kStampInitialWidth = 200.0;
+
 /// How far a mark can be taken down and up from [kStampInitialWidth].
 ///
 /// A quarter of it is an initial on a form; twice it is the full width of the
@@ -437,7 +445,6 @@ const kTabTravel = Duration(milliseconds: 340);
 /// A list row's wash, rounder than the row so it never meets the hairline.
 const kListRowWashRadius = 14.0;
 
-
 /// Arms the corner peel.
 const kPeelLongPress = Duration(milliseconds: 140);
 
@@ -488,7 +495,6 @@ const kDigitStagger = Duration(milliseconds: 20);
 
 /// The match ticks appearing on the fore edge.
 const kRailFade = Duration(milliseconds: 200);
-
 
 /// A spine opening and the open column collapsing.
 const kColumnOpen = Duration(milliseconds: 240);

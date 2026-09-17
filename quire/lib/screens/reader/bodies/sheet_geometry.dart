@@ -33,18 +33,32 @@ class SheetGeometry {
   /// all.
   factory SheetGeometry.of(TableBlock table) {
     final columns = _columnCount(table);
+    // What the file states is in its own measure, where a plain column is
+    // [kSheetColumnPoints] wide and a plain row [kSheetRowPoints] tall. It is
+    // scaled to the reader's plain column and row, so every column keeps its
+    // proportion to the others. A hidden column or row is nought, and stays
+    // nought.
+    const across = kGridColumnWidth / kSheetColumnPoints;
+    const down = kGridRowHeight / kSheetRowPoints;
+    double width(double? stated) {
+      final points = stated ?? table.defaultColumnWidth;
+      if (points == null) return kGridColumnWidth;
+      if (points <= 0) return 0;
+      return (points * across).clamp(kGridColumnMin, kGridColumnMax);
+    }
+
+    double height(double? stated) {
+      final points = stated ?? table.defaultRowHeight;
+      if (points == null) return kGridRowHeight;
+      if (points <= 0) return 0;
+      return (points * down).clamp(kGridRowMin, kGridRowMax);
+    }
+
     final widths = <double>[
       for (var c = 0; c < columns; c++)
-        (c < table.columns.length ? table.columns[c].width : null)?.clamp(
-              kGridColumnMin,
-              kGridColumnMax,
-            ) ??
-            kGridColumnWidth,
+        width(c < table.columns.length ? table.columns[c].width : null),
     ];
-    final heights = <double>[
-      for (final row in table.rows)
-        row.height?.clamp(kGridRowMin, kGridRowMax) ?? kGridRowHeight,
-    ];
+    final heights = <double>[for (final row in table.rows) height(row.height)];
     return SheetGeometry._(
       _merges(table, columns),
       widths: widths,

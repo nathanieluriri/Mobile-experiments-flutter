@@ -500,13 +500,17 @@ Offset _cellCentre(
       .first;
   final geometry = SheetGeometry.of(table);
   final grid = tester.getRect(find.byType(SheetGrid));
-  return grid.topLeft +
-      Offset(
-        kRowHeaderWidth +
-            geometry.leftOf(column) +
-            geometry.widthOf(column) / 2,
-        kGridHeaderHeight + geometry.topOf(row) + geometry.heightOf(row) / 2,
-      );
+  // The middle of a column wider than what shows of it is off the side of
+  // the phone, so a tap aims at the part of the cell that is on screen.
+  final left = grid.left + kRowHeaderWidth + geometry.leftOf(column);
+  final middle = left + geometry.widthOf(column) / 2;
+  return Offset(
+    middle.clamp(left + 8, grid.right - 8),
+    grid.top +
+        kGridHeaderHeight +
+        geometry.topOf(row) +
+        geometry.heightOf(row) / 2,
+  );
 }
 
 /// A CSV whose rows do not all match its header, so the strip has something

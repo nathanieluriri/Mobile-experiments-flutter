@@ -6,6 +6,8 @@
 /// as a date.
 library;
 
+import 'dart:math' as math;
+
 /// The format codes a file may reference by id without defining them.
 
 const Map<int, String> kBuiltinNumFmts = {
@@ -40,11 +42,27 @@ const Map<int, String> kBuiltinNumFmts = {
 };
 
 const _months = [
-  'January', 'February', 'March', 'April', 'May', 'June',
-  'July', 'August', 'September', 'October', 'November', 'December',
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
 ];
 const _days = [
-  'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday',
+  'Monday',
+  'Tuesday',
+  'Wednesday',
+  'Thursday',
+  'Friday',
+  'Saturday',
+  'Sunday',
 ];
 
 /// Turns a stored serial into a date, honouring the 1900 leap year bug and
@@ -62,8 +80,11 @@ DateTime excelSerialToDate(num serial, {bool date1904 = false}) {
   // 1900 system: serial 1 is 1900-01-01, and Excel wrongly believes
   // 1900-02-29 exists (serial 60), so serials above 59 are shifted.
   final shifted = days > 59 ? days : days + 1;
-  return DateTime.utc(1899, 12, 30)
-      .add(Duration(days: shifted, milliseconds: ms));
+  return DateTime.utc(
+    1899,
+    12,
+    30,
+  ).add(Duration(days: shifted, milliseconds: ms));
 }
 
 /// True when a format code describes a date or a time.
@@ -168,7 +189,11 @@ String formatCell(Object? value, String code, {bool date1904 = false}) {
   }
 
   if (isDateFormat(section)) {
-    return _formatDate(excelSerialToDate(abs, date1904: date1904), section, abs);
+    return _formatDate(
+      excelSerialToDate(abs, date1904: date1904),
+      section,
+      abs,
+    );
   }
   if (section.contains('/') && RegExp(r'[0#?]\s*/\s*[0#?]').hasMatch(section)) {
     return _fraction(abs, section);
@@ -176,16 +201,41 @@ String formatCell(Object? value, String code, {bool date1904 = false}) {
   return _formatNumber(abs, section);
 }
 
+/// General, the way a spreadsheet shows it: whole numbers whole, anything
+/// else to ten significant digits with the trailing zeros taken off, and
+/// scientific once a number is too big or too small to show that way.
+///
+/// A double read straight out of a file carries its binary noise, so 0.1 plus
+/// 0.2 is stored as 0.30000000000000004. A spreadsheet shows 0.3, and printing
+/// the noise would be printing something the file's author never saw.
 String _general(Object v) {
-  if (v is num) {
-    if (v == v.roundToDouble() && v.abs() < 1e15) {
-      return v.toInt().toString();
-    }
-    var s = v.toString();
-    if (s.contains('e')) return s;
-    return s;
-  }
-  return v.toString();
+  if (v is! num) return v.toString();
+  final d = v.toDouble();
+  if (d.isNaN || d.isInfinite) return d.toString();
+  if (d == 0) return '0';
+  final abs = d.abs();
+  if (d == d.roundToDouble() && abs < 1e11) return d.toInt().toString();
+  if (abs >= 1e11 || abs < 1e-9) return _scientific(d, 5, 2, plus: true);
+  final s = d.toStringAsPrecision(10);
+  if (s.contains('e')) return _scientific(d, 5, 2, plus: true);
+  return _trimZeros(s);
+}
+
+String _trimZeros(String s) {
+  if (!s.contains('.')) return s;
+  var out = s.replaceFirst(RegExp(r'0+$'), '');
+  if (out.endsWith('.')) out = out.substring(0, out.length - 1);
+  return out;
+}
+
+/// `1.23457E+11`: [decimals] at most, trailing zeros dropped for General.
+String _scientific(double d, int decimals, int expDigits, {bool plus = true}) {
+  final raw = d.toStringAsExponential(decimals);
+  final at = raw.indexOf('e');
+  final mantissa = _trimZeros(raw.substring(0, at));
+  final exp = int.parse(raw.substring(at + 1));
+  final sign = exp < 0 ? '-' : (plus ? '+' : '');
+  return '${mantissa}E$sign${exp.abs().toString().padLeft(expDigits, '0')}';
 }
 
 String _applyText(String section, String value) {
@@ -218,6 +268,8 @@ String _applyText(String section, String value) {
 }
 
 String _formatNumber(double value, String section) {
+  final exponent = _exponentAt(section);
+  if (exponent >= 0) return _formatScientific(value, section, exponent);
   // Percent multiplier
   var v = value;
   final body = _stripDecorations(section);
@@ -258,6 +310,67 @@ String _formatNumber(double value, String section) {
   return out.toString();
 }
 
+/// Where the E of a scientific format sits, outside any quotes, escapes or
+/// brackets, or -1 when there is none.
+int _exponentAt(String section) {
+  var i = 0;
+  while (i < section.length) {
+    final c = section[i];
+    if (c == '"') {
+      final end = section.indexOf('"', i + 1);
+      i = end < 0 ? section.length : end + 1;
+    } else if (c == r'\') {
+      i += 2;
+    } else if (c == '[') {
+      final end = section.indexOf(']', i);
+      i = end < 0 ? section.length : end + 1;
+    } else if ((c == 'E' || c == 'e') &&
+        i + 1 < section.length &&
+        (section[i + 1] == '+' || section[i + 1] == '-')) {
+      return i;
+    } else {
+      i++;
+    }
+  }
+  return -1;
+}
+
+/// `0.00E+00` and `##0.0E+0`: the mantissa in the format before the E, the
+/// exponent padded to the zeros after it, and, when the mantissa has more
+/// than one whole place, the exponent kept to a multiple of them.
+String _formatScientific(double value, String section, int at) {
+  final mantissaCode = section.substring(0, at);
+  final showPlus = section[at + 1] == '+';
+  final expDigits = RegExp('0').allMatches(section.substring(at + 2)).length;
+  final core = _stripDecorations(mantissaCode).numeric;
+  final dot = core.indexOf('.');
+  final wholePlaces = RegExp(
+    '[0#?]',
+  ).allMatches(dot < 0 ? core : core.substring(0, dot)).length;
+  final neg = value < 0;
+  final abs = neg ? -value : value;
+  var exp = abs == 0 ? 0 : (math.log(abs) / math.ln10).floor();
+  if (wholePlaces > 1 && core.contains('#')) {
+    exp = (exp / wholePlaces).floor() * wholePlaces;
+  } else if (wholePlaces > 1) {
+    exp -= wholePlaces - 1;
+  }
+  var mantissa = abs == 0 ? 0.0 : abs / math.pow(10, exp);
+  // Rounding the mantissa can carry it to the next power of ten.
+  final decimals = dot < 0
+      ? 0
+      : RegExp('[0#?]').allMatches(core.substring(dot + 1)).length;
+  final limit = math.pow(10, math.max(1, wholePlaces)).toDouble();
+  if (double.parse(mantissa.toStringAsFixed(decimals)) >= limit) {
+    mantissa /= 10;
+    exp += 1;
+  }
+  final digits = _formatNumber(mantissa, mantissaCode);
+  final sign = exp < 0 ? '-' : (showPlus ? '+' : '');
+  final padded = exp.abs().toString().padLeft(math.max(1, expDigits), '0');
+  return '${neg ? '-' : ''}${digits}E$sign$padded';
+}
+
 class _Decor {
   _Decor(this.prefix, this.numeric, this.suffix);
   final String prefix;
@@ -284,8 +397,13 @@ _Decor _stripDecorations(String section) {
       i += 2;
     } else if (c == '[') {
       final end = section.indexOf(']', i);
+      final inner = end < 0 ? '' : section.substring(i + 1, end);
       i = end < 0 ? section.length : end + 1;
-      continue; // colour / condition, drop
+      // A locale currency, `[$€-407]`, carries its symbol before the dash.
+      // A colour or a condition is dropped.
+      if (!inner.startsWith(r'$')) continue;
+      final dash = inner.indexOf('-');
+      literal = inner.substring(1, dash < 0 ? inner.length : dash);
     } else if (c == '_') {
       i += 2;
       continue; // width padding
@@ -357,8 +475,10 @@ String _formatDate(DateTime d, String section, double serial) {
       i = end < 0 ? section.length : end + 1;
       continue;
     }
-    final tok = RegExp('^(y+|m+|d+|h+|s+|AM/PM|A/P)', caseSensitive: false)
-        .firstMatch(section.substring(i));
+    final tok = RegExp(
+      '^(y+|m+|d+|h+|s+|AM/PM|A/P)',
+      caseSensitive: false,
+    ).firstMatch(section.substring(i));
     if (tok == null) {
       sb.write(c);
       i++;
@@ -373,9 +493,11 @@ String _formatDate(DateTime d, String section, double serial) {
     }
     switch (lower[0]) {
       case 'y':
-        sb.write(t.length <= 2
-            ? _two(d.year % 100)
-            : d.year.toString().padLeft(4, '0'));
+        sb.write(
+          t.length <= 2
+              ? _two(d.year % 100)
+              : d.year.toString().padLeft(4, '0'),
+        );
       case 'd':
         sb.write(switch (t.length) {
           1 => d.day.toString(),
@@ -391,8 +513,8 @@ String _formatDate(DateTime d, String section, double serial) {
         sb.write(t.length == 1 ? d.second.toString() : _two(d.second));
       case 'm':
         // m after h, or before s, means minutes
-        final isMinute = _prevIsHour(section, i - t.length) ||
-            _nextIsSecond(section, i);
+        final isMinute =
+            _prevIsHour(section, i - t.length) || _nextIsSecond(section, i);
         if (isMinute) {
           sb.write(t.length == 1 ? d.minute.toString() : _two(d.minute));
         } else {
@@ -435,7 +557,9 @@ String _fraction(double v, String section) {
   final maxDen = _pow10(denomDigits) - 1;
   final neg = v < 0;
   final av = neg ? -v : v;
-  final whole = section.trimLeft().startsWith(RegExp('[0#?]+ ')) ? av.floor() : 0;
+  final whole = section.trimLeft().startsWith(RegExp('[0#?]+ '))
+      ? av.floor()
+      : 0;
   var rem = av - whole;
   var bestN = 0, bestD = 1;
   var bestErr = double.infinity;

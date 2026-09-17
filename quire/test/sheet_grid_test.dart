@@ -187,7 +187,9 @@ void main() {
       final geometry = SheetGeometry.of(table);
       expect(geometry.widthOf(0), kGridColumnMax);
       expect(geometry.heightOf(0), kGridRowMax);
-      expect(geometry.heightOf(1), 48);
+      // Stated in the file's own measure, and kept in proportion to a plain
+      // row in the reader's.
+      expect(geometry.heightOf(1), 48 * kGridRowHeight / kSheetRowPoints);
     });
 
     test('a point on the sheet names the cell under it', () {

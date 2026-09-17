@@ -57,18 +57,18 @@ class DocSpan {
   /// Replaces the text and keeps every property, which is what a search
   /// highlighter needs when it splits one span into three.
   DocSpan copyWith({String? text}) => DocSpan(
-        text ?? this.text,
-        bold: bold,
-        italic: italic,
-        underline: underline,
-        strike: strike,
-        mono: mono,
-        color: color,
-        highlight: highlight,
-        fontSize: fontSize,
-        href: href,
-        script: script,
-      );
+    text ?? this.text,
+    bold: bold,
+    italic: italic,
+    underline: underline,
+    strike: strike,
+    mono: mono,
+    color: color,
+    highlight: highlight,
+    fontSize: fontSize,
+    href: href,
+    script: script,
+  );
 
   @override
   String toString() {
@@ -240,13 +240,15 @@ class DocCell {
 
   /// The formatted text of every block in the cell, one line each.
   String get text => blocks
-      .map((b) => switch (b) {
-            ParagraphBlock() => b.text,
-            HeadingBlock() => b.text,
-            ListItemBlock() => b.text,
-            CodeBlock() => b.text,
-            _ => '',
-          })
+      .map(
+        (b) => switch (b) {
+          ParagraphBlock() => b.text,
+          HeadingBlock() => b.text,
+          ListItemBlock() => b.text,
+          CodeBlock() => b.text,
+          _ => '',
+        },
+      )
       .join('\n');
 }
 
@@ -268,11 +270,19 @@ class TableBlock extends DocBlock {
     this.frozenRows = 0,
     this.frozenColumns = 0,
     this.grid = false,
+    this.defaultColumnWidth,
+    this.defaultRowHeight,
   });
   final List<DocRow> rows;
   final List<DocColumn> columns;
   final int frozenRows;
   final int frozenColumns;
+
+  /// The width a table gives a column it says nothing else about, and the
+  /// height it gives such a row, in the same points as a column's own width
+  /// and a row's own height. Null leaves them to the renderer.
+  final double? defaultColumnWidth;
+  final double? defaultRowHeight;
 
   /// True for xlsx and csv. It is what tells the reader to use the spine table
   /// instead of a prose table.
@@ -291,7 +301,12 @@ class DocSection {
 
 /// One entry of the document's outline, pointing at the block it names.
 class OutlineEntry {
-  const OutlineEntry(this.title, this.level, this.sectionIndex, this.blockIndex);
+  const OutlineEntry(
+    this.title,
+    this.level,
+    this.sectionIndex,
+    this.blockIndex,
+  );
   final String title;
   final int level;
   final int sectionIndex;
