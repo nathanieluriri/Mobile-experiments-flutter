@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
@@ -17,6 +18,7 @@ import '../../../services/document_store.dart';
 import '../../../services/page_cache.dart';
 import '../../../services/render_plan.dart';
 import '../../../theme/colors.dart';
+import '../../../theme/easings.dart';
 import '../../../theme/metrics.dart';
 import '../../../theme/typography.dart';
 import '../back_layer.dart';
@@ -35,6 +37,40 @@ const kTapReach = 48.0;
 /// How far a page's folio sits in from its own bottom right corner, the way a
 /// printed book carries it.
 const double kPageFolioInset = 10.0;
+
+/// How tall the letters of a match a find goes to are set, in points on the
+/// screen: a size a reader holds a phone at without leaning in.
+const double kFindReadingSize = 20.0;
+
+/// The longest a glide across a page file may take. It is longer than a
+/// flowing document's, because it can change the size as well as the place.
+const kPdfGlideMax = Duration(milliseconds: 900);
+
+/// How far a glide over many screens pulls back while it travels, at most, as
+/// a share of the size it is at. Travelling a long way close up is a blur.
+const double kPdfGlidePullBack = 0.5;
+
+/// Where a page file is looked at from: the point of a page that sits on the
+/// reading line, and the size the pages are drawn at.
+@immutable
+class PdfCamera {
+  const PdfCamera({
+    required this.page,
+    required this.x,
+    required this.y,
+    required this.zoom,
+  });
+
+  /// The page the point is on.
+  final int page;
+
+  /// The point, in the page's own points from its top left.
+  final double x;
+  final double y;
+
+  /// The size the pages are drawn at, as a multiple of fitting the width.
+  final double zoom;
+}
 
 /// What a file with no page tree prints across the sheet.
 const String kDocumentUnreadableLabel = 'THIS FILE HAS NO PAGES';
@@ -745,8 +781,24 @@ class PdfPageBlock extends StatefulWidget {
 }
 
 class _PdfPageBlockState extends State<PdfPageBlock>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   final ScrollController _controller = ScrollController();
+
+  /// The strip keeps who it is when a zoom puts it inside a sideways scroll
+  /// and when it takes it out again. Rebuilt in the new place instead, it
+  /// would forget how far down it was and show the top of the document.
+  final GlobalKey _stripKey = GlobalKey();
+
+  /// How many times the strip has been sent to a match, so it goes once each
+  /// time rather than every frame the find repaints.
+  late int _revealed = widget.find?.reveals ?? 0;
+
+  /// The glide to a match, and the two views it runs between.
+  late final AnimationController _glide = AnimationController(vsync: this)
+    ..addListener(_glideTick)
+    ..addStatusListener(_glideStatus);
+  PdfCamera? _glideFrom;
+  PdfCamera? _glideTo;
 
   /// One sweep of the loading band. It runs only while something on screen is
   /// still being read, so a document that has arrived holds still and a test
@@ -831,16 +883,225 @@ class _PdfPageBlockState extends State<PdfPageBlock>
       widget.pages.addListener(_onPages);
       _relayout();
     }
+    final reveals = widget.find?.reveals ?? _revealed;
+    if (reveals != _revealed) {
+      _revealed = reveals;
+      SchedulerBinding.instance.addPostFrameCallback((_) => _goToMatch());
+    }
     _schedule();
   }
 
   @override
   void dispose() {
     widget.pages.removeListener(_onPages);
+    _glide.dispose();
     _controller.dispose();
     _across.dispose();
     _shimmer.dispose();
     super.dispose();
+  }
+
+  // -- going to a match ------------------------------------------------------
+
+  /// Sets off for the find's current match, from wherever the reading is.
+  ///
+  /// The page comes up to [kFindReadingSize] if it is smaller than that, and
+  /// never goes smaller than the reader already has it, because stepping to a
+  /// match is not a reason to lose a size somebody chose. A step while the
+  /// glide is still running sets off from wherever it has got to, so the page
+  /// never jumps back or ahead.
+  void _goToMatch() {
+    final finder = widget.find;
+    if (!mounted || finder == null || finder.matches.isEmpty) return;
+    if (!_controller.hasClients || widget.store.lock.holdsPage) return;
+    final match = finder.matches[finder.current];
+    if (match.unit < 0 || match.unit >= widget.pages.pageCount) return;
+    final from = _cameraNow();
+    final to = _cameraOn(match);
+    if (from == null || to == null) return;
+    _glideFrom = from;
+    _glideTo = to;
+    _glide.duration = _glideLength(from, to);
+    _glide.forward(from: 0);
+  }
+
+  void _glideTick() {
+    final from = _glideFrom;
+    final to = _glideTo;
+    if (from == null || to == null) return;
+    _look(_between(from, to, easeInOutCubic.transform(_glide.value)));
+  }
+
+  void _glideStatus(AnimationStatus status) {
+    if (status != AnimationStatus.completed) return;
+    final to = _glideTo;
+    if (to == null) return;
+    _look(to);
+    // The sideways scroll may only have been built by the frame that took the
+    // pages past the width of the screen, so it is set once more after it.
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      if (mounted && !_glide.isAnimating && identical(_glideTo, to)) _look(to);
+    });
+  }
+
+  /// Where the reading line is on the strip, across and down.
+  Offset get _readingPoint {
+    final safeArea = MediaQuery.paddingOf(context);
+    final top = safeArea.top + kHeadBandHeight;
+    final bottom = _viewport - readerContentBottom(safeArea);
+    return Offset(_window / 2, top + (bottom - top) * kFindRevealLine);
+  }
+
+  /// Points of [page] per point of the screen, with pages drawn [drawn] wide.
+  double _scaleOf(int page, double drawn) {
+    final width = widget.pages.sizeOf(page).width;
+    return width <= 0 ? 1 : drawn / width;
+  }
+
+  /// The page and the point on it that [down] points down a strip laid out
+  /// as [layout] reaches.
+  (int, double) _pageAtDepth(PdfLayout layout, double down, double drawn) {
+    if (layout.pageCount == 0) return (0, 0);
+    var top = 0.0;
+    for (var page = 0; page < layout.pageCount; page++) {
+      final extent = layout.extentOf(page);
+      if (down < top + extent || page == layout.pageCount - 1) {
+        final height = widget.pages.sizeOf(page).height;
+        final y = ((down - top) / _scaleOf(page, drawn)).clamp(0.0, height);
+        return (page, y);
+      }
+      top += extent;
+    }
+    return (layout.pageCount - 1, 0);
+  }
+
+  /// The view as it stands: what is on the reading line, at the size it is.
+  PdfCamera? _cameraNow() {
+    if (!_controller.hasClients || _layout.pageCount == 0) return null;
+    final drawn = _drawnWidth;
+    final at = _readingPoint;
+    final (page, y) = _pageAtDepth(_layout, _offset + at.dy, drawn);
+    final across = _across.hasClients ? _across.offset : 0.0;
+    return PdfCamera(
+      page: page,
+      x: (across + at.dx) / _scaleOf(page, drawn),
+      y: y,
+      zoom: _zoomNow,
+    );
+  }
+
+  /// The view with [match] on the reading line, big enough to read.
+  PdfCamera? _cameraOn(FindMatch match) {
+    final page = match.unit;
+    final box = _boxOf(match);
+    if (box == null) return null;
+    final perPoint = _scaleOf(page, _window);
+    var zoom = _zoomNow;
+    if (box.height > 0) {
+      zoom = math.max(zoom, kFindReadingSize / (box.height * perPoint));
+    }
+    // A match longer than the screen is wide at that size is shown whole.
+    if (box.width > 0) {
+      final whole = (_window - kScreenPadding * 2) / (box.width * perPoint);
+      zoom = math.min(zoom, math.max(whole, 1.0));
+    }
+    return PdfCamera(
+      page: page,
+      x: box.center.dx,
+      y: box.center.dy,
+      zoom: zoom.clamp(1.0, kZoomMax),
+    );
+  }
+
+  /// Where [match]'s letters are on their page, measured as the page sets
+  /// them when it has been set, and as the search estimated them otherwise.
+  Rect? _boxOf(FindMatch match) {
+    final runs = widget.pages.pageAt(match.unit).runs;
+    final run = match.path.isEmpty ? -1 : match.path.first;
+    if (run >= 0 && run < runs.length) {
+      return paintedSlice(
+        runs[run],
+        match.start,
+        match.end,
+        serifFamily: kPdfSerifFamily,
+        sansFamily: kPdfSansFamily,
+      );
+    }
+    return match.box;
+  }
+
+  /// How far down a strip laid out at the width of the screen [camera]'s
+  /// point is, which is the one scale two views at different sizes share.
+  double _depthOf(PdfCamera camera, PdfLayout atWidth) =>
+      atWidth.topOf(camera.page) + camera.y * _scaleOf(camera.page, _window);
+
+  /// The view [t] of the way from [from] to [to].
+  ///
+  /// The point travels down the document at the size of the screen's width,
+  /// so a view closer up does not travel further, and the size moves by equal
+  /// ratios rather than equal amounts, which is how a change of size is seen.
+  /// A long way between them pulls the size back while it travels.
+  PdfCamera _between(PdfCamera from, PdfCamera to, double t) {
+    final atWidth = PdfLayout.of(widget.pages, _window);
+    final start = _depthOf(from, atWidth);
+    final end = _depthOf(to, atWidth);
+    final (page, y) = _pageAtDepth(
+      atWidth,
+      start + (end - start) * t,
+      _window,
+    );
+    var zoom = from.zoom * math.pow(to.zoom / from.zoom, t).toDouble();
+    final screens = (end - start).abs() / math.max(_viewport, 1);
+    final pull = ((screens - 1) * 0.15).clamp(0.0, kPdfGlidePullBack);
+    zoom = math.max(1.0, zoom / (1 + pull * math.sin(math.pi * t)));
+    return PdfCamera(
+      page: page,
+      x: from.x + (to.x - from.x) * t,
+      y: y,
+      zoom: zoom,
+    );
+  }
+
+  /// How long the glide from [from] to [to] takes: longer the further the
+  /// point travels and the more the size changes.
+  Duration _glideLength(PdfCamera from, PdfCamera to) {
+    final atWidth = PdfLayout.of(widget.pages, _window);
+    final travel = (_depthOf(to, atWidth) - _depthOf(from, atWidth)).abs();
+    final resize = (math.log(to.zoom / from.zoom) / math.ln2).abs();
+    final ms = kFindGlideMin.inMilliseconds + travel * 0.18 + resize * 160;
+    return Duration(
+      milliseconds: ms
+          .clamp(kFindGlideMin.inMilliseconds, kPdfGlideMax.inMilliseconds)
+          .round(),
+    );
+  }
+
+  /// Puts the strip at [camera], size and place in the same frame.
+  ///
+  /// The pages are laid out at the new width here rather than when they are
+  /// next built, so the scroll that goes with the new size is worked out
+  /// against the strip it will be drawn as. A size set now and a place set a
+  /// frame later is a frame of the page in the wrong place.
+  void _look(PdfCamera camera) {
+    if (!mounted || !_controller.hasClients) return;
+    _anchored = true;
+    widget.store.zoomTo(camera.zoom);
+    final drawn = _drawnWidth;
+    _layout = PdfLayout.of(widget.pages, drawn);
+    _laidOutAt = drawn;
+    final at = _readingPoint;
+    final scale = _scaleOf(camera.page, drawn);
+    final down =
+        _topInset + _layout.topOf(camera.page) + camera.y * scale - at.dy;
+    final deepest = math.max(
+      0.0,
+      _layout.extent + _topInset + _bottomInset - _viewport,
+    );
+    _controller.jumpTo(down.clamp(0.0, deepest));
+    if (_across.hasClients) {
+      final widest = math.max(0.0, drawn - _window);
+      _across.jumpTo((camera.x * scale - at.dx).clamp(0.0, widest));
+    }
   }
 
   void _repaint() => setState(() {});
@@ -960,7 +1221,7 @@ class _PdfPageBlockState extends State<PdfPageBlock>
   /// Brings the strip to the page the reader was put on by something that is
   /// not this scroll view: a scrub, a riffle, a search result.
   void _follow(int first, int last) {
-    if (!_controller.hasClients) return;
+    if (!_controller.hasClients || _glide.isAnimating) return;
     final wanted = widget.store.position;
     if (wanted == _layout.pageAt(_offset, _viewport)) return;
     final target = _layout
@@ -1011,6 +1272,7 @@ class _PdfPageBlockState extends State<PdfPageBlock>
         // nothing outside it is a viewport in the way of everything under it.
         final wide = drawn > _window + 0.5 && !locked;
         final strip = ListView.builder(
+            key: _stripKey,
             controller: _controller,
             // A page lock pins the reading where it is, so the strip stops
             // being a strip. The list stays rather than being swapped for a
@@ -1112,6 +1374,8 @@ class _PdfPageBlockState extends State<PdfPageBlock>
   void _pointerDown(PointerDownEvent event) {
     _downAt = event.timeStamp;
     _downWhere = event.localPosition;
+    // A finger on the page is the reader taking the page back.
+    if (_glide.isAnimating) _glide.stop();
   }
 
   void _pointerUp(PointerUpEvent event) {

@@ -54,6 +54,13 @@ double _proseScroll(WidgetTester tester) => tester
     .position
     .pixels;
 
+/// How far down a PDF's strip of pages is scrolled.
+double _pdfScroll(WidgetTester tester) => tester
+    .stateList<ScrollableState>(find.byType(Scrollable))
+    .firstWhere((s) => s.position.axis == Axis.vertical)
+    .position
+    .pixels;
+
 /// Lets go of the field, so the caret's blink timer is not still pending when
 /// the tree comes down.
 Future<void> _release(WidgetTester tester) async {
@@ -544,6 +551,116 @@ void main() {
         (after - midway).abs(),
         lessThan(60),
         reason: 'the page carries on from where it was, it does not leap',
+      );
+      await _release(tester);
+    });
+  });
+
+  group('going to a match in a PDF', () {
+    testWidgets('every match is brought on screen, big enough to read', (
+      tester,
+    ) async {
+      final store = await storeFor(kFieldGuide);
+      await pumpScreen(tester, _host(store));
+      await settle(tester);
+      final finder = await _search(tester, 'grain');
+      // Forward through the first dozen, then back round to the last, which is
+      // the far end of the document.
+      final steps = <String>[
+        for (var i = 0; i < 12; i++) 'Next match',
+        for (var i = 0; i < 13; i++) 'Previous match',
+      ];
+      for (final step in steps) {
+        await tester.tap(find.bySemanticsLabel(step));
+        await _frames(tester, 70);
+        final match = finder.matches[finder.current];
+        final rect = _pdfMatchRect(tester, match);
+        final where = 'match ${finder.current + 1} of ${finder.matches.length}';
+        expect(rect, isNotNull, reason: '$where has its page built');
+        expect(
+          _readable(tester, rect!),
+          isTrue,
+          reason: '$where is on screen under the bar, at $rect',
+        );
+        expect(
+          rect.height,
+          greaterThanOrEqualTo(18),
+          reason: '$where is set big enough to read',
+        );
+        final screen = await Screen.of(tester);
+        expect(
+          _washOf(screen, rect),
+          greaterThan(100),
+          reason: '$where is marked as the one stood on',
+        );
+      }
+      await _release(tester);
+    });
+
+    testWidgets('a step glides and zooms there rather than jumping', (
+      tester,
+    ) async {
+      final store = await storeFor(kFieldGuide);
+      await pumpScreen(tester, _host(store));
+      await settle(tester);
+      await _search(tester, 'grain');
+      await tester.tap(find.bySemanticsLabel('Next match'));
+      await _frames(tester, 70);
+      // Back round to the last match: the other end of the document.
+      await tester.tap(find.bySemanticsLabel('Previous match'));
+      await tester.tap(find.bySemanticsLabel('Previous match'));
+      final down = <double>[_pdfScroll(tester)];
+      final zoom = <double>[store.zoom];
+      for (var frame = 0; frame < 70; frame++) {
+        await pumpMs(tester, 16);
+        down.add(_pdfScroll(tester));
+        zoom.add(store.zoom);
+      }
+      final travel = (down.last - down.first).abs();
+      expect(travel, greaterThan(1000), reason: 'a long way to go');
+      final between = down
+          .where((p) => (p - down.first).abs() > 2 && (p - down.last).abs() > 2)
+          .length;
+      expect(between, greaterThanOrEqualTo(12), reason: 'it is seen moving');
+      for (var i = 1; i < down.length; i++) {
+        expect(
+          (down[i] - down[i - 1]).abs(),
+          lessThan(travel * 0.2),
+          reason: 'no one frame covers a fifth of the way (frame $i)',
+        );
+        expect(
+          (zoom[i] / zoom[i - 1] - 1).abs(),
+          lessThan(0.2),
+          reason: 'no one frame changes the size by a fifth (frame $i)',
+        );
+      }
+      await _release(tester);
+    });
+
+    testWidgets('a second step mid glide carries on from where the page is', (
+      tester,
+    ) async {
+      final store = await storeFor(kFieldGuide);
+      await pumpScreen(tester, _host(store));
+      await settle(tester);
+      await _search(tester, 'grain');
+      await tester.tap(find.bySemanticsLabel('Next match'));
+      await _frames(tester, 70);
+      await tester.tap(find.bySemanticsLabel('Next match'));
+      await _frames(tester, 6);
+      final midway = (_pdfScroll(tester), store.zoom);
+      await tester.tap(find.bySemanticsLabel('Next match'));
+      await pumpMs(tester, 16);
+      final after = (_pdfScroll(tester), store.zoom);
+      expect(
+        (after.$1 - midway.$1).abs(),
+        lessThan(60),
+        reason: 'the page carries on from where it was, it does not leap',
+      );
+      expect(
+        (after.$2 / midway.$2 - 1).abs(),
+        lessThan(0.1),
+        reason: 'the size carries on from where it was',
       );
       await _release(tester);
     });
