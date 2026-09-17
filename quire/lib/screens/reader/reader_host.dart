@@ -211,18 +211,17 @@ class _ReaderHostState extends State<ReaderHost> with TickerProviderStateMixin {
 
   /// What this document can have done to it from inside itself.
   List<ReaderAction> get _actions => <ReaderAction>[
-        if (widget.store.isPdf) ReaderAction.sign,
-        if (widget.store.isPdf && widget.store.signed)
-          ReaderAction.shareSigned,
-        widget.store.dogEared.contains(widget.store.position)
-            ? ReaderAction.undogEar
-            : ReaderAction.dogEar,
-        if (widget.store.dogEared.isNotEmpty) ReaderAction.dogEars,
-        if (_hasComments) ReaderAction.comments,
-        ReaderAction.find,
-        ReaderAction.view,
-        ReaderAction.lock,
-      ];
+    if (widget.store.isPdf) ReaderAction.sign,
+    if (widget.store.isPdf && widget.store.signed) ReaderAction.shareSigned,
+    widget.store.dogEared.contains(widget.store.position)
+        ? ReaderAction.undogEar
+        : ReaderAction.dogEar,
+    if (widget.store.dogEared.isNotEmpty) ReaderAction.dogEars,
+    if (_hasComments) ReaderAction.comments,
+    ReaderAction.find,
+    ReaderAction.view,
+    ReaderAction.lock,
+  ];
 
   void _act(ReaderAction action) {
     _closeMenu();
@@ -285,14 +284,15 @@ class _ReaderHostState extends State<ReaderHost> with TickerProviderStateMixin {
         // Up from the bottom edge, the way a pad is put down over a page.
         transitionsBuilder: (context, animation, secondary, child) =>
             SlideTransition(
-          position: Tween<Offset>(
-            begin: const Offset(0, 1),
-            end: Offset.zero,
-          ).animate(
-            CurvedAnimation(parent: animation, curve: easeOutCubic),
-          ),
-          child: child,
-        ),
+              position:
+                  Tween<Offset>(
+                    begin: const Offset(0, 1),
+                    end: Offset.zero,
+                  ).animate(
+                    CurvedAnimation(parent: animation, curve: easeOutCubic),
+                  ),
+              child: child,
+            ),
       ),
     );
     if (mark == null || mark.isEmpty || !mounted) return;
@@ -317,14 +317,16 @@ class _ReaderHostState extends State<ReaderHost> with TickerProviderStateMixin {
           DeskSheetRow(
             label: 'Lock the way out',
             icon: LucideIcons.lockKeyhole,
-            note: 'Back does nothing and every bar leaves the screen. You can '
+            note:
+                'Back does nothing and every bar leaves the screen. You can '
                 'still scroll. Tap the page for the way out.',
             onTap: () => Navigator.of(context).pop(ReaderLock.back),
           ),
           DeskSheetRow(
             label: 'Lock to this page',
             icon: LucideIcons.squareDashedBottom,
-            note: 'Pins the reading where it is and takes every bar off the '
+            note:
+                'Pins the reading where it is and takes every bar off the '
                 'screen. Tap the page to bring back the way out.',
             onTap: () => Navigator.of(context).pop(ReaderLock.page),
           ),
@@ -537,7 +539,7 @@ class _ReaderHostState extends State<ReaderHost> with TickerProviderStateMixin {
 
   /// The match last ringed in a spreadsheet, so typing another letter that
   /// finds the same cell does not ring it again.
-  SheetCell? _ringed;
+  SheetMatch? _ringed;
 
   /// In a spreadsheet a row is not a place, a cell is: the match the find is
   /// on is ringed as well as scrolled to, so the grid goes across to it as
@@ -551,13 +553,16 @@ class _ReaderHostState extends State<ReaderHost> with TickerProviderStateMixin {
     final match = find.matches[find.current];
     if (match.path.length < 3) return;
     final cell = SheetCell(match.path[1], match.path[2]);
-    if (cell == _ringed) return;
-    _ringed = cell;
-    final sheet = SheetController.of(widget.store);
-    if (match.path[0] != sheet.sheet) {
+    final found = (sheet: match.section, cell: cell);
+    if (found == _ringed) return;
+    _ringed = found;
+    final sheets = SheetController.of(widget.store);
+    // The sheet the match is on, which is not the sheet showing when the
+    // first match of a find is on another one.
+    if (match.section != sheets.sheet) {
       widget.store.position = _unitOf(match);
     }
-    sheet.selected = cell;
+    sheets.selected = cell;
   }
 
   /// Where in the document a match sits, in the units the store counts in.
@@ -573,16 +578,19 @@ class _ReaderHostState extends State<ReaderHost> with TickerProviderStateMixin {
     return (match.position * (units - 1)).round().clamp(0, units - 1);
   }
 
-  /// The cells the current query found, for the spine glyphs of a grid.
+  /// The cells the current query found, each with the sheet it is on.
   ///
   /// A grid match carries the path the model gave it, block then row then
-  /// column, and the sheet body addresses a cell by the last two.
-  Set<SheetCell> get _matchedCells {
+  /// column, and the sheet body addresses a cell by the last two. The sheet
+  /// is kept with it, because the same row and column on another sheet is
+  /// another cell.
+  Set<SheetMatch> get _matchedCells {
     final find = _find;
-    if (find == null) return const <SheetCell>{};
-    return <SheetCell>{
+    if (find == null) return const <SheetMatch>{};
+    return <SheetMatch>{
       for (final match in find.matches)
-        if (match.path.length >= 3) SheetCell(match.path[1], match.path[2]),
+        if (match.path.length >= 3)
+          (sheet: match.section, cell: SheetCell(match.path[1], match.path[2])),
     };
   }
 
@@ -732,7 +740,9 @@ class _ReaderHostState extends State<ReaderHost> with TickerProviderStateMixin {
       store: widget.store,
       bodyBuilder: _body,
       placement: placement,
-      overlay: find == null || !find.isOpen ? null : FindLayer(controller: find),
+      overlay: find == null || !find.isOpen
+          ? null
+          : FindLayer(controller: find),
       matches: find?.positions ?? const <double>[],
       liveMatch: find?.livePosition,
       matchOpacity: find?.railOpacity ?? 1,

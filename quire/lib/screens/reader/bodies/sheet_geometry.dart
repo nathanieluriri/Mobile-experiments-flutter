@@ -13,7 +13,8 @@ import 'spine_table.dart' show SheetCell, cellAt;
 /// tested without a screen, and what keeps a pan from rebuilding anything but
 /// the paint.
 class SheetGeometry {
-  SheetGeometry._({
+  SheetGeometry._(
+    this._covered, {
     required this.widths,
     required this.heights,
     required this.lefts,
@@ -34,8 +35,10 @@ class SheetGeometry {
     final columns = _columnCount(table);
     final widths = <double>[
       for (var c = 0; c < columns; c++)
-        (c < table.columns.length ? table.columns[c].width : null)
-                ?.clamp(kGridColumnMin, kGridColumnMax) ??
+        (c < table.columns.length ? table.columns[c].width : null)?.clamp(
+              kGridColumnMin,
+              kGridColumnMax,
+            ) ??
             kGridColumnWidth,
     ];
     final heights = <double>[
@@ -43,6 +46,7 @@ class SheetGeometry {
         row.height?.clamp(kGridRowMin, kGridRowMax) ?? kGridRowHeight,
     ];
     return SheetGeometry._(
+      _merges(table, columns),
       widths: widths,
       heights: heights,
       lefts: _running(widths),
@@ -51,6 +55,32 @@ class SheetGeometry {
       frozenColumns: table.frozenColumns.clamp(0, columns),
     );
   }
+
+  /// Every cell a merge has swallowed, keyed by its place, with the cell the
+  /// merge starts at. Worked out once, so asking where a merge starts is a
+  /// lookup and not a search back up the sheet for every cell painted.
+  static Map<int, SheetCell> _merges(TableBlock table, int columns) {
+    final covered = <int, SheetCell>{};
+    for (var r = 0; r < table.rows.length; r++) {
+      final cells = table.rows[r].cells;
+      for (var c = 0; c < cells.length; c++) {
+        final cell = cells[c];
+        if (cell.merged) continue;
+        final across = math.max(1, cell.colSpan);
+        final down = math.max(1, cell.rowSpan);
+        if (across == 1 && down == 1) continue;
+        for (var rr = r; rr < math.min(table.rows.length, r + down); rr++) {
+          for (var cc = c; cc < math.min(columns, c + across); cc++) {
+            if (rr == r && cc == c) continue;
+            covered[rr * columns + cc] = SheetCell(r, c);
+          }
+        }
+      }
+    }
+    return covered;
+  }
+
+  final Map<int, SheetCell> _covered;
 
   final List<double> widths;
   final List<double> heights;
@@ -102,20 +132,8 @@ class SheetGeometry {
   /// The cell that actually holds [cell], which is itself unless it has been
   /// swallowed by a merge that starts somewhere above or to its left.
   SheetCell anchorOf(TableBlock table, SheetCell cell) {
-    final held = cellAt(table, cell.row, cell.column);
-    if (held == null || !held.merged) return cell;
-    for (var r = cell.row; r >= 0; r--) {
-      for (var c = cell.column; c >= 0; c--) {
-        final other = cellAt(table, r, c);
-        if (other == null || other.merged) continue;
-        final across = math.max(1, other.colSpan);
-        final down = math.max(1, other.rowSpan);
-        if (c + across > cell.column && r + down > cell.row) {
-          return SheetCell(r, c);
-        }
-      }
-    }
-    return cell;
+    if (cell.column < 0 || cell.column >= columnCount) return cell;
+    return _covered[cell.row * columnCount + cell.column] ?? cell;
   }
 
   /// The column [x] falls in, in the sheet's own space.
@@ -125,21 +143,28 @@ class SheetGeometry {
   int rowAt(double y) => _at(tops, y, rowCount);
 
   /// The columns worth drawing for a viewport running from [from] to [to].
-  ({int first, int last}) columnsIn(double from, double to) => (
-    first: columnAt(from),
-    last: columnAt(to - 0.001),
-  );
+  ({int first, int last}) columnsIn(double from, double to) =>
+      (first: columnAt(from), last: columnAt(to - 0.001));
 
-  ({int first, int last}) rowsIn(double from, double to) => (
-    first: rowAt(from),
-    last: rowAt(to - 0.001),
-  );
+  ({int first, int last}) rowsIn(double from, double to) =>
+      (first: rowAt(from), last: rowAt(to - 0.001));
 
   /// How far the grid can be pushed on each axis before it runs out, given a
-  /// viewport of [view] and the frozen panes held out of it.
-  Offset limitFor(Size view) => Offset(
-    math.max(0, size.width - frozenWidth - (view.width - kRowHeaderWidth)),
-    math.max(0, size.height - frozenHeight - (view.height - kGridHeaderHeight)),
+  /// viewport of [view] and the frozen panes held out of it: as much of them
+  /// as there was room to hold, when that is less than the file asks for.
+  Offset limitFor(Size view, {Size? frozen}) => Offset(
+    math.max(
+      0,
+      size.width -
+          (frozen?.width ?? frozenWidth) -
+          (view.width - kRowHeaderWidth),
+    ),
+    math.max(
+      0,
+      size.height -
+          (frozen?.height ?? frozenHeight) -
+          (view.height - kGridHeaderHeight),
+    ),
   );
 
   static int _columnCount(TableBlock table) {

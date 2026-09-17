@@ -62,12 +62,27 @@ class _SheetTabsState extends State<SheetTabs>
   /// The sheet the fill is leaving, or null when it has arrived.
   int? _from;
 
+  /// Where the fill was when a journey was changed half way, which is where
+  /// the new journey sets off from instead of the sheet first left.
+  Rect? _fromBody;
+
   GlobalKey _keyFor(int index) => _keys.putIfAbsent(index, GlobalKey.new);
 
   @override
   void didUpdateWidget(SheetTabs oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.active != widget.active) {
+      final from = _from;
+      final leaving = from == null ? null : (_fromBody ?? _rectOf(from));
+      final going = _rectOf(oldWidget.active);
+      _fromBody = _travel.isAnimating && leaving != null && going != null
+          ? TabGooPainter.bodyAt(
+              from: leaving,
+              to: going,
+              t: _travel.value,
+              viscous: true,
+            )
+          : null;
       _from = oldWidget.active;
       _travel.forward(from: 0);
     }
@@ -162,7 +177,7 @@ class _SheetTabsState extends State<SheetTabs>
   Widget _travelling() {
     final from = _from;
     if (from == null || _travel.value >= 1) return const SizedBox.shrink();
-    final a = _rectOf(from);
+    final a = _fromBody ?? _rectOf(from);
     final b = _rectOf(widget.active);
     if (a == null || b == null) return const SizedBox.shrink();
     final fade = ui.lerpDouble(

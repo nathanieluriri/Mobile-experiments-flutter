@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'package:flutter/scheduler.dart' show Ticker;
 import 'package:flutter/widgets.dart';
 
 import '../../../format/csv_parser.dart';
@@ -18,6 +19,9 @@ import 'sheet_geometry.dart';
 import 'sheet_grid.dart';
 import 'sheet_tabs.dart';
 import 'spine_table.dart';
+
+/// A cell a find matched, and the sheet of the workbook it is on.
+typedef SheetMatch = ({int sheet, SheetCell cell});
 
 /// How many rows the fore edge draws one hairline for.
 ///
@@ -101,13 +105,13 @@ class SheetBody extends ReaderBody {
   const SheetBody({
     super.key,
     required this.store,
-    this.matches = const <SheetCell>{},
+    this.matches = const <SheetMatch>{},
   });
 
   final DocumentStore store;
 
   /// Cells the current query found, which the grid washes.
-  final Set<SheetCell> matches;
+  final Set<SheetMatch> matches;
 
   @override
   Widget buildFront(BuildContext context) =>
@@ -154,12 +158,12 @@ class SheetView extends StatefulWidget {
   const SheetView({
     super.key,
     required this.store,
-    this.matches = const <SheetCell>{},
+    this.matches = const <SheetMatch>{},
     this.face = SheetFace.front,
   });
 
   final DocumentStore store;
-  final Set<SheetCell> matches;
+  final Set<SheetMatch> matches;
   final SheetFace face;
 
   @override
@@ -167,15 +171,35 @@ class SheetView extends StatefulWidget {
 }
 
 class _SheetViewState extends State<SheetView> with TickerProviderStateMixin {
-  /// Both are built in [initState] rather than lazily on first use, because a
-  /// sheet with no grid on it never reaches the part of the build that would
-  /// touch them, and a controller that first exists inside [dispose] is a
-  /// ticker created against a tree that has already gone.
-  late final AnimationController _bar;
+  /// How far the bar has risen, and how much room it has open for a
+  /// comment, each on a spring, on a clock that runs only while either is
+  /// moving.
+  ///
+  /// Springs rather than a timed curve, because the bar is sent up and down
+  /// again at any moment, a cell chosen and let go and chosen again, and a
+  /// spring sent back sets off from where it is at the speed it has instead
+  /// of jumping to where a curve running the other way would put it.
+  final SpringValue _rise = SpringValue(
+    0,
+    tolerance: SpringValue.shareTolerance,
+  );
+  final SpringValue _room = SpringValue(
+    0,
+    tolerance: SpringValue.shareTolerance,
+  );
 
-  /// The bar rises on its spring and leaves on a plain ease, because arriving
-  /// is an object being lifted and leaving is a thing being put down.
-  late final Curve _barRise = SpringCurve(AppSprings.goo, duration: kCellBarIn);
+  /// Built in [initState] rather than lazily on first use, because a sheet
+  /// with no grid on it never reaches the part of the build that would touch
+  /// it, and a ticker that first exists inside [dispose] is created against a
+  /// tree that has already gone.
+  late final Ticker _barClock;
+  double _barNow = 0;
+  double _barStarted = 0;
+
+  /// The reader's place the last time this sheet heard about it, so a store
+  /// that speaks for another reason, a lock or a dog ear, is not taken for a
+  /// jump.
+  int _position = 0;
 
   late SheetController _sheet;
 
@@ -203,20 +227,39 @@ class _SheetViewState extends State<SheetView> with TickerProviderStateMixin {
   /// The cell that was chosen when the controller last spoke.
   SheetCell? _chosen;
 
+  /// The matches on one sheet, worked out again only when the find or the
+  /// sheet changes, so the grid is not repainted for a set that is new only
+  /// in name.
+  Set<SheetCell> _matchesOn(int sheet) {
+    if (!identical(widget.matches, _matchesFrom) || sheet != _matchesSheet) {
+      _matchesFrom = widget.matches;
+      _matchesSheet = sheet;
+      _matchesHere = <SheetCell>{
+        for (final match in widget.matches)
+          if (match.sheet == sheet) match.cell,
+      };
+    }
+    return _matchesHere;
+  }
+
+  Set<SheetMatch>? _matchesFrom;
+  int _matchesSheet = -1;
+  Set<SheetCell> _matchesHere = const <SheetCell>{};
+
   @override
   void initState() {
     super.initState();
-    _bar = AnimationController(
-      vsync: this,
-      duration: kCellBarIn,
-      reverseDuration: kCellBarOut,
-    )..addListener(_repaint);
+    _barClock = createTicker(_barTick);
     _sheet = SheetController.of(widget.store);
     _sheet.addListener(_onController);
     widget.store.addListener(_onStore);
     _shown = _sheetIndex;
+    _position = widget.store.position;
     _chosen = _sheet.selected;
-    if (_chosen != null) _bar.value = 1;
+    if (_chosen != null) {
+      _rise.jumpTo(1);
+      _room.jumpTo(_commented(_chosen!) ? 1 : 0);
+    }
     _readParseFacts();
   }
 
@@ -224,8 +267,30 @@ class _SheetViewState extends State<SheetView> with TickerProviderStateMixin {
   void dispose() {
     _sheet.removeListener(_onController);
     widget.store.removeListener(_onStore);
-    _bar.dispose();
+    _barClock.dispose();
     super.dispose();
+  }
+
+  void _barTick(Duration elapsed) {
+    _barNow =
+        _barStarted + elapsed.inMicroseconds / Duration.microsecondsPerSecond;
+    if (_rise.restingAt(_barNow) && _room.restingAt(_barNow)) {
+      _barClock.stop();
+    }
+    _repaint();
+  }
+
+  void _runBar() {
+    if (_barClock.isActive) return;
+    _barStarted = _barNow;
+    _barClock.start();
+  }
+
+  /// True when somebody has said something about [cell].
+  bool _commented(SheetCell cell) {
+    final table = _tableOn(_sheetIndex);
+    if (table == null) return false;
+    return cellAt(table, cell.row, cell.column)?.comment != null;
   }
 
   void _repaint() {
@@ -248,14 +313,32 @@ class _SheetViewState extends State<SheetView> with TickerProviderStateMixin {
     final sheet = _sheetIndex;
     if (sheet != _shown) {
       _shown = sheet;
+      // A cell asked for on the sheet being left means nothing on the next
+      // one. A cell asked for on the next one arrives with the choice below.
+      _reveal = null;
       // A workbook is one document, so stepping to another sheet moves the
       // reader through it: the folio chip and the fore edge have to agree
       // with the tab that is lit.
       _moveTo(_rowOffset(sheet) + _rowsScrolled(sheet));
     }
     final chosen = _sheet.selected;
+    if (chosen != _chosen) {
+      if (chosen != null) {
+        final said = _commented(chosen) ? 1.0 : 0.0;
+        // A bar still out of sight opens with its room already the right
+        // size; one already up opens or closes it as the choice moves.
+        if (_rise.valueAt(_barNow) <= 0.001 && _rise.target == 0) {
+          _room.jumpTo(said);
+        } else {
+          _room.sendTo(said, _barNow, AppSprings.barNote);
+        }
+        _rise.sendTo(1, _barNow, AppSprings.barRise);
+      } else {
+        _rise.sendTo(0, _barNow, AppSprings.barFall);
+      }
+      _runBar();
+    }
     if (chosen != null) {
-      _bar.forward();
       // A cell chosen from somewhere other than the grid, such as the list of
       // comments, has to be brought into view as well as ringed. Showing a
       // cell is not a jump, so whatever row a jump was holding the reader on
@@ -265,8 +348,6 @@ class _SheetViewState extends State<SheetView> with TickerProviderStateMixin {
         _landing = null;
         _reveal = SheetReveal(chosen);
       }
-    } else {
-      _bar.reverse();
     }
     _chosen = chosen;
     _repaint();
@@ -286,6 +367,7 @@ class _SheetViewState extends State<SheetView> with TickerProviderStateMixin {
   /// Puts the reader at [row] of the whole document without the store's own
   /// notification bouncing back as a jump.
   void _moveTo(int row) {
+    _position = row;
     if (widget.store.position == row) return;
     _syncing = true;
     widget.store.position = row;
@@ -296,6 +378,11 @@ class _SheetViewState extends State<SheetView> with TickerProviderStateMixin {
   /// the fore edge scrub and the riffle.
   void _onStore() {
     if (_syncing || !mounted) return;
+    // Only a move of the reader's place is a jump. The store also speaks when
+    // the page is locked or a dog ear is folded, and neither of those should
+    // move the grid an inch.
+    if (widget.store.position == _position) return;
+    _position = widget.store.position;
     final holding = _sheetHolding(widget.store.position);
     if (holding != _sheetIndex) {
       // The sheet is turned with its scroll already where the row is, so the
@@ -580,9 +667,14 @@ class _SheetViewState extends State<SheetView> with TickerProviderStateMixin {
                       key: ValueKey<int>(index),
                       table: table,
                       selected: selected,
+                      // What the bar covers is where a cell brought into
+                      // view must not end up.
+                      coveredBelow: selected == null
+                          ? 0
+                          : CellBar.heightFor(commented: _commented(selected)),
                       locked: widget.store.lock.holdsPage,
                       face: widget.face,
-                      matches: widget.matches,
+                      matches: _matchesOn(index),
                       raggedRows: facts?.raggedRows ?? const <int>{},
                       reveal: _reveal,
                       startAt: _sheet.panOf(index),
@@ -624,12 +716,17 @@ class _SheetViewState extends State<SheetView> with TickerProviderStateMixin {
                   ),
               ],
             ),
-            if (_bar.value > 0)
+            // The bar rises out of the top of the sheets bar rather than
+            // over it, so every sheet stays a tap away while a cell is being
+            // read.
+            if (_rise.valueAt(_barNow) > 0.001 || !_rise.restingAt(_barNow))
               Positioned(
                 left: 0,
                 right: 0,
-                bottom: 0,
-                child: _cellBar(table, section.title, selected),
+                bottom: document.sections.length > 1 ? kSheetTabHeight : 0,
+                child: ClipRect(
+                  child: _cellBar(table, section.title, selected),
+                ),
               ),
           ],
         ),
@@ -645,21 +742,14 @@ class _SheetViewState extends State<SheetView> with TickerProviderStateMixin {
     if (cell == null) return const SizedBox.shrink();
     if (cell.comment != null) _said = cell;
     final said = _said;
-    return TweenAnimationBuilder<double>(
-      tween: Tween<double>(end: cell.comment == null ? 0 : 1),
-      duration: kCellBarNote,
-      curve: easeInOutCubic,
-      builder: (context, room, _) => CellBar(
-        reference: cell.reference,
-        value: cell.value,
-        formula: cell.formula,
-        comment: said?.comment,
-        commentBy: said?.commentBy,
-        noteOpen: room,
-        progress: _bar.status == AnimationStatus.reverse
-            ? easeOutQuad.transform(_bar.value)
-            : _barRise.transform(_bar.value),
-      ),
+    return CellBar(
+      reference: cell.reference,
+      value: cell.value,
+      formula: cell.formula,
+      comment: said?.comment,
+      commentBy: said?.commentBy,
+      noteOpen: _room.valueAt(_barNow).clamp(0.0, 1.0),
+      progress: _rise.valueAt(_barNow).clamp(0.0, 1.0),
     );
   }
 

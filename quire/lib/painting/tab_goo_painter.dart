@@ -56,6 +56,47 @@ class TabGooPainter extends CustomPainter {
   static double _stage(double t, double start, double end) =>
       ((t - start) / (end - start)).clamp(0.0, 1.0);
 
+  /// Where the fill mostly is at [t], as the rectangle of a chip's height it
+  /// fills, so a journey changed half way can set off again from there
+  /// instead of from the chip it first left.
+  static Rect bodyAt({
+    required Rect from,
+    required Rect to,
+    required double t,
+    bool viscous = false,
+  }) {
+    double eased(double share) =>
+        viscous ? easeOutCubic.transform(share) : share;
+    if (t < kTabGooGatherEnd) {
+      final gather = _stage(t, 0, kTabGooGatherEnd);
+      return Rect.fromCenter(
+        center: from.center,
+        width: ui.lerpDouble(
+          from.width,
+          from.height,
+          viscous ? easeInOutCubic.transform(gather) : gather,
+        )!,
+        height: from.height,
+      );
+    }
+    if (t < kTabGooTravelEnd) {
+      final travel = (viscous ? easeInOutCubic : easeInOutQuad).transform(
+        _stage(t, kTabGooGatherEnd, kTabGooTravelEnd),
+      );
+      final radius = math.min(from.height, to.height) / 2;
+      return Rect.fromCircle(
+        center: Offset.lerp(from.center, to.center, travel)!,
+        radius: radius,
+      );
+    }
+    final widen = eased(_stage(t, kTabGooTravelEnd, kTabGooWidenEnd));
+    return Rect.fromCenter(
+      center: to.center,
+      width: ui.lerpDouble(to.height, to.width, widen)!,
+      height: to.height,
+    );
+  }
+
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()..color = colour;

@@ -104,106 +104,228 @@ class GridPainter extends CustomPainter {
     canvas.drawRect(Offset.zero & size, Paint()..color = AppColors.surface);
     final columns = geometry.columnsIn(offset.dx, offset.dx + size.width);
     final rows = geometry.rowsIn(offset.dy, offset.dy + size.height);
-    final rule = Paint()
-      ..color = AppColors.hairline
-      ..strokeWidth = 1;
+    final firstRow = rows.first;
+    final lastRow = math.min(rows.last, geometry.rowCount - 1);
+    final firstColumn = columns.first;
+    final lastColumn = math.min(columns.last, geometry.columnCount - 1);
+    if (lastRow < firstRow || lastColumn < firstColumn) {
+      _ring(canvas, size);
+      return;
+    }
 
-    // The cells first, then the rules over them, so a fill never eats the line
-    // between two columns.
-    for (var r = rows.first; r <= rows.last && r < geometry.rowCount; r++) {
-      for (
-        var c = columns.first;
-        c <= columns.last && c < geometry.columnCount;
-        c++
-      ) {
-        _cell(canvas, r, c);
+    // Every cell showing, a merge counted once however much of it shows and
+    // wherever it starts, so a merged title half scrolled off is still drawn.
+    final shown = <SheetCell>[];
+    final seen = <SheetCell>{};
+    for (var r = firstRow; r <= lastRow; r++) {
+      for (var c = firstColumn; c <= lastColumn; c++) {
+        final home = geometry.anchorOf(table, SheetCell(r, c));
+        if (seen.add(home)) shown.add(home);
       }
     }
-    for (
-      var c = columns.first;
-      c <= columns.last + 1 && c <= geometry.columnCount;
-      c++
-    ) {
-      final x = geometry.leftOf(c) - offset.dx;
-      canvas.drawLine(Offset(x, 0), Offset(x, size.height), rule);
+
+    // The grounds first, every one of them, so words running on from a cell
+    // into the empty one beside it are not painted over by that one's fill.
+    for (final cell in shown) {
+      _ground(canvas, cell);
     }
-    for (
-      var r = rows.first;
-      r <= rows.last + 1 && r <= geometry.rowCount;
-      r++
-    ) {
-      final y = geometry.topOf(r) - offset.dy;
-      canvas.drawLine(Offset(0, y), Offset(size.width, y), rule);
+
+    // Then the words, planned before the rules are drawn, since a line of
+    // words running across a column takes the rule it crosses with it. A cell
+    // just off to the left whose words run on into view is planned too.
+    final runs = <_Run>[];
+    final crossed = <int>{};
+    for (final cell in shown) {
+      final run = _plan(cell, crossed);
+      if (run != null) runs.add(run);
+    }
+    for (var r = firstRow; r <= lastRow; r++) {
+      for (var c = firstColumn - 1; c >= 0 && c >= firstColumn - 24; c--) {
+        final home = geometry.anchorOf(table, SheetCell(r, c));
+        final held = cellAt(table, home.row, home.column);
+        if (held == null || _textOf(held).isEmpty) continue;
+        if (seen.add(home)) {
+          final run = _plan(home, crossed);
+          if (run != null) runs.add(run);
+        }
+        break;
+      }
+    }
+
+    _rules(canvas, size, firstRow, lastRow, firstColumn, lastColumn, crossed);
+
+    for (final run in runs) {
+      canvas
+        ..save()
+        ..clipRect(run.clip);
+      run.painter.paint(canvas, run.at);
+      canvas.restore();
+      run.painter.dispose();
+    }
+    for (final cell in shown) {
+      final held = cellAt(table, cell.row, cell.column);
+      if (held == null) continue;
+      if (held.comment != null || commented.contains(cell)) {
+        _commentMark(canvas, geometry.rectOf(table, cell).shift(-offset));
+      }
     }
     _ring(canvas, size);
   }
 
-  void _cell(Canvas canvas, int row, int column) {
-    final held = cellAt(table, row, column);
+  /// A cell's fill and, when a find matched it, the wash over the fill.
+  void _ground(Canvas canvas, SheetCell cell) {
+    final held = cellAt(table, cell.row, cell.column);
     if (held == null || held.merged) return;
-    final rect = geometry.rectOf(table, SheetCell(row, column)).shift(-offset);
+    final rect = geometry.rectOf(table, cell).shift(-offset);
     final fill = held.background;
     if (fill != null) {
       canvas.drawRect(rect, Paint()..color = Color(fill));
     }
-    final found = matches.contains(SheetCell(row, column));
-    if (found) {
+    if (matches.contains(cell)) {
       canvas.drawRect(rect, Paint()..color = AppColors.foundWash);
-    }
-    final text = flattenCell(
-      face == SheetFace.front ? held.text : rawValueOf(held),
-    );
-    if (text.isNotEmpty) {
-      _write(
-        canvas,
-        text,
-        rect,
-        held: held,
-        onFill: fill != null,
-        header: row < geometry.frozenRows,
-      );
-    }
-    if (held.comment != null || commented.contains(SheetCell(row, column))) {
-      _commentMark(canvas, rect);
     }
   }
 
-  /// One cell's own words, clipped to the cell so a long value never runs into
-  /// the next column, which is how a grid keeps its columns.
-  void _write(
+  /// The rules between cells: none inside a merge, and none under a line of
+  /// words that runs across from one cell into the next, which is how a
+  /// spreadsheet shows that the words belong to the cell they started in.
+  void _rules(
     Canvas canvas,
-    String text,
-    Rect rect, {
-    required DocCell held,
-    required bool onFill,
-    required bool header,
-  }) {
-    final style = AppText.cell.copyWith(
-      color: onFill ? AppColors.pageInk : AppColors.ink,
-      fontWeight: header || _bold(held) ? FontWeight.w600 : FontWeight.w400,
-      fontFeatures: held.numeric
-          ? const <ui.FontFeature>[ui.FontFeature.tabularFigures()]
-          : null,
-    );
+    Size size,
+    int firstRow,
+    int lastRow,
+    int firstColumn,
+    int lastColumn,
+    Set<int> crossed,
+  ) {
+    final rule = Paint()
+      ..color = AppColors.hairline
+      ..strokeWidth = 1;
+    for (var c = firstColumn; c <= lastColumn + 1; c++) {
+      final x = geometry.leftOf(c) - offset.dx;
+      for (var r = firstRow; r <= lastRow; r++) {
+        if (c > 0 && c < geometry.columnCount) {
+          final left = geometry.anchorOf(table, SheetCell(r, c - 1));
+          final right = geometry.anchorOf(table, SheetCell(r, c));
+          if (left == right || crossed.contains(_key(r, c))) continue;
+        }
+        canvas.drawLine(
+          Offset(x, geometry.topOf(r) - offset.dy),
+          Offset(x, geometry.topOf(r + 1) - offset.dy),
+          rule,
+        );
+      }
+    }
+    for (var r = firstRow; r <= lastRow + 1; r++) {
+      final y = geometry.topOf(r) - offset.dy;
+      for (var c = firstColumn; c <= lastColumn; c++) {
+        if (r > 0 && r < geometry.rowCount) {
+          final above = geometry.anchorOf(table, SheetCell(r - 1, c));
+          final below = geometry.anchorOf(table, SheetCell(r, c));
+          if (above == below) continue;
+        }
+        canvas.drawLine(
+          Offset(geometry.leftOf(c) - offset.dx, y),
+          Offset(geometry.leftOf(c + 1) - offset.dx, y),
+          rule,
+        );
+      }
+    }
+  }
+
+  int _key(int row, int column) => row * (geometry.columnCount + 1) + column;
+
+  String _textOf(DocCell held) =>
+      flattenCell(face == SheetFace.front ? held.text : rawValueOf(held));
+
+  /// True when [row], [column] holds nothing a line of words could not run
+  /// on across: no words of its own, and no part of a merge.
+  bool _open(int row, int column) {
+    if (column < 0 || column >= geometry.columnCount) return false;
+    final held = cellAt(table, row, column);
+    if (held == null) return true;
+    if (held.merged || held.colSpan > 1 || held.rowSpan > 1) return false;
+    return _textOf(held).isEmpty;
+  }
+
+  /// Where a cell's words go and how far they may run.
+  ///
+  /// Words that fit sit in their own cell. Words that do not, in a cell of
+  /// words rather than a number, run on across the empty cells beside them
+  /// in the direction they are set, the way a spreadsheet lets a title in A1
+  /// be read in full, and stop at the first cell that has something in it.
+  /// A number never runs on, because a number cut short and a number run
+  /// into its neighbour are both wrong, and it shows from its start. The
+  /// rules the words cross are added to [crossed].
+  _Run? _plan(SheetCell cell, Set<int> crossed) {
+    final held = cellAt(table, cell.row, cell.column);
+    if (held == null || held.merged) return null;
+    final text = _textOf(held);
+    if (text.isEmpty) return null;
+    final rect = geometry.rectOf(table, cell).shift(-offset);
+    final onFill = held.background != null;
+    final bold =
+        _bold(held) || (table.frozenRows == 0 && table.rows[cell.row].header);
     final painter = TextPainter(
-      text: TextSpan(text: text, style: style),
+      text: TextSpan(
+        text: text,
+        style: AppText.cell.copyWith(
+          color: onFill ? AppColors.pageInk : AppColors.ink,
+          fontWeight: bold ? FontWeight.w600 : FontWeight.w400,
+          fontFeatures: held.numeric
+              ? const <ui.FontFeature>[ui.FontFeature.tabularFigures()]
+              : null,
+        ),
+      ),
       textDirection: TextDirection.ltr,
       maxLines: 1,
-      ellipsis: '',
       textScaler: TextScaler.linear(textScale),
-    )..layout(maxWidth: math.max(0, rect.width - kGridCellPadX * 2));
-    final free = rect.width - kGridCellPadX * 2 - painter.width;
-    final x = switch (_alignOf(held)) {
-      DocAlign.end => rect.left + kGridCellPadX + math.max(0, free),
-      DocAlign.center => rect.left + kGridCellPadX + math.max(0, free) / 2,
-      DocAlign.justify || DocAlign.start => rect.left + kGridCellPadX,
+    )..layout();
+    final room = rect.width - kGridCellPadX * 2;
+    final free = room - painter.width;
+    final align = _alignOf(held);
+    var clip = rect;
+    final spans = held.colSpan > 1 || held.rowSpan > 1;
+    if (free < 0 && !held.numeric && !spans) {
+      var left = rect.left;
+      var right = rect.right;
+      var need = -free;
+      final rightward = align != DocAlign.end;
+      final leftward = align == DocAlign.end || align == DocAlign.center;
+      if (align == DocAlign.center) need /= 2;
+      if (rightward) {
+        var c = cell.column + 1;
+        var got = 0.0;
+        while (got < need && _open(cell.row, c)) {
+          crossed.add(_key(cell.row, c));
+          got += geometry.widthOf(c);
+          right += geometry.widthOf(c);
+          c++;
+        }
+      }
+      if (leftward) {
+        var c = cell.column - 1;
+        var got = 0.0;
+        while (got < need && _open(cell.row, c)) {
+          crossed.add(_key(cell.row, c + 1));
+          got += geometry.widthOf(c);
+          left -= geometry.widthOf(c);
+          c--;
+        }
+      }
+      clip = Rect.fromLTRB(left, rect.top, right, rect.bottom);
+    }
+    final x = switch (align) {
+      DocAlign.end when free >= 0 || !held.numeric =>
+        rect.right - kGridCellPadX - painter.width,
+      DocAlign.center => rect.center.dx - painter.width / 2,
+      _ => rect.left + kGridCellPadX,
     };
-    canvas
-      ..save()
-      ..clipRect(rect);
-    painter.paint(canvas, Offset(x, rect.center.dy - painter.height / 2));
-    canvas.restore();
-    painter.dispose();
+    return _Run(
+      painter: painter,
+      at: Offset(x, rect.center.dy - painter.height / 2),
+      clip: clip,
+    );
   }
 
   DocAlign _alignOf(DocCell cell) =>
@@ -427,4 +549,13 @@ class GridPainter extends CustomPainter {
       old.commented != commented ||
       old.face != face ||
       old.textScale != textScale;
+}
+
+/// A cell's words, laid out, with where they go and how far they may show.
+class _Run {
+  const _Run({required this.painter, required this.at, required this.clip});
+
+  final TextPainter painter;
+  final Offset at;
+  final Rect clip;
 }
