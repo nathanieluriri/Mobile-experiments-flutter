@@ -269,7 +269,16 @@ const kGridRingWidth = 2.0;
 const kGridHandle = 5.0;
 
 /// How long the ring takes to travel from one cell to the next.
-const kGridRingMove = Duration(milliseconds: 260);
+const kGridRingMove = Duration(milliseconds: 420);
+
+/// How big the ring is when it first opens out of the goo, as a share of the
+/// height of the cell it is opening into.
+const kGridRingSeed = 0.5;
+
+/// How far the goo sits inside the cells it travels between, and how late in
+/// the journey the ring takes over from it.
+const kGridGooInset = 3.0;
+const kGridGooHandover = 0.2;
 
 /// How far the ring swells at the middle of its travel, so it reads as one
 /// thing moving rather than two things appearing.

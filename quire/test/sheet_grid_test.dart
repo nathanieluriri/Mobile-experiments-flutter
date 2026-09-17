@@ -195,9 +195,15 @@ void main() {
         _app(_grid(), selected: const SheetCell(4, 2)),
       );
       await tester.pump();
-      await pumpMs(tester, kGridRingMove.inMilliseconds ~/ 2);
+      // Early: the goo has gathered out of the old cell and is crossing, and
+      // there is no ring anywhere, because the choice is in transit.
+      await pumpMs(tester, kGridRingMove.inMilliseconds * 35 ~/ 100);
+      await capture(tester, 'sheet__grid_ring_crossing');
+      // Late: the goo has reached the new cell and the ring opens out of it.
+      await pumpMs(tester, kGridRingMove.inMilliseconds * 35 ~/ 100);
       await capture(tester, 'sheet__grid_ring_moving');
       await settle(tester);
+      await capture(tester, 'sheet__grid_ring_arrived');
     });
   });
 }

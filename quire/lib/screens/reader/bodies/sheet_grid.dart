@@ -1,10 +1,16 @@
 import 'dart:math' as math;
 
+import 'dart:ui' as ui;
+
 import 'package:flutter/physics.dart';
 import 'package:flutter/widgets.dart';
 
 import '../../../model/document.dart';
+import '../../../constants/gooey_fab.dart'
+    show kGooAlphaThresholdMatrix, kGooBlurSigma;
 import '../../../painting/grid_painter.dart';
+import '../../../painting/cell_goo_painter.dart';
+import '../../../theme/colors.dart';
 import '../../../theme/feedback.dart';
 import '../../../theme/metrics.dart';
 import '../../../theme/springs.dart';
@@ -117,7 +123,9 @@ class SheetGridState extends State<SheetGrid> with TickerProviderStateMixin {
       _geometry = SheetGeometry.of(widget.table);
       _pan = Offset.zero;
       _ringFrom = null;
-      _ringTo = _rectOf(widget.selected);
+      // Where the ring was, on the new sheet's measures, so a choice that
+      // changed in the same breath still travels from somewhere.
+      _ringTo = _rectOf(oldWidget.selected);
     }
     if (oldWidget.selected != widget.selected) _moveRing();
     final reveal = widget.reveal;
@@ -165,16 +173,30 @@ class SheetGridState extends State<SheetGrid> with TickerProviderStateMixin {
     _ringMove.forward(from: 0);
   }
 
-  /// Where the ring is at this moment.
+  /// Where the ring is at this moment, or null while the goo is carrying the
+  /// choice between cells.
+  ///
+  /// The goo leads and the ring follows it: while the body is crossing the
+  /// sheet there is no ring anywhere, because the choice is in transit, and
+  /// the ring opens out of the goo once the goo has reached the new cell.
   Rect? _ringNow() {
     final to = _ringTo;
     if (to == null) return null;
     final from = _ringFrom;
-    if (from == null || _ringMove.isCompleted) return to;
-    final t = _ringCurve.transform(_ringMove.value);
-    final rect = Rect.lerp(from, to, t)!;
-    // Fattest half way across, the way a drop is while it is still travelling.
-    final swell = kGridRingSwell * math.sin(math.pi * t.clamp(0.0, 1.0));
+    if (from == null || !_ringMove.isAnimating) return to;
+    final t = _ringMove.value;
+    if (t < kCellGooArriveStart) return null;
+    final open = _ringCurve.transform(
+      ((t - kCellGooArriveStart) / (1 - kCellGooArriveStart)).clamp(0.0, 1.0),
+    );
+    final seed = Rect.fromCenter(
+      center: to.center,
+      width: to.height * kGridRingSeed,
+      height: to.height * kGridRingSeed,
+    );
+    final rect = Rect.lerp(seed, to, open)!;
+    // A little past the cell before it settles, the way a drop spreads.
+    final swell = kGridRingSwell * math.sin(math.pi * open.clamp(0.0, 1.0));
     return rect.inflate(swell);
   }
 
@@ -371,10 +393,16 @@ class SheetGridState extends State<SheetGrid> with TickerProviderStateMixin {
                         width: frozenW,
                       ),
                     Expanded(
-                      child: _paint(
-                        GridPane.cells,
-                        Offset(frozenW + _pan.dx, frozenH + _pan.dy),
-                        ring,
+                      child: Stack(
+                        fit: StackFit.expand,
+                        children: <Widget>[
+                          _paint(
+                            GridPane.cells,
+                            Offset(frozenW + _pan.dx, frozenH + _pan.dy),
+                            ring,
+                          ),
+                          _goo(Offset(frozenW + _pan.dx, frozenH + _pan.dy)),
+                        ],
                       ),
                     ),
                   ],
@@ -384,6 +412,51 @@ class SheetGridState extends State<SheetGrid> with TickerProviderStateMixin {
           ),
         );
       },
+    );
+  }
+
+  /// The body of goo that carries the choice from one cell to the next.
+  ///
+  /// It gathers out of the cell being left, crosses the sheet trailing a
+  /// thread, and opens into the cell being chosen, the same journey the desk's
+  /// tabs make, so a choice reads as one thing moving rather than a ring
+  /// vanishing in one place and turning up in another. Blurred and cut at a
+  /// threshold, which is what makes circles into one body. Nothing is drawn
+  /// once it has arrived.
+  Widget _goo(Offset at) {
+    final from = _ringFrom;
+    final to = _ringTo;
+    if (from == null || to == null || !_ringMove.isAnimating) {
+      return const SizedBox.shrink();
+    }
+    final t = _ringMove.value;
+    final fade = t < 1 - kGridGooHandover
+        ? 1.0
+        : ((1 - t) / kGridGooHandover).clamp(0.0, 1.0);
+    return IgnorePointer(
+      child: ClipRect(
+        child: Opacity(
+          opacity: fade,
+          child: ColorFiltered(
+            colorFilter: const ColorFilter.matrix(kGooAlphaThresholdMatrix),
+            child: ImageFiltered(
+              imageFilter: ui.ImageFilter.blur(
+                sigmaX: kGooBlurSigma,
+                sigmaY: kGooBlurSigma,
+                tileMode: TileMode.decal,
+              ),
+              child: CustomPaint(
+                painter: CellGooPainter(
+                  from: from.shift(-at).deflate(kGridGooInset),
+                  to: to.shift(-at).deflate(kGridGooInset),
+                  t: t,
+                  colour: AppColors.accentMuted,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 
