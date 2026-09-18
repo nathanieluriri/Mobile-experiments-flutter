@@ -5,13 +5,15 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.provider.OpenableColumns
+import android.view.WindowManager
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
 
 /**
- * Hands documents opened from outside the app over to the Dart side.
+ * Hands documents opened from outside the app over to the Dart side, and lets
+ * it hold the screen awake.
  *
  * Two ways in and they are different. A cold start has the intent waiting
  * before Dart is up, so the path is held until Dart asks for it. A warm open
@@ -24,6 +26,7 @@ import java.io.File
  */
 class MainActivity : FlutterActivity() {
     private var channel: MethodChannel? = null
+    private var screen: MethodChannel? = null
 
     /** The document a cold start arrived with, waiting for Dart to ask. */
     private var pending: String? = null
@@ -40,6 +43,34 @@ class MainActivity : FlutterActivity() {
                     result.notImplemented()
                 }
             }
+        }
+        screen = MethodChannel(messenger, SCREEN).also { hold ->
+            hold.setMethodCallHandler { call, result ->
+                if (call.method == HOLD) {
+                    setScreenHeld(call.arguments == true)
+                    result.success(null)
+                } else {
+                    result.notImplemented()
+                }
+            }
+        }
+    }
+
+    /**
+     * Keeps the screen on, or lets it go again.
+     *
+     * A presentation is a stretch of minutes with no touches in it, which is
+     * exactly what the phone reads as nobody being there. Without this the
+     * screen dims and then locks part way through a slide, in front of whoever
+     * is watching. It is a window flag rather than a wake lock so that it
+     * cannot outlive the window: quire has no business keeping a phone awake
+     * once it is no longer the thing on the screen.
+     */
+    private fun setScreenHeld(held: Boolean) {
+        if (held) {
+            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        } else {
+            window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         }
     }
 
@@ -113,5 +144,7 @@ class MainActivity : FlutterActivity() {
         const val CHANNEL = "ng.com.uriri.quire/incoming"
         const val INITIAL = "getInitialFile"
         const val OPENED = "opened"
+        const val SCREEN = "ng.com.uriri.quire/screen"
+        const val HOLD = "hold"
     }
 }

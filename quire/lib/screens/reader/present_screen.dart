@@ -11,6 +11,7 @@ import '../../constants/gooey_fab.dart'
 import '../../model/document.dart';
 import '../../painting/present_goo_painter.dart';
 import '../../services/document_store.dart';
+import '../../services/screen_hold.dart';
 import '../../theme/colors.dart';
 import '../../theme/easings.dart';
 import '../../theme/feedback.dart';
@@ -22,15 +23,28 @@ import 'bodies/deck_body.dart';
 import 'bodies/slide_sheet.dart';
 
 /// The cluster's own measurements.
+///
+/// The pill is exactly as wide as its three controls need to be to answer a
+/// thumb: two steps at the pill's own height, and the number between them at
+/// [kPresentNumberWidth]. The number is not a label, it is the way into a deck
+/// of forty slides, and a target the size of the digit printed on it is a
+/// target nobody hits while holding a phone up in front of a room.
 const double kPresentPillHeight = 46.0;
-const double kPresentPillWidth = 132.0;
-const double kPresentLeaveSize = 46.0;
-const double kPresentLeaveGap = 14.0;
-const double kPresentClusterBottom = 26.0;
+const double kPresentNumberWidth = 48.0;
+const double kPresentPillWidth = kPresentPillHeight * 2 + kPresentNumberWidth;
+const double kPresentLeaveSize = kPresentPillHeight;
+const double kPresentLeaveGap = kSpace14;
+const double kPresentClusterBottom = kSpace26;
+
+/// Every glyph in the cluster, at one size.
+///
+/// Three controls sitting on one body have to read as one set. Drawn at three
+/// sizes they read as three things that happen to be touching.
+const double kPresentGlyph = 20.0;
 
 /// Room left round the goo canvas for the blur, so the body is not cut off at
 /// the edge of the box the controls are laid out in.
-const double kPresentGooPad = 36.0;
+const double kPresentGooPad = kSpace40;
 
 /// How long the cluster stays after it has been asked for, and how long it
 /// takes to come and go.
@@ -39,6 +53,9 @@ const double kPresentGooPad = 36.0;
 /// three controls a reader may want to use twice.
 const Duration kPresentClusterHold = Duration(seconds: 4);
 const Duration kPresentClusterMove = Duration(milliseconds: 260);
+
+/// How far out the cluster has to be before its glyphs begin to arrive.
+const double kPresentGlyphsIn = 0.55;
 
 /// How long a slide takes to come in from the side when it is stepped to.
 const Duration kPresentStep = Duration(milliseconds: 260);
@@ -80,6 +97,7 @@ class PresentScreen extends StatefulWidget {
     required this.assets,
     required this.titles,
     this.openAt = 0,
+    this.screen,
   });
 
   final DocumentStore store;
@@ -90,6 +108,9 @@ class PresentScreen extends StatefulWidget {
   final List<String> titles;
 
   final int openAt;
+
+  /// What holds the screen awake, or null for the platform's own.
+  final ScreenHold? screen;
 
   @override
   State<PresentScreen> createState() => _PresentScreenState();
@@ -114,6 +135,12 @@ class _PresentScreenState extends State<PresentScreen>
 
   late int _at = widget.openAt;
 
+  late final ScreenHold _screen = widget.screen ?? ScreenHold();
+
+  /// The row the jump list opens on, so a long deck does not offer its list
+  /// at slide one while the reader is standing on slide thirty.
+  final GlobalKey _standingOn = GlobalKey();
+
   @override
   void initState() {
     super.initState();
@@ -124,6 +151,9 @@ class _PresentScreenState extends State<PresentScreen>
     // The screen owns its own room: the system bars go as it opens and come
     // back as it closes, wherever it was opened from and however it is left.
     unawaited(enterPresentation());
+    // A presentation is minutes with no touches in it, which is exactly what
+    // a phone reads as nobody being there.
+    unawaited(_screen.hold());
     if (_saying) {
       _noticeSaid = true;
       _noticeGone = Timer(kPresentNoticeHold, () {
@@ -134,6 +164,7 @@ class _PresentScreenState extends State<PresentScreen>
 
   @override
   void dispose() {
+    unawaited(_screen.release());
     unawaited(leavePresentation());
     _noticeGone?.cancel();
     _clusterGone?.cancel();
@@ -194,23 +225,36 @@ class _PresentScreenState extends State<PresentScreen>
   /// to the one somebody in the room asked about.
   Future<void> _jump() async {
     _clusterGone?.cancel();
-    final picked = await showDeskSheet<int>(
-      context,
-      (context) => DeskSheet(
+    final picked = await showDeskSheet<int>(context, (context) {
+      // The list opens on the slide being shown. A deck is read in order and
+      // asked about out of order, so the row somebody wants is nearly always
+      // near the one they are on, and a list that opened at its top would put
+      // that row off the bottom of any deck worth having a list for.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        final row = _standingOn.currentContext;
+        if (row == null) return;
+        Scrollable.ensureVisible(row, alignment: 0.4, duration: Duration.zero);
+      });
+      return DeskSheet(
         title: 'Go to a slide',
         children: <Widget>[
           for (var i = 0; i < widget.slides.length; i++)
             DeskSheetRow(
+              key: i == _at ? _standingOn : null,
               label: i < widget.titles.length && widget.titles[i].isNotEmpty
                   ? widget.titles[i]
                   : 'Slide ${i + 1}',
               icon: i == _at ? LucideIcons.squareDot : LucideIcons.square,
-              note: 'Slide ${i + 1}',
+              note: i == _at ? 'Slide ${i + 1}, showing now' : 'Slide ${i + 1}',
+              // Marked as well as scrolled to. A different glyph on its own is
+              // not enough to find at a glance in a list of forty lines that
+              // are otherwise identical in weight.
+              trailing: i == _at ? const _Standing() : null,
               onTap: () => Navigator.of(context).pop(i),
             ),
         ],
-      ),
-    );
+      );
+    });
     if (!mounted) return;
     if (picked != null) _goTo(picked);
     _askCluster();
@@ -405,16 +449,16 @@ class _Cluster extends StatelessWidget {
                           // this button out as the word one.
                           semanticLabel: 'Slide $label, go to a slide',
                           feel: Feel.tap,
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: kSpace8,
-                              vertical: kSpace4,
-                            ),
-                            child: ExcludeSemantics(
-                              child: Text(
-                                label,
-                                style: AppText.actionPill.copyWith(
-                                  color: AppColors.ink,
+                          child: SizedBox(
+                            width: kPresentNumberWidth,
+                            height: kPresentPillHeight,
+                            child: Center(
+                              child: ExcludeSemantics(
+                                child: Text(
+                                  label,
+                                  style: AppText.actionPill.copyWith(
+                                    color: AppColors.ink,
+                                  ),
                                 ),
                               ),
                             ),
@@ -444,7 +488,7 @@ class _Cluster extends StatelessWidget {
                         height: kPresentLeaveSize,
                         child: Icon(
                           LucideIcons.minimize2,
-                          size: 19,
+                          size: kPresentGlyph,
                           color: AppColors.accentBright,
                         ),
                       ),
@@ -460,7 +504,24 @@ class _Cluster extends StatelessWidget {
   }
 
   /// The glyphs arrive once the body has most of its shape, and leave at once.
-  double get _contents => ((t - 0.55) / 0.45).clamp(0.0, 1.0);
+  ///
+  /// [kPresentGlyphsIn] is where they start: late enough that the cluster is a
+  /// body before it is a row of buttons, early enough that they are up before
+  /// it settles.
+  double get _contents =>
+      ((t - kPresentGlyphsIn) / (1 - kPresentGlyphsIn)).clamp(0.0, 1.0);
+}
+
+/// The mark against the slide the presentation is standing on.
+class _Standing extends StatelessWidget {
+  const _Standing();
+
+  @override
+  Widget build(BuildContext context) => const Icon(
+    LucideIcons.check,
+    size: kPresentGlyph,
+    color: AppColors.accentBright,
+  );
 }
 
 class _Step extends StatelessWidget {
@@ -491,7 +552,7 @@ class _Step extends StatelessWidget {
       height: kPresentPillHeight,
       child: Icon(
         icon,
-        size: 20,
+        size: kPresentGlyph,
         color: dim ? AppColors.inkFaint : AppColors.ink,
       ),
     ),

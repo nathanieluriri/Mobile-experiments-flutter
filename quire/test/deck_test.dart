@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:quire/painting/present_goo_painter.dart';
 import 'package:quire/screens/reader/bodies/deck_body.dart';
@@ -9,7 +10,9 @@ import 'package:quire/screens/reader/bodies/slide_sheet.dart';
 import 'package:quire/screens/reader/folio_chip.dart';
 import 'package:quire/screens/reader/present_screen.dart';
 import 'package:quire/screens/reader/reader_host.dart';
+import 'package:quire/theme/metrics.dart';
 import 'package:quire/services/document_store.dart';
+import 'package:quire/services/screen_hold.dart';
 
 import 'support/fixtures.dart';
 import 'support/golden.dart';
@@ -413,10 +416,146 @@ void main() {
     });
   });
 
+  group('what a presentation needs that a document does not', () {
+    testWidgets('the screen is held awake while a slide is up, and let go', (
+      tester,
+    ) async {
+      final held = <bool>[];
+      final channel = MethodChannel(kScreenChannel);
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(channel, (
+        call,
+      ) async {
+        if (call.method == kScreenHold) held.add(call.arguments == true);
+        return null;
+      });
+      addTearDown(
+        () => tester.binding.defaultBinaryMessenger
+            .setMockMethodCallHandler(channel, null),
+      );
+
+      final store = await storeFor(kPressDayBriefing);
+      await pumpScreen(tester, _reader(store));
+      await settle(tester);
+      expect(held, isEmpty, reason: 'reading a document involves a hand');
+
+      await tester.tap(find.byType(SlideCard).first);
+      await settle(tester);
+      // A phone reads minutes without a touch as nobody being there, and dims
+      // and locks part way through a slide in front of the room.
+      expect(held, <bool>[true]);
+
+      await pumpMs(tester, kPresentNoticeHold.inMilliseconds + 20);
+      await tester.tapAt(const Offset(201, 300));
+      await settle(tester);
+      await tester.tap(find.bySemanticsLabel('Leave the presentation'));
+      await settle(tester);
+      expect(held, <bool>[true, false]);
+    });
+
+    testWidgets('the list of slides opens on the one being shown', (
+      tester,
+    ) async {
+      final store = await storeFor(kPressDayBriefing);
+      await pumpScreen(
+        tester,
+        MaterialApp(
+          debugShowCheckedModeBanner: false,
+          home: PresentScreen(
+            store: store,
+            slides: store.slides,
+            assets: store.document!.assets,
+            titles: <String>[
+              for (final section in store.document!.sections) section.title,
+            ],
+            openAt: 5,
+          ),
+        ),
+      );
+      await tester.pump();
+
+      await pumpMs(tester, kPresentNoticeHold.inMilliseconds + 20);
+      await tester.tapAt(const Offset(201, 300));
+      await settle(tester);
+      await tester.tap(find.bySemanticsLabel('Slide 6, go to a slide'));
+      await settle(tester);
+
+      // The row is named as the one showing, and it is on the screen rather
+      // than somewhere below the fold of a long deck.
+      expect(find.text('Slide 6, showing now'), findsOneWidget);
+      final row = tester.getRect(find.text('Slide 6, showing now'));
+      final screen = tester.getRect(find.byType(MaterialApp).first);
+      expect(row.top, greaterThanOrEqualTo(screen.top));
+      expect(row.bottom, lessThanOrEqualTo(screen.bottom));
+    });
+  });
+
+  group('finding the way into a presentation', () {
+    testWidgets('the band says how, once, on the first deck opened', (
+      tester,
+    ) async {
+      resetDeckHint();
+      final store = await storeFor(kPressDayBriefing);
+      await pumpScreen(tester, _reader(store));
+      await settle(tester);
+      // A mode that takes the whole screen arriving on an unhinted tap is a
+      // mode most readers meet by accident.
+      expect(find.text(kDeckHint), findsOneWidget);
+
+      await pumpMs(tester, kReaderNotice.inMilliseconds + 40);
+      await settle(tester);
+      expect(find.text(kDeckHint), findsNothing);
+
+      final again = await storeFor(kPressDayBriefing);
+      await pumpScreen(tester, _reader(again));
+      await settle(tester);
+      expect(find.text(kDeckHint), findsNothing);
+    });
+
+    testWidgets('a document that is not a deck is never told about slides', (
+      tester,
+    ) async {
+      resetDeckHint();
+      final store = await storeFor(kHouseStyle);
+      await pumpScreen(tester, _reader(store));
+      await settle(tester);
+      expect(find.text(kDeckHint), findsNothing);
+    });
+
+    testWidgets('every control in the cluster answers a thumb', (
+      tester,
+    ) async {
+      final store = await storeFor(kPressDayBriefing);
+      await pumpScreen(tester, _reader(store));
+      await settle(tester);
+      await tester.tap(find.byType(SlideCard).first);
+      await settle(tester);
+      await pumpMs(tester, kPresentNoticeHold.inMilliseconds + 20);
+      await tester.tapAt(const Offset(201, 300));
+      await settle(tester);
+
+      // The number is the way into a deck of forty slides, and it used to be
+      // the size of the digit printed on it.
+      for (final label in <String>[
+        'The slide before',
+        'Slide 1, go to a slide',
+        'The slide after',
+        'Leave the presentation',
+      ]) {
+        final size = tester.getSize(find.bySemanticsLabel(label));
+        expect(size.width, greaterThanOrEqualTo(44), reason: label);
+        expect(size.height, greaterThanOrEqualTo(44), reason: label);
+      }
+    });
+  });
+
   group('the deck as it looks', () {
     testWidgets('deck__bench', (tester) async {
       final store = await storeFor(kPressDayBriefing);
       await pumpScreen(tester, _reader(store));
+      await settle(tester);
+      // The bench at rest, with the line about presenting already said and
+      // gone, whatever order the tests in this file happen to run in.
+      await pumpMs(tester, kReaderNotice.inMilliseconds + 40);
       await settle(tester);
       await precacheImages(tester);
       await capture(tester, 'deck__bench');

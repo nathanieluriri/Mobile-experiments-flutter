@@ -1,3 +1,15 @@
+/// Laying a slide out in the deck's own points.
+///
+/// Every measurement in this file is in the stage's points rather than the
+/// app's, which is why none of them sit on the spacing scale in
+/// `theme/metrics.dart` and none of them should be moved onto it. A slide's
+/// geometry belongs to whoever made the deck: a bullet gutter of 22 is 22 of
+/// the file's points, and it becomes whatever the one scale factor makes of it
+/// on a thumbnail, on the bench and on the stage. A number taken from the
+/// app's scale here would be the app writing on somebody's slide, and it would
+/// come out a different size in each of the three places.
+library;
+
 import 'dart:math' as math;
 import 'dart:typed_data';
 
@@ -5,6 +17,17 @@ import 'package:flutter/widgets.dart';
 
 import '../../../model/document.dart';
 import '../../../theme/colors.dart';
+
+/// Laying a slide out in the deck's own points.
+///
+/// Every measurement in this file is in the stage's points rather than the
+/// app's, which is why none of them sit on the spacing scale in
+/// `theme/metrics.dart` and none of them should be moved onto it. A slide's
+/// geometry belongs to whoever made the deck: a bullet gutter of 22 is 22 of
+/// the file's points, and it becomes whatever the one scale factor makes of it
+/// on a thumbnail, on the bench and on the stage. A number taken from the
+/// app's scale here would be the app writing on somebody's slide, and it would
+/// be a different size on each of the three.
 
 /// The size a slide's text is laid out at before it is scaled.
 ///

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io' show File;
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:flutter/widgets.dart';
 import 'package:share_plus/share_plus.dart';
 
@@ -75,6 +76,16 @@ class ReaderHost extends StatefulWidget {
   State<ReaderHost> createState() => _ReaderHostState();
 }
 
+/// Whether the line about tapping a slide has been said.
+///
+/// Once in the life of the app. A reader who has been told does not need
+/// telling again every time they open a deck.
+bool _deckHintSaid = false;
+
+/// Forgets that the line has been said, for a test that needs it again.
+@visibleForTesting
+void resetDeckHint() => _deckHintSaid = false;
+
 class _ReaderHostState extends State<ReaderHost> with TickerProviderStateMixin {
   /// A signature drawn from inside this document, as opposed to one carried
   /// in from the desk. Either way there is only ever one loose at a time.
@@ -141,6 +152,7 @@ class _ReaderHostState extends State<ReaderHost> with TickerProviderStateMixin {
     _menu.animations.addListener(_onMenuMoved);
     _frames.addListener(_onFramesMoved);
     _openPages();
+    _hintDeck();
   }
 
   @override
@@ -266,6 +278,18 @@ class _ReaderHostState extends State<ReaderHost> with TickerProviderStateMixin {
       case ReaderAction.lock:
         _lock();
     }
+  }
+
+  /// Says how a deck is presented, once, on the first one that is opened.
+  ///
+  /// It waits for a frame because a notice set during initState is a notice
+  /// set into a band that has not been built yet.
+  void _hintDeck() {
+    if (_deckHintSaid || !widget.store.isDeck) return;
+    _deckHintSaid = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && widget.store.isDeck) _say(kDeckHint);
+    });
   }
 
   /// Shows the deck, from [slide], with the app out of the way.
@@ -527,6 +551,9 @@ class _ReaderHostState extends State<ReaderHost> with TickerProviderStateMixin {
 
   void _onStore() {
     if (!mounted) return;
+    // A document opened from the desk has not been read yet when the reader is
+    // built, so the deck only becomes a deck here.
+    _hintDeck();
     // A document that arrives while the reader is already open gets its page
     // engine on the next frame rather than inside the notification that
     // announced it, because opening one writes the page count straight back to

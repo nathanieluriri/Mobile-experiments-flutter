@@ -19,15 +19,22 @@ import 'slide_sheet.dart';
 /// How far a slide sits in from the sheet's edges, and how far apart two
 /// slides sit.
 ///
-/// Wider than the prose margin on purpose. A slide is an object with an edge
-/// of its own, and an object laid on a bench needs bench showing round it or
-/// it reads as the bench.
-const double kDeckMargin = 18.0;
-const double kDeckGap = 20.0;
+/// The inset is the screen's own padding, which makes a slide on the bench
+/// exactly [kCardWidth] wide: the same measure as a document's card on the
+/// desk. A slide is an object laid on a surface and so is a card, and the two
+/// are the same size for the same reason.
+const double kDeckMargin = kScreenPadding;
+const double kDeckGap = kSpace20;
 
 /// The folio under each slide, and the space it needs.
-const double kDeckFolioGap = 6.0;
-const double kDeckFolioHeight = 14.0;
+const double kDeckFolioGap = kSpace4;
+const double kDeckFolioHeight = kSpace14;
+
+/// A slide's corner.
+///
+/// Slides are cut square, so this is a hairline's worth of softening rather
+/// than a radius: anything more and a deck reads as a set of playing cards.
+const double kDeckCorner = 2.0;
 
 /// A deck of slides, read the way a deck is read: one slide after another,
 /// each at the shape the file laid it out on.
@@ -107,6 +114,14 @@ class DeckBody extends ReaderBody {
 /// What a deck with no slides in it prints across the sheet.
 const String kDeckEmptyLabel = 'THIS DECK HAS NO SLIDES';
 
+/// What the band says the first time a deck is opened.
+///
+/// Tapping a slide takes the whole screen, and a mode that large arriving on
+/// an unhinted tap is a mode most readers meet by accident and the rest never
+/// find at all. The menu carries the same thing in words, so this is said once
+/// in the life of the app and then never again.
+const String kDeckHint = 'Tap a slide to present it.';
+
 /// The bench the slides lie on.
 class DeckSheet extends StatefulWidget {
   const DeckSheet({
@@ -163,6 +178,7 @@ class _DeckSheetState extends State<DeckSheet> {
         kDeckGap;
   }
 
+  /// The measure a slide is drawn at, which is a desk card's own width.
   double get _cardWidth => kSheetWidth - 2 * kDeckMargin;
 
   double _offsetOf(int slide) => slide <= 0 ? 0 : slide * _extent;
@@ -291,15 +307,13 @@ class SlideCard extends StatelessWidget {
     required this.slide,
     required this.assets,
     required this.width,
-    this.radius = 2,
+    this.radius = kDeckCorner,
   });
 
   final SlideBlock slide;
   final Map<String, Uint8List> assets;
   final double width;
 
-  /// Slides are cut square, so the corner is a hairline's worth of softening
-  /// rather than a radius that would make the deck look like a set of cards.
   final double radius;
 
   /// Nothing in this app casts a shadow, a slide included. A slide carries the
