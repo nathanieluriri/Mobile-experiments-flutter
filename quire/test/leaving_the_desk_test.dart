@@ -36,7 +36,7 @@ void main() {
         ),
       );
       await settle(tester);
-      expect(find.byType(DocumentCard), findsNWidgets(6));
+      expect(find.byType(DocumentCard), findsNWidgets(7));
 
       // The second card on the desk, so there is a card beside it and cards
       // under it that would move if the grid closed early.
@@ -74,7 +74,7 @@ void main() {
       );
 
       await settle(tester);
-      expect(find.byType(DocumentCard), findsNWidgets(5));
+      expect(find.byType(DocumentCard), findsNWidgets(6));
     });
 
     testWidgets('a sort takes nothing apart', (tester) async {
@@ -94,7 +94,7 @@ void main() {
       await tester.pump();
       expect(_jobs(tester), isEmpty);
       await settle(tester);
-      expect(find.byType(DocumentCard), findsNWidgets(6));
+      expect(find.byType(DocumentCard), findsNWidgets(7));
     });
   });
 
@@ -219,7 +219,7 @@ void main() {
 
       await settle(tester);
       expect(tester.takeException(), isNull);
-      expect(find.byType(DocumentRow), findsNWidgets(6));
+      expect(find.byType(DocumentRow), findsNWidgets(7));
     });
   });
 
@@ -334,7 +334,7 @@ void main() {
         await pumpMs(tester, 100);
       }
       await settle(tester);
-      expect(find.byType(DocumentRow), findsNWidgets(5));
+      expect(find.byType(DocumentRow), findsNWidgets(6));
     });
   });
 }

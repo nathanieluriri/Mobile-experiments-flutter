@@ -215,18 +215,19 @@ void main() {
   });
 
   group('the bundled library', () {
-    test('the six entries match the files on the shelf', () {
-      expect(libraryEntries.length, 6);
+    test('the seven entries match the files on the shelf', () {
+      expect(libraryEntries.length, 7);
       expect(libraryEntries.map((e) => e.format).toList(), <DocFormat>[
         DocFormat.pdf,
         DocFormat.pdf,
         DocFormat.docx,
         DocFormat.xlsx,
+        DocFormat.pptx,
         DocFormat.csv,
         DocFormat.md,
       ]);
       expect(libraryEntries.map((e) => e.mark).toList(),
-          <String>['PDF', 'PDF', 'DOC', 'XLS', 'CSV', 'MD']);
+          <String>['PDF', 'PDF', 'DOC', 'XLS', 'PPT', 'CSV', 'MD']);
     });
 
     test('every declared byte count is the real file size', () async {
@@ -356,7 +357,7 @@ void main() {
   group('the desk', () {
     test('the default shelf shows everything', () {
       final desk = LibraryStore();
-      expect(desk.visible.length, 6);
+      expect(desk.visible.length, 7);
       expect(desk.shelf, Shelf.all);
       expect(desk.countOn(Shelf.reading), 0);
       expect(desk.countOn(Shelf.signed), 0);
@@ -368,7 +369,7 @@ void main() {
       final desk = LibraryStore();
       desk.query = 'press';
       expect(desk.visible.map((e) => e.title).toList(),
-          <String>['Press Lease', 'Press Run Costs']);
+          <String>['Press Lease', 'Press Run Costs', 'Press Day Briefing']);
 
       desk.query = 'PDF';
       expect(desk.visible.length, 2);
@@ -377,7 +378,7 @@ void main() {
       expect(desk.visible, isEmpty);
 
       desk.query = '';
-      expect(desk.visible.length, 6);
+      expect(desk.visible.length, 7);
       desk.dispose();
     });
 
@@ -407,23 +408,23 @@ void main() {
       final lease = libraryEntries[1];
 
       desk.remove(lease);
-      expect(desk.entries.length, 5);
+      expect(desk.entries.length, 6);
       expect(desk.lastRemoved, lease);
 
       desk.undoRemove();
-      expect(desk.entries.length, 6);
+      expect(desk.entries.length, 7);
       expect(desk.lastRemoved, isNull);
 
       desk.remove(lease);
       desk.commitRemoval();
-      expect(desk.entries.length, 5);
+      expect(desk.entries.length, 6);
       expect(desk.lastRemoved, isNull);
       desk.dispose();
     });
 
     test('the colophon counts only what has actually been parsed', () async {
       final desk = LibraryStore();
-      expect(desk.documentCount, 6);
+      expect(desk.documentCount, 7);
       expect(desk.wordCount, 0);
       expect(desk.minutes, 0);
 

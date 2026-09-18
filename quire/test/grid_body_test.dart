@@ -32,8 +32,8 @@ void main() {
     );
     await settle(tester);
 
-    expect(find.byType(DocumentCard), findsNWidgets(6));
-    expect(find.byType(Thumbnail), findsNWidgets(6));
+    expect(find.byType(DocumentCard), findsNWidgets(7));
+    expect(find.byType(Thumbnail), findsNWidgets(7));
 
     final first = tester.getRect(find.byType(DocumentCard).first);
     final second = tester.getRect(find.byType(DocumentCard).at(1));

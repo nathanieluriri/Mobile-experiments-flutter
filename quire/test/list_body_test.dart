@@ -71,7 +71,7 @@ void main() {
     );
     await settle(tester);
 
-    expect(find.byType(DocumentRow), findsNWidgets(6));
+    expect(find.byType(DocumentRow), findsNWidgets(7));
     final first = tester.getRect(find.byType(DocumentRow).first);
     expect(first.height, kListRowHeight);
     expect(first.top, kSafeTop);
@@ -112,7 +112,7 @@ void main() {
     entries.value = library.visible.reversed.toList();
     await settle(tester);
     expect(jobsIn(tester), isEmpty);
-    expect(find.byType(DocumentRow), findsNWidgets(6));
+    expect(find.byType(DocumentRow), findsNWidgets(7));
 
     entries.value = <LibraryEntry>[
       for (final entry in library.visible)
@@ -169,7 +169,7 @@ void main() {
     expect(travelling, greaterThan(before - kListRowHeight));
 
     await settle(tester);
-    expect(find.byType(DocumentRow), findsNWidgets(5));
+    expect(find.byType(DocumentRow), findsNWidgets(6));
     expect(
       tester.getRect(find.byType(DocumentRow).at(1)).top,
       before - kListRowHeight,

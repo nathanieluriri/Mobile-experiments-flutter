@@ -128,7 +128,7 @@ void main() {
     await tester.pump();
     await tester.enterText(find.byType(EditableText), 'es');
     await settle(tester);
-    expect(store.visible.length, 3);
+    expect(store.visible.length, 4);
     expect(jobsIn(tester), isEmpty);
   });
 
@@ -146,7 +146,7 @@ void main() {
     await settle(tester);
     expect(find.text('UNDO'), findsNothing);
     expect(store.lastRemoved, isNull);
-    expect(store.entries.length, 5);
+    expect(store.entries.length, 6);
   });
 
   testWidgets('every document leaving at once comes apart, the last one too', (

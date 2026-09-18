@@ -111,7 +111,7 @@ void main() {
   test('the shelves count what they hold, and the colophon counts the desk',
       () async {
     final store = await deskStore();
-    expect(store.countOn(Shelf.all), 6);
+    expect(store.countOn(Shelf.all), 7);
     expect(store.countOn(Shelf.reading), kReadFileNames.length);
     expect(store.countOn(Shelf.signed), 1);
 
@@ -120,7 +120,7 @@ void main() {
       words: store.wordCount,
       minutes: store.minutes,
     );
-    expect(colophon.line.startsWith('6 DOCUMENTS · '), isTrue);
+    expect(colophon.line.startsWith('7 DOCUMENTS · '), isTrue);
     expect(colophon.line.contains(' WORDS · '), isTrue);
     expect(colophon.line.endsWith(' MINUTES'), isTrue);
 
@@ -136,7 +136,12 @@ void main() {
     store.query = 'es';
     expect(
       store.visible.map((entry) => entry.fileName).toList(),
-      <String>[kPressLease, kPressRunCosts, kBinderyNotes],
+      <String>[
+        kPressLease,
+        kPressRunCosts,
+        kPressDayBriefing,
+        kBinderyNotes,
+      ],
     );
     store.query = 'vellum';
     expect(store.visible, isEmpty);
