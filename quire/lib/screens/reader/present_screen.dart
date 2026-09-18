@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:ui' as ui;
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
@@ -50,6 +51,18 @@ const Duration kPresentStep = Duration(milliseconds: 260);
 const String kPresentNotice = 'Tap the slide for the controls.';
 const Duration kPresentNoticeHold = Duration(milliseconds: 2600);
 
+/// Whether it has already been said.
+///
+/// Once in the life of the app, not once per presentation. A presenter who has
+/// been told where the controls are does not need telling again, and a line of
+/// app copy over the first slide in front of a room is the exact thing this
+/// mode exists to keep off the screen.
+bool _noticeSaid = false;
+
+/// Forgets that the line has been said, for a test that needs it again.
+@visibleForTesting
+void resetPresentNotice() => _noticeSaid = false;
+
 /// A deck shown the way it was meant to be shown: one slide, as large as the
 /// screen will take it, and nothing else on the glass.
 ///
@@ -96,7 +109,7 @@ class _PresentScreenState extends State<PresentScreen>
   Timer? _clusterGone;
 
   /// The one line present mode says, and the clock that takes it back.
-  bool _saying = true;
+  bool _saying = !_noticeSaid;
   Timer? _noticeGone;
 
   late int _at = widget.openAt;
@@ -107,13 +120,16 @@ class _PresentScreenState extends State<PresentScreen>
     // The reading goes to the slide being shown straight away, rather than on
     // the first step. A presenter who opens the deck at slide five and leaves
     // without stepping should come back to slide five.
-    widget.store.position = widget.openAt;
+    if (widget.slides.isNotEmpty) widget.store.position = widget.openAt;
     // The screen owns its own room: the system bars go as it opens and come
     // back as it closes, wherever it was opened from and however it is left.
     unawaited(enterPresentation());
-    _noticeGone = Timer(kPresentNoticeHold, () {
-      if (mounted) setState(() => _saying = false);
-    });
+    if (_saying) {
+      _noticeSaid = true;
+      _noticeGone = Timer(kPresentNoticeHold, () {
+        if (mounted) setState(() => _saying = false);
+      });
+    }
   }
 
   @override
@@ -160,6 +176,7 @@ class _PresentScreenState extends State<PresentScreen>
   }
 
   void _goTo(int slide) {
+    if (widget.slides.isEmpty) return;
     final wanted = slide.clamp(0, widget.slides.length - 1);
     if (wanted == _at) return;
     _pages.animateToPage(wanted, duration: kPresentStep, curve: easeOutCubic);

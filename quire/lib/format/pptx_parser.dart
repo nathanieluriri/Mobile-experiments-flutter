@@ -436,7 +436,7 @@ class PptxParser {
       final ph = _placeholderOf(shape);
       if (ph == null) {
         final drawn = _shape(shape, frame.path, frame.colours, null);
-        if (drawn != null) frame.furniture.add(drawn);
+        if (drawn != null) frame.furniture.add(_asFurniture(drawn));
         continue;
       }
       final slot = _Slot()
@@ -705,6 +705,20 @@ class PptxParser {
       kind: 'slide',
     );
   }
+
+  /// The same shape, marked as one the slide inherits rather than owns.
+  static SlideShape _asFurniture(SlideShape shape) => SlideShape(
+    box: shape.box,
+    blocks: shape.blocks,
+    role: shape.role,
+    fill: shape.fill,
+    fillAsset: shape.fillAsset,
+    line: shape.line,
+    lineWidth: shape.lineWidth,
+    verticalAlign: shape.verticalAlign,
+    rotation: shape.rotation,
+    inherited: true,
+  );
 
   static String _nameOf(String path) {
     final cut = path.lastIndexOf('/');

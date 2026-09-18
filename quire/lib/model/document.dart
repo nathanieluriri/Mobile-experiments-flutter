@@ -237,11 +237,20 @@ class SlideShape {
     this.lineWidth = 0,
     this.verticalAlign,
     this.rotation = 0,
+    this.inherited = false,
   });
 
   final SlideBox box;
   final List<DocBlock> blocks;
   final SlideRole role;
+
+  /// True for a shape the slide does not own: the rule, the running foot and
+  /// the panels the layout and the master put on every slide.
+  ///
+  /// It is drawn like anything else, and it is skipped wherever a deck is
+  /// read out rather than shown. A reader given the deck as text does not want
+  /// the same running foot repeated once per slide.
+  final bool inherited;
 
   /// 0xAARRGGBB behind the shape, or null for one that is not filled.
   final int? fill;

@@ -34,6 +34,7 @@ import 'dog_ears_sheet.dart';
 import 'view_sheet.dart';
 import 'present_screen.dart';
 import 'reader_screen.dart';
+import 'seal_sheet.dart';
 import 'sheet_surface.dart';
 
 /// The reader, assembled: one document, the body its format asks for, the find
@@ -211,11 +212,22 @@ class _ReaderHostState extends State<ReaderHost> with TickerProviderStateMixin {
     if (_menu.isOpen) _menu.toggle();
   }
 
+  /// True when this document already has a password on it: one still waiting
+  /// for the password that opens it, and one that opened on nothing because
+  /// what it carries is an owner password alone.
+  ///
+  /// Either way a second seal on top of the first would leave a file with
+  /// neither, so the offer is not made rather than made and then taken back
+  /// with a line in the band.
+  bool get _protected =>
+      widget.store.locked != null || (widget.store.pdf?.encrypted ?? false);
+
   /// What this document can have done to it from inside itself.
   List<ReaderAction> get _actions => <ReaderAction>[
     if (widget.store.isDeck) ReaderAction.present,
     if (widget.store.isPdf) ReaderAction.sign,
     if (widget.store.isPdf && widget.store.signed) ReaderAction.shareSigned,
+    if (widget.store.isPdf && !_protected) ReaderAction.seal,
     widget.store.dogEared.contains(widget.store.position)
         ? ReaderAction.undogEar
         : ReaderAction.dogEar,
@@ -240,6 +252,8 @@ class _ReaderHostState extends State<ReaderHost> with TickerProviderStateMixin {
         _dogEars();
       case ReaderAction.shareSigned:
         _shareSigned();
+      case ReaderAction.seal:
+        _seal();
       case ReaderAction.comments:
         _comments();
       case ReaderAction.find:
@@ -454,6 +468,45 @@ class _ReaderHostState extends State<ReaderHost> with TickerProviderStateMixin {
     );
   }
 
+  /// Takes a password and hands the phone a copy of this document sealed
+  /// with it.
+  ///
+  /// The seal itself runs on the frame it was asked for. Rewriting the
+  /// largest document quire ships, three hundred kilobytes over six pages,
+  /// takes about seven milliseconds and never more than eleven, which is
+  /// inside a frame, and an isolate would cost a copy of the whole file in
+  /// each direction to save nothing anybody could see.
+  Future<void> _seal() async {
+    final password = await showDeskSheet<String>(
+      context,
+      (context) => const SealSheet(),
+    );
+    if (password == null || password.isEmpty || !mounted) return;
+    File? file;
+    try {
+      file = await widget.library?.exportSealed(widget.store.entry, password);
+    } on PdfWriteError catch (error) {
+      // Why this document cannot be sealed, in the writer's own words, which
+      // are written to be read by whoever asked for it.
+      _say(error.message);
+      return;
+    } on Object {
+      _say('The protected copy could not be written.');
+      return;
+    }
+    if (!mounted) return;
+    if (file == null) {
+      _say('The protected copy could not be written.');
+      return;
+    }
+    await SharePlus.instance.share(
+      ShareParams(
+        title: '${widget.store.entry.title}, protected',
+        files: <XFile>[XFile(file.path, mimeType: 'application/pdf')],
+      ),
+    );
+  }
+
   /// Has the band say [text] for a moment, then go back to the title.
   void _say(String text) {
     _noticeGone?.cancel();
@@ -563,6 +616,16 @@ class _ReaderHostState extends State<ReaderHost> with TickerProviderStateMixin {
         widget.store.position = _unitOf(find.matches[find.current]);
       }
     }
+    // A deck goes to the slide the match is on, including the first match,
+    // which is the one a find lands on without ever being stepped to. Nothing
+    // else would move it: a bench does not glide to a match of its own accord,
+    // and a find that reports a word on slide six while leaving the reader on
+    // slide one has told somebody their word is in the document and then hidden
+    // it from them.
+    if (widget.store.isDeck && find.matches.isNotEmpty) {
+      widget.store.position = _unitOf(find.matches[find.current]);
+    }
+
     // Sent to the match again, by the search key or a chevron: a grid goes
     // back to it even if it has been there before.
     final again = find.reveals != _revealed;

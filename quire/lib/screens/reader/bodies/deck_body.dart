@@ -11,7 +11,6 @@ import '../../../theme/feedback.dart';
 import '../../../theme/metrics.dart';
 import '../../../theme/typography.dart';
 import '../../../widgets/press_fade.dart';
-import '../back_layer.dart';
 import '../reader_chrome.dart';
 import '../sheet_surface.dart';
 import 'page_states.dart';
@@ -211,29 +210,41 @@ class _DeckSheetState extends State<DeckSheet> {
     final band = kHeadBandHeight * (ReaderBand.maybeOf(context)?.shown ?? 1);
     return ColoredBox(
       color: AppColors.surface,
-      child: NotificationListener<ScrollNotification>(
-        // The band answers a hand on the bench exactly as it answers a hand on
-        // a page, so a deck scrolled through loses its bar and gets it back
-        // the same way every other format does.
-        onNotification: (_) => false,
-        child: ListView.builder(
-          controller: _controller,
-          padding: EdgeInsets.only(
-            top: safeArea.top + band + kDeckGap,
-            bottom: safeArea.bottom + kDeckGap * 2,
-          ),
-          itemExtent: _extent,
-          itemCount: widget.slides.length,
-          itemBuilder: (context, index) => _BenchedSlide(
-            slide: widget.slides[index],
-            assets: widget.assets,
-            index: index,
-            width: _cardWidth,
-            onTap: () => widget.onPresent(index),
-          ),
-        ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final top = safeArea.top + band + kDeckGap;
+          return ListView.builder(
+            controller: _controller,
+            padding: EdgeInsets.only(top: top, bottom: _tail(constraints, top)),
+            itemExtent: _extent,
+            itemCount: widget.slides.length,
+            itemBuilder: (context, index) => _BenchedSlide(
+              slide: widget.slides[index],
+              assets: widget.assets,
+              index: index,
+              width: _cardWidth,
+              onTap: () => widget.onPresent(index),
+            ),
+          );
+        },
       ),
     );
+  }
+
+  /// The space under the last slide.
+  ///
+  /// Enough that the last slide can be brought to the top of the bench, and
+  /// not a point more. Without it the bench stops scrolling several slides
+  /// short of its end, and then a reading asked to go to the last slide is
+  /// clamped, rounded back off the clamped offset, and quietly rewritten to an
+  /// earlier one: a deck closed on its last slide would reopen three slides
+  /// back, and present mode and the reader would disagree about where the
+  /// reading is.
+  double _tail(BoxConstraints constraints, double top) {
+    final room = constraints.hasBoundedHeight
+        ? constraints.maxHeight - top
+        : _extent;
+    return math.max(kDeckGap * 2, room - _extent);
   }
 }
 
@@ -366,8 +377,9 @@ class _SlideRead extends StatelessWidget {
   Widget build(BuildContext context) {
     final said = <String>[
       for (final shape in slide.shapes)
-        if (shape.role != SlideRole.title && shape.text.trim().isNotEmpty)
-          shape.text.trim(),
+        if (!shape.inherited && shape.role != SlideRole.title)
+          for (final line in _linesOf(shape))
+            if (line.trim().isNotEmpty) line.trim(),
     ];
     final notes = <String>[
       for (final block in slide.notes)
@@ -414,11 +426,31 @@ class _SlideRead extends StatelessWidget {
     );
   }
 
+  /// Everything a shape says, a line at a time.
+  ///
+  /// A table is read out row by row rather than skipped. A deck read from the
+  /// back with its tables missing is a deck missing its numbers, which on most
+  /// slides is the only part anybody wanted.
+  static List<String> _linesOf(SlideShape shape) => <String>[
+    for (final block in shape.blocks)
+      if (block is TableBlock)
+        for (final row in block.rows)
+          <String>[
+            for (final cell in row.cells)
+              if (!cell.merged) cell.text.replaceAll('\n', ' '),
+          ].join('   ')
+      else
+        _lineOf(block),
+  ];
+
   static String _lineOf(DocBlock block) => switch (block) {
     ParagraphBlock() => block.text,
     HeadingBlock() => block.text,
     ListItemBlock() => block.text,
     CodeBlock() => block.text,
+    // What the deck said the picture was. A slide carrying only a picture
+    // would otherwise read on the back as a bare number and nothing else.
+    ImageBlock() => block.alt ?? '',
     _ => '',
   };
 }

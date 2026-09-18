@@ -1,7 +1,10 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:quire/model/document.dart';
+import 'package:quire/painting/present_goo_painter.dart';
 import 'package:quire/screens/reader/bodies/deck_body.dart';
+import 'package:quire/model/document.dart';
 import 'package:quire/screens/reader/bodies/slide_sheet.dart';
 import 'package:quire/screens/reader/folio_chip.dart';
 import 'package:quire/screens/reader/present_screen.dart';
@@ -29,6 +32,16 @@ Future<void> _benchTo(WidgetTester tester, int index) async {
       .slide;
   state.position.jumpTo(deckExtentFor(slide) * index);
   await settle(tester);
+}
+
+/// How far out the present cluster's goo is, or null for a cluster that is
+/// not in the tree at all.
+double? gooDrive(WidgetTester tester) {
+  final painters = tester
+      .widgetList<CustomPaint>(find.byType(CustomPaint))
+      .map((paint) => paint.painter)
+      .whereType<PresentGooPainter>();
+  return painters.isEmpty ? null : painters.first.t;
 }
 
 void main() {
@@ -287,6 +300,119 @@ void main() {
     });
   });
 
+  group('what the bench must never do again', () {
+    testWidgets('the reading reaches the last slide and stays on it', (
+      tester,
+    ) async {
+      final store = await storeFor(kPressDayBriefing);
+      await pumpScreen(tester, _reader(store));
+      await settle(tester);
+
+      store.position = store.unitCount - 1;
+      await settle(tester);
+      // A bench that stopped short of its end would clamp this, round the
+      // clamped offset back to an earlier slide, and write that back.
+      expect(store.position, 5);
+      expect(store.positionLabel, '6 / 6');
+    });
+
+    testWidgets('a deck closed on its last slide opens on it', (tester) async {
+      final store = await storeFor(kPressDayBriefing);
+      store.position = 5;
+      await pumpScreen(tester, _reader(store));
+      await settle(tester);
+      expect(store.position, 5);
+    });
+
+    testWidgets('present mode and the reader agree about the reading', (
+      tester,
+    ) async {
+      final store = await storeFor(kPressDayBriefing);
+      await pumpScreen(tester, _reader(store));
+      await settle(tester);
+      await tester.tap(find.byType(SlideCard).first);
+      await settle(tester);
+
+      await pumpMs(tester, kPresentNoticeHold.inMilliseconds + 20);
+      await tester.tapAt(const Offset(201, 300));
+      await settle(tester);
+      for (var i = 0; i < 4; i++) {
+        await tester.tap(find.bySemanticsLabel('The slide after'));
+        await settle(tester);
+      }
+      expect(store.position, 4);
+      expect(find.bySemanticsLabel('Slide 5, go to a slide'), findsOneWidget);
+
+      await tester.tap(find.bySemanticsLabel('Leave the presentation'));
+      await settle(tester);
+      expect(store.position, 4);
+      expect(store.positionLabel, '5 / 6');
+    });
+
+    testWidgets('a find takes the reader to the slide it found', (
+      tester,
+    ) async {
+      final store = await storeFor(kPressDayBriefing);
+      await pumpScreen(tester, _reader(store));
+      await settle(tester);
+
+      await tester.tap(find.bySemanticsLabel('Find in document'));
+      await settle(tester);
+      // On the last slide and nowhere else.
+      await tester.enterText(find.byType(EditableText), 'Sheets off');
+      await settle(tester);
+      expect(store.position, 5);
+    });
+
+    testWidgets('the line about the controls is said once, not every time', (
+      tester,
+    ) async {
+      resetPresentNotice();
+      final store = await storeFor(kPressDayBriefing);
+      await pumpScreen(tester, _reader(store));
+      await settle(tester);
+
+      await tester.tap(find.byType(SlideCard).first);
+      await settle(tester);
+      expect(find.text(kPresentNotice), findsOneWidget);
+      await pumpMs(tester, kPresentNoticeHold.inMilliseconds + 20);
+      await tester.tapAt(const Offset(201, 300));
+      await settle(tester);
+      await tester.tap(find.bySemanticsLabel('Leave the presentation'));
+      await settle(tester);
+
+      await tester.tap(find.byType(SlideCard).first);
+      await settle(tester);
+      // A presenter who has been told where the controls are does not need
+      // telling again in front of the room.
+      expect(find.text(kPresentNotice), findsNothing);
+    });
+
+    testWidgets('an empty deck has nothing to step to and does not throw', (
+      tester,
+    ) async {
+      final store = await storeFor(kPressDayBriefing);
+      await pumpScreen(
+        tester,
+        MaterialApp(
+          debugShowCheckedModeBanner: false,
+          home: PresentScreen(
+            store: store,
+            slides: const <SlideBlock>[],
+            assets: const <String, Uint8List>{},
+            titles: const <String>[],
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.tapAt(const Offset(201, 300));
+      await settle(tester);
+      await tester.tap(find.bySemanticsLabel('The slide after'));
+      await settle(tester);
+      expect(tester.takeException(), isNull);
+    });
+  });
+
   group('the deck as it looks', () {
     testWidgets('deck__bench', (tester) async {
       final store = await storeFor(kPressDayBriefing);
@@ -350,7 +476,13 @@ void main() {
       await settle(tester);
       await pumpMs(tester, kPresentNoticeHold.inMilliseconds + 20);
       await tester.tapAt(const Offset(201, 300));
+      // A tap does not pump, so the first tick of the cluster lands at zero
+      // and a capture straight after it photographs the rest state. One frame
+      // first, then the keyframe.
+      await tester.pump();
       await pumpMs(tester, 80);
+      expect(gooDrive(tester), greaterThan(0));
+      expect(gooDrive(tester), lessThan(1));
       await capture(tester, 'present__cluster_t0080');
       await settle(tester);
     });

@@ -14,9 +14,10 @@ import '../theme/colors.dart';
 ///
 /// The controls start as one blob under the slide and are pulled apart: the
 /// pill stretches out of the centre, and the way out is drawn off the end of
-/// it on a neck that thins and lets go. That is the whole reason the cluster
-/// is goo rather than two fading buttons. A presentation has one set of
-/// controls, and they should arrive as one thing.
+/// it on a neck that thins as it goes. That is the whole reason the cluster is
+/// goo rather than two fading buttons. A presentation has one set of controls
+/// and they should arrive as one thing, so the neck is still there when the
+/// button lands: it is a waist, not a snap.
 class PresentGooPainter extends CustomPainter {
   const PresentGooPainter({
     required this.t,
@@ -74,8 +75,9 @@ class PresentGooPainter extends CustomPainter {
   /// Circles strung between the pill's end and the button, tapering to a
   /// waist, so the two read as one body being pulled apart.
   ///
-  /// The run thins as the button travels and is gone by the time it arrives,
-  /// which is the moment the goo lets go.
+  /// The run thins as the button travels and is at its thinnest when it
+  /// lands. It does not break: the button goes only as far as its own diameter
+  /// and the gap, which in this app's goo is near rather than far.
   void _neck(
     Canvas canvas,
     Paint paint,
