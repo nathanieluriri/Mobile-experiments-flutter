@@ -17,9 +17,9 @@
         android:gravity="center"
         android:drawable="@drawable/quire_splash_icon" />
     <item
-        android:width="192dp"
-        android:height="21.6dp"
-        android:bottom="60dp"
+        android:width="200dp"
+        android:height="80dp"
+        android:bottom="30dp"
         android:gravity="center_horizontal|bottom"
         android:drawable="@drawable/quire_wordmark" />
 </layer-list>

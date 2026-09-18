@@ -12,6 +12,7 @@ import '../../widgets/goo_menu.dart';
 enum ReaderAction {
   sign(label: 'Sign this page', icon: LucideIcons.penLine),
   shareSigned(label: 'Share the signed copy', icon: LucideIcons.share2),
+  seal(label: 'Protect with a password', icon: LucideIcons.fileLock2),
   dogEar(label: 'Dog ear this page', icon: LucideIcons.bookmark),
   undogEar(label: 'Remove the dog ear', icon: LucideIcons.bookmark),
   dogEars(label: 'Dog ears', icon: LucideIcons.bookMarked),

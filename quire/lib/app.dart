@@ -9,6 +9,7 @@ import 'package:flutter/services.dart';
 import 'data/library.dart';
 import 'painting/signature_painter.dart';
 import 'screens/desk/desk_screen.dart';
+import 'screens/opening/opening_screen.dart';
 import 'screens/reader/reader_host.dart';
 import 'screens/reader/reader_route.dart';
 import 'screens/sign/sign_screen.dart';
@@ -83,6 +84,25 @@ class _AppState extends State<App> with WidgetsBindingObserver {
   /// is not being started by a file manager.
   IncomingDocuments? _incoming;
 
+  /// The document the app was started on, while quire is reading it.
+  ///
+  /// A notifier rather than a plain field, because the desk's route is built
+  /// once and a setState out here never reaches inside it: the screen would
+  /// go up when the document arrived and then stay up over everything.
+  final ValueNotifier<IncomingDocument?> _doorstep =
+      ValueNotifier<IncomingDocument?>(null);
+
+  /// Stops the opening screen waiting on a document that is not coming.
+  Timer? _doorstepLimit;
+
+  /// True until the platform has said what the app was started on.
+  ///
+  /// It is the one thing that tells a cold start on a document from a warm
+  /// one, because both arrive on the same channel carrying the same thing. A
+  /// warm open lands on top of a reading already in progress, and a screen
+  /// thrown over that would cover the page somebody was in the middle of.
+  bool _starting = true;
+
   @override
   void initState() {
     super.initState();
@@ -105,6 +125,9 @@ class _AppState extends State<App> with WidgetsBindingObserver {
       // what it already holds before anything is added to it.
       await library.boot(parse: false);
       if (mounted) await incoming.boot();
+      // The platform has now said what it started the app on. Anything that
+      // arrives after this came in on top of whatever quire was showing.
+      _starting = false;
       // A document handed in at a cold start is opened before the desk's own
       // documents are read, not raced against them.
       await _opening;
@@ -123,7 +146,30 @@ class _AppState extends State<App> with WidgetsBindingObserver {
       return;
     }
     final waiting = incoming.take();
-    if (waiting != null) _opening = _openIncoming(waiting);
+    if (waiting == null) return;
+    // Only the document the app was started on gets a screen of its own. One
+    // handed over later arrives over a desk or a page that is already up, and
+    // covering that would take somebody out of what they were doing.
+    if (_starting) _raiseOpening(waiting);
+    _opening = _openIncoming(waiting);
+  }
+
+  /// Names the document quire was opened on, while it is being read.
+  ///
+  /// The limit is what keeps the naming honest. A file that cannot be reached
+  /// or will not parse would otherwise leave somebody looking at its name for
+  /// as long as they cared to wait.
+  void _raiseOpening(IncomingDocument document) {
+    _doorstepLimit?.cancel();
+    _doorstepLimit = Timer(kOpeningLimit, _lowerOpening);
+    _doorstep.value = document;
+  }
+
+  /// Puts the opening screen away, whether the document arrived or not.
+  void _lowerOpening() {
+    _doorstepLimit?.cancel();
+    _doorstepLimit = null;
+    if (mounted) _doorstep.value = null;
   }
 
   /// The incoming document being opened, if one is.
@@ -141,16 +187,27 @@ class _AppState extends State<App> with WidgetsBindingObserver {
     try {
       bytes = await File(document.path).readAsBytes();
     } on Object {
+      // The screen goes before the line is said, so a refusal is not read out
+      // from under the name of the document it is refusing.
+      _lowerOpening();
       _say(IncomingRefusal.missing.line);
       return;
     }
     final entry = await library.importFile(document.name, bytes);
     if (!mounted) return;
     if (entry == null) {
+      _lowerOpening();
       _say(IncomingRefusal.unreadable.line);
       return;
     }
+    // The reader the moment the document has been read, with no minimum on
+    // the screen that named it. The desk holds its mark for a whole beat
+    // because a mark that came and went inside two frames would read as a
+    // fault, but what takes this one away is the document itself, and making
+    // somebody wait to be told what they are already looking at would be
+    // worse than a short screen.
     _open(entry, Rect.zero, outside: true);
+    _lowerOpening();
   }
 
   /// Hands the reader back to whichever app opened the document.
@@ -220,6 +277,8 @@ class _AppState extends State<App> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _doorstepLimit?.cancel();
+    _doorstep.dispose();
     _incoming
       ?..removeListener(_onIncoming)
       ..dispose();
@@ -405,7 +464,26 @@ class _AppState extends State<App> with WidgetsBindingObserver {
   Widget _desk(BuildContext context) {
     final library = _library;
     if (library == null) return const QuireLoading();
-    return DeskScreen(store: library, onOpen: _open, onSign: _sign);
+    // The opening screen stands where the desk stands rather than over it, so
+    // the document quire was opened on is the only thing in the app while it
+    // is being read. A desk laid out behind a screen like this is a desk that
+    // can be seen through it and reached with a back gesture, which is an
+    // invitation to leave a document that has not arrived yet.
+    return ValueListenableBuilder<IncomingDocument?>(
+      valueListenable: _doorstep,
+      builder: (context, document, _) => AnimatedSwitcher(
+        duration: kDeskWakingFade,
+        child: document == null
+            ? KeyedSubtree(
+                key: const ValueKey<bool>(true),
+                child: DeskScreen(store: library, onOpen: _open, onSign: _sign),
+              )
+            : KeyedSubtree(
+                key: const ValueKey<bool>(false),
+                child: OpeningScreen(document: document),
+              ),
+      ),
+    );
   }
 
   /// Takes [entry] to the reader.

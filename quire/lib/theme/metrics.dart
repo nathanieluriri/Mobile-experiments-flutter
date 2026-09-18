@@ -69,6 +69,14 @@ const kTypeMarkSize = 30.0;
 /// line title.
 const kTypeMarkGridSize = 20.0;
 
+/// The same mark on the opening screen, where quire names the document it was
+/// started on.
+///
+/// Twice the one a list row wears, because in a row it is one of a column of
+/// marks and there it is the only object on the screen. At the row's size it
+/// would read as a card that had lost its card.
+const kTypeMarkOpeningSize = kTypeMarkSize * 2;
+
 /// The mark's corner, at [kTypeMarkSize]. It scales with the mark, so the
 /// shape is the same object at both sizes rather than two different squircles.
 const kTypeMarkRadius = 8.0;
@@ -501,8 +509,20 @@ const kDeskWaking = Duration(seconds: 1);
 /// and a mark that never goes is worse than a desk that is a little wrong.
 const kDeskWakingLimit = Duration(seconds: 2);
 
-/// The desk coming up over its own loading mark.
+/// The desk coming up over its own loading mark, and the opening screen
+/// giving way to the desk behind it. One curve for both, because the two
+/// waits are the same idea and a second curve would make them look like two.
 const kDeskWakingFade = Duration(milliseconds: 150);
+
+/// When the opening screen stops waiting for the document it has named.
+///
+/// Longer than [kDeskWakingLimit], which the desk sets for reading a handful
+/// of keys off the phone. This waits on a file read and a whole parse, and a
+/// long report honestly takes seconds: at the desk's limit somebody would be
+/// dropped onto the desk in the middle of an ordinary open, which is the one
+/// thing the screen exists to prevent. It is a backstop against a document
+/// that never lands, not a deadline for one that will.
+const kOpeningLimit = Duration(seconds: 8);
 
 /// Chrome coming in, for a controller a spring drives, which only falls back
 /// to it when it is stopped. The reader's band itself moves on

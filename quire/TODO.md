@@ -22,18 +22,22 @@ In a suggested order, most useful and least work first.
 - [ ] Books with DRM cannot be read at all: say so plainly.
 - [ ] Register `application/epub+zip`.
 
-### 2.3 PowerPoint PPTX (medium to large)
-- [ ] A zip: the list of slides, and on each slide its text boxes, pictures, tables, and the layout and master they sit on.
-- [ ] First step: one section per slide with its text, pictures and speaker notes, read in the prose body.
-- [ ] Full step: a slide body that lays each slide out at its own shape, the way PDF pages are.
-- [ ] Charts and SmartArt: show the picture the file caches for them, where it has one.
-- [ ] Register `application/vnd.openxmlformats-officedocument.presentationml.presentation`.
+### 2.3 PowerPoint PPTX (done)
+- [x] A zip: the list of slides, and on each slide its text boxes, pictures, tables, and the layout and master they sit on.
+- [x] One section per slide, each holding a `SlideBlock` with its shapes, its ground and its speaker notes.
+- [x] A deck body that lays each slide out at its own shape, on a bench, with the notes on the back of the sheet.
+- [x] Present mode: the slide alone on the screen, controls summoned and gone again, and the deck's own slide titles to jump by.
+- [x] Charts and SmartArt: show the picture the file caches for them, where it has one.
+- [x] Register `application/vnd.openxmlformats-officedocument.presentationml.presentation`.
+- [ ] Still to do: highlight a find's matches inside a slide rather than only going to the slide.
+- [ ] Still to do: group transforms. A group's children are taken at face value, so a grouped drawing keeps its content and loses the group's own offset.
+- [ ] Still to do: gradient and picture fills on a shape are drawn as their colour and their picture; a gradient is not drawn as a gradient.
 
-### 2.4 OpenDocument: ODT, ODS, ODP (medium each)
+### 2.4 OpenDocument: ODT, ODS, ODP (medium each, ODP now smaller)
 - [ ] All are zips with `content.xml` and `styles.xml`.
 - [ ] ODT into the prose model, sharing what the DOCX bridge already does.
 - [ ] ODS into the grid model, sharing what the XLSX bridge already does: frozen panes, widths, merges, number formats, comments.
-- [ ] ODP into slides, after 2.3.
+- [ ] ODP into slides. The slide model and the deck body are built, so this is a parser and nothing else.
 - [ ] Register `application/vnd.oasis.opendocument.text`, `.spreadsheet` and `.presentation`.
 
 ### 2.5 RTF (medium)
@@ -85,16 +89,28 @@ In a suggested order, most useful and least work first.
 - [ ] Android manifest types and iOS document types.
 - [ ] Goldens for every reader state.
 
-## 3. Android: show the file's type in "Open with"
+## 3. Android: show the file's type in "Open with" (done, one check left)
 
 When another app offers a file, the chooser shows quire's logo with a mark for the kind of file being opened, instead of the bare logo.
 
-- [ ] Design one mark per type in quire's own style: PDF, Word document, spreadsheet, CSV, Markdown and text, plus one for each format that lands from section 2.
-- [ ] Use quire's own simple marks, never the Adobe or Microsoft logos, which are trademarks.
-- [ ] Make each mark a full set of Android icons: adaptive foreground and background at every density, inside the same safe circle as the launcher icon.
-- [ ] Register one entry per file type (an activity alias pointing at the main activity), each with its own icon and label, carrying that type's open, share and share-many filters.
-- [ ] Keep the home screen icon exactly as it is: the aliases carry no launcher entry.
-- [ ] Check that files still arrive through every alias, on a cold start and while quire is already open.
-- [ ] Make sure no file matches two aliases, so quire never appears twice in the chooser (a CSV is also text).
+- [x] One mark per type in quire's own style: PDF, DOC, XLS, PPT, CSV and MD, each the launcher mark with that format's own letters on its bottom right pane.
+- [x] quire's own marks, never the Adobe or Microsoft logos, which are trademarks.
+- [x] Each mark is an adaptive icon, drawn as vectors so it is crisp at every density, inside the same safe circle as the launcher icon. A plain vector is kept beside it for API 24 and 25, which have no adaptive icons.
+- [x] One activity alias per file type, each with its own icon and label, carrying that type's open, share and share-many filters.
+- [x] The home screen icon is unchanged: the aliases carry no launcher entry.
+- [x] The deep linking meta-data is repeated on every alias. An alias is its own component and the engine reads that key from the component it was launched as, where a missing key means yes, so without it a document opened from the chooser would be parsed as a deep link again.
+- [x] No mime type appears on two aliases, so quire never shows up twice for one file. A csv offered as `text/csv` is the CSV alias's and the same file offered as `text/plain` is the MD alias's.
 - [ ] Test on stock Android, and on the Xiaomi phone, whose own chooser may show the plain app icon. Decide what to do if it does.
 - [ ] iOS: not possible in the share sheet, which always shows the app's one icon. Optionally set document type icons for the Files app.
+
+## 4. Protecting a file
+
+- [x] A PDF can be given a password from inside quire, written out as a copy rather than over the original.
+- [x] The standard security handler run forwards: /O and /U derived, every string and every stream encrypted under its own object key, RC4 128 so a file quire seals is a file quire opens.
+- [ ] AES 128 and AES 256, which are what a modern reader would rather be given. RC4 is what the format's older readers accept.
+- [ ] Take the password off a file quire can already open.
+
+## 5. Arriving
+
+- [x] A native splash: quire's mark on quire's ground with its name under it, drawn as vectors, with a layer list behind it for phones older than Android 12 and a night copy so a dark phone does not fall past it.
+- [x] A deck ships with the app, so a reader can see what a slide looks like before opening one of their own.

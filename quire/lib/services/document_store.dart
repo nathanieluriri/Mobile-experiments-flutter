@@ -12,6 +12,7 @@ import '../model/document.dart';
 import '../model/search.dart';
 import '../pdf/display_list.dart';
 import '../pdf/document.dart';
+import '../pdf/seal.dart';
 import '../pdf/writer.dart';
 import 'library_catalogue.dart';
 import 'picture.dart';
@@ -1210,6 +1211,33 @@ class LibraryStore extends ChangeNotifier {
     if (bytes == null) return null;
     final title = entry.title.replaceAll(RegExp(r'[^A-Za-z0-9 ._-]+'), '');
     return catalogue.writeExport('$title signed.pdf', bytes);
+  }
+
+  /// Writes [entry]'s document out again under [password] and hands back the
+  /// file, or null when there is nowhere to write it.
+  ///
+  /// The original is left exactly as it is and the seal goes into a second
+  /// file, named for the document and what was done to it, because a reader
+  /// who cannot open the copy tomorrow still has the document they started
+  /// with, and a reader looking at two files in a share sheet can tell which
+  /// is which without opening either.
+  ///
+  /// Throws [PdfWriteError] when the document cannot be sealed as it stands,
+  /// with a sentence that can go straight in front of a reader.
+  Future<File?> exportSealed(LibraryEntry entry, String password) async {
+    final catalogue = _catalogue;
+    final store = storeFor(entry);
+    if (store.state == ParseState.loading) await _hydrateOne(entry);
+    if (catalogue == null) return null;
+    // The bytes the document arrived as, not the ones the reader is looking
+    // at: a signature placed in this session lives in the store and has not
+    // been written into a page yet, and sealing what is on screen would seal
+    // a file that does not exist.
+    final bytes = store.bytes;
+    if (bytes.isEmpty) return null;
+    final sealed = sealedPdf(bytes, password);
+    final title = entry.title.replaceAll(RegExp(r'[^A-Za-z0-9 ._-]+'), '');
+    return catalogue.writeExport('$title protected.pdf', sealed);
   }
 
   /// Puts a file called [name] holding [bytes] onto the desk and opens it for

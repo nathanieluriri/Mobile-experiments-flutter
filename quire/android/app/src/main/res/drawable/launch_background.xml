@@ -16,10 +16,13 @@
         android:height="288dp"
         android:gravity="center"
         android:drawable="@drawable/quire_splash_icon" />
+    <!-- The name's box is the branding slot's own 200 by 80, with the line
+         centred inside it, so the older phones put it exactly where the newer
+         ones do. -->
     <item
-        android:width="192dp"
-        android:height="21.6dp"
-        android:bottom="60dp"
+        android:width="200dp"
+        android:height="80dp"
+        android:bottom="30dp"
         android:gravity="center_horizontal|bottom"
         android:drawable="@drawable/quire_wordmark" />
 </layer-list>

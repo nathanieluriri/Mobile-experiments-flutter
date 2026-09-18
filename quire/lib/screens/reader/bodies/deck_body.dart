@@ -29,15 +29,6 @@ const double kDeckGap = 20.0;
 const double kDeckFolioGap = 6.0;
 const double kDeckFolioHeight = 14.0;
 
-/// How deep the shadow under a slide sits, and how far it is offset.
-///
-/// A slide is the one thing in this app that is allowed a shadow. Everything
-/// else is told apart by its own value, but a slide carries the file's own
-/// ground, which can be any colour at all including the sheet's, and without
-/// a shadow a white slide on white paper has no edge.
-const double kDeckShadowBlur = 10.0;
-const double kDeckShadowDrop = 3.0;
-
 /// A deck of slides, read the way a deck is read: one slide after another,
 /// each at the shape the file laid it out on.
 ///
@@ -311,18 +302,15 @@ class SlideCard extends StatelessWidget {
   /// rather than a radius that would make the deck look like a set of cards.
   final double radius;
 
+  /// Nothing in this app casts a shadow, a slide included. A slide carries the
+  /// file's own ground, which can be any colour at all, so the hairline is
+  /// what gives it an edge: it is the one value that differs from both the
+  /// bench and any paper laid on it.
   @override
   Widget build(BuildContext context) => DecoratedBox(
     decoration: BoxDecoration(
       borderRadius: BorderRadius.circular(radius),
       border: AppEdges.all(context),
-      boxShadow: const <BoxShadow>[
-        BoxShadow(
-          color: Color(0x59000000),
-          blurRadius: kDeckShadowBlur,
-          offset: Offset(0, kDeckShadowDrop),
-        ),
-      ],
     ),
     child: ClipRRect(
       borderRadius: BorderRadius.circular(radius),
