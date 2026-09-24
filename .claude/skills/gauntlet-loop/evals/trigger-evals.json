@@ -1,0 +1,18 @@
+[
+  {"query": "run the new onboarding flow through the gauntlet", "should_trigger": true},
+  {"query": "gauntlet this: the settings screen of the quire app", "should_trigger": true},
+  {"query": "the pdf text layout works but it's mediocre. tear it apart and fix it until it's as good as Apple Books", "should_trigger": true},
+  {"query": "I want the reader's typography to beat Readwise Reader. keep iterating until it does, I'll check back tonight", "should_trigger": true},
+  {"query": "make the library grid actually good, not just working. have independent agents critique it harshly and keep improving it", "should_trigger": true},
+  {"query": "keep iterating on the export feature until it's production quality, don't stop at the first version that passes tests", "should_trigger": true},
+  {"query": "polish the search screen until it's great. iterate on it without me babysitting it, critique your own output with fresh eyes each round", "should_trigger": true},
+  {"query": "build a markdown-to-pdf CLI and harshly review it against gh-level UX, improve until it passes", "should_trigger": true},
+  {"query": "fix the failing widget test in test/reader_test.dart", "should_trigger": false},
+  {"query": "review the diff on this branch for bugs before I open a PR", "should_trigger": false},
+  {"query": "run flutter test and fix whatever fails, loop until green", "should_trigger": false},
+  {"query": "check CI on my PR every 10 minutes and tell me when it's green", "should_trigger": false},
+  {"query": "what's the difference between a golden test and a widget test in flutter?", "should_trigger": false},
+  {"query": "critique this paragraph of my README, is the tone too casual?", "should_trigger": false},
+  {"query": "clean up and simplify the code in lib/reader/ without changing behavior", "should_trigger": false},
+  {"query": "add a dark mode toggle to the settings screen", "should_trigger": false}
+]
