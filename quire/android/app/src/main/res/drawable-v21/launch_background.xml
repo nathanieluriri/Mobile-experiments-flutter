@@ -19,7 +19,7 @@
     <item
         android:width="200dp"
         android:height="80dp"
-        android:bottom="30dp"
+        android:bottom="60dp"
         android:gravity="center_horizontal|bottom"
         android:drawable="@drawable/quire_wordmark" />
 </layer-list>
