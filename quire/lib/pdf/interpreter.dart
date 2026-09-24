@@ -117,6 +117,32 @@ class ContentInterpreter {
       return v is num ? v.toDouble() : 0;
     }
 
+    void emit(PdfFont f, String text, Mat at, double advance) {
+      final m = tm.mul(gs.ctm);
+      final angle = m.angle;
+      final rotated = angle.abs() > 0.01;
+      final mono = f.baseFont.toLowerCase().contains('courier') ||
+          f.baseFont.toLowerCase().contains('mono');
+      out.texts.add(TextRunCmd(
+        text: text,
+        x: at.e,
+        y: at.f,
+        fontSize: (fontSize * m.heightY * f.sizeScale).abs(),
+        widthPts: advance * m.scaleX,
+        fontKey: fontKey,
+        bold: f.isBold,
+        italic: f.isItalic || m.slanted,
+        serif: f.isSerif,
+        mono: mono,
+        color: gs.fillColor,
+        rotated: rotated,
+        angle: rotated ? angle : 0,
+        spaceWidthPts:
+            (f.spaceWidth / 1000.0 * fontSize * hScale * m.scaleX).abs(),
+        seq: _seq++,
+      ));
+    }
+
     void showText(Uint8List bytes) {
       final f = font;
       if (f == null) return;
@@ -125,35 +151,35 @@ class ContentInterpreter {
       // matrix, or every visible run after them lands in the wrong place.
       final invisible = renderMode == 3 || renderMode == 7;
       final runs = f.decode(bytes);
+      if (f.vertical) {
+        // Each glyph hangs below the one before it, centred on the pen, so
+        // each is its own run: the lines a person reads run down the page.
+        for (final r in runs) {
+          if (r.text.trim().isNotEmpty && !invisible) {
+            final at = Mat(1, 0, 0, 1, -r.width / 2000.0 * fontSize,
+                    -0.88 * fontSize + rise)
+                .mul(tm)
+                .mul(gs.ctm);
+            emit(f, r.text, at, r.width / 1000.0 * fontSize * hScale);
+          }
+          var down = f.verticalAdvance / 1000.0 * fontSize + charSpacing;
+          if (r.bytes == 1 && r.code == 32) down += wordSpacing;
+          tm = Mat(1, 0, 0, 1, 0, down).mul(tm);
+        }
+        return;
+      }
       final sb = StringBuffer();
-      final start = tm.mul(gs.ctm);
+      final start = Mat(1, 0, 0, 1, 0, rise).mul(tm).mul(gs.ctm);
       var advance = 0.0;
       for (final r in runs) {
         sb.write(r.text);
         var adv = r.width / 1000.0 * fontSize + charSpacing;
-        if (!f.twoByte && r.code == 32) adv += wordSpacing;
+        if (r.bytes == 1 && r.code == 32) adv += wordSpacing;
         advance += adv * hScale;
       }
       final text = sb.toString();
-      final size = (fontSize * tm.scaleY * gs.ctm.scaleY).abs();
       if (text.trim().isNotEmpty && !invisible) {
-        final m = tm.mul(gs.ctm);
-        out.texts.add(TextRunCmd(
-          text: text,
-          x: start.e,
-          y: start.f - rise * m.scaleY,
-          fontSize: size,
-          widthPts: advance * gs.ctm.scaleX,
-          fontKey: fontKey,
-          bold: f.isBold,
-          italic: f.isItalic,
-          serif: f.isSerif,
-          mono: f.baseFont.toLowerCase().contains('courier') ||
-              f.baseFont.toLowerCase().contains('mono'),
-          color: gs.fillColor,
-          rotated: m.b.abs() > 0.01 || m.c.abs() > 0.01,
-          seq: _seq++,
-        ));
+        emit(f, text, start, advance);
       }
       tm = Mat(1, 0, 0, 1, advance, 0).mul(tm);
     }

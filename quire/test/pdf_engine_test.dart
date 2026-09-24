@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
@@ -17,6 +18,7 @@ import 'package:quire/pdf/lexer.dart';
 import 'package:quire/pdf/objects.dart';
 import 'package:quire/pdf/pdf_search.dart';
 import 'package:quire/pdf/standard_metrics.dart';
+import 'package:quire/pdf/truetype.dart';
 
 // ---------------------------------------------------------------- fixtures
 
@@ -800,6 +802,242 @@ endbfrange
     });
   });
 
+  // ----------------------------------------------- what producers write
+
+  group('what other producers write', () {
+    TextRunCmd spaced(String text, double x, {required double space}) =>
+        TextRunCmd(
+          text: text,
+          x: x,
+          y: 100,
+          fontSize: 10,
+          widthPts: 30,
+          fontKey: 'F1',
+          bold: false,
+          italic: false,
+          serif: false,
+          mono: false,
+          color: 0xFF000000,
+          rotated: false,
+          seq: 0,
+          spaceWidthPts: space,
+        );
+
+    Uint8List withFont(String content, String font, List<List<int>> extra) =>
+        buildPdf([
+          obj('<< /Type /Catalog /Pages 2 0 R >>'),
+          obj('<< /Type /Pages /Kids [3 0 R] /Count 1 >>'),
+          obj('<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] '
+              '/Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>'),
+          streamObj('', ascii.encode(content)),
+          obj(font),
+          ...extra,
+        ]);
+
+    final inter = File('assets/fonts/Inter-Regular.ttf').readAsBytesSync();
+    final interFont = TrueTypeFont.parse(inter);
+
+    test('a type size carried by the text matrix still gives runs their width',
+        () {
+      // Quartz, Cairo and others set the font at 1 and scale the text matrix
+      // to the real size, one glyph at a time.
+      final doc = PdfFile.open(onePage(
+        'BT /F1 1 Tf 12 0 0 12 10 100 Tm (Mon) Tj (itoring) Tj ET',
+        resources: kHelveticaRes,
+      ));
+      final dl = ContentInterpreter(doc).run(doc.pages[0]);
+      // Mon in Helvetica is M+o+n = 1945/1000 em.
+      expect(dl.texts.first.widthPts, closeTo(1.945 * 12, 0.05));
+      expect(dl.texts.first.fontSize, closeTo(12, 1e-9));
+      expect(mergeRuns(dl.texts).single.text, 'Monitoring',
+          reason: 'a run measured at 1pt leaves a false gap and splits words');
+    });
+
+    test('a Type3 font is measured through its own font matrix', () {
+      final doc = PdfFile.open(onePage(
+        'BT /F1 10 Tf 10 100 Td (AA) Tj ET',
+        resources: '/Font << /F1 << /Type /Font /Subtype /Type3 '
+            '/FontMatrix [0.01 0 0 0.01 0 0] /FontBBox [0 0 80 100] '
+            '/FirstChar 65 /LastChar 65 /Widths [50] '
+            '/Encoding << /Differences [65 /A] >> /CharProcs << >> >> >>',
+      ));
+      final run = ContentInterpreter(doc).run(doc.pages[0]).texts.single;
+      expect(run.text, 'AA');
+      // 50 glyph units at 0.01 is half an em, twice, at 10pt.
+      expect(run.widthPts, closeTo(10, 1e-9));
+      expect(run.fontSize, closeTo(10, 1e-9));
+    });
+
+    test('turned text keeps its angle and joins along its own baseline', () {
+      final doc = PdfFile.open(onePage(
+        'BT /F1 12 Tf 0 1 -1 0 100 50 Tm (U) Tj (P) Tj ET',
+        resources: kHelveticaRes,
+      ));
+      final dl = ContentInterpreter(doc).run(doc.pages[0]);
+      expect(dl.texts.every((t) => t.rotated), isTrue);
+      final line = mergeRuns(dl.texts).single;
+      expect(line.text, 'UP');
+      expect(line.angle, closeTo(-math.pi / 2, 1e-9));
+      expect(line.x, closeTo(100, 1e-9));
+      expect(line.y, closeTo(150, 1e-9));
+      expect(line.width, closeTo((0.722 + 0.667) * 12, 0.05));
+      // Running up the page, the line's box is tall and narrow.
+      expect(line.bounds.height, greaterThan(line.bounds.width));
+    });
+
+    test('a slanted text matrix is an italic at its upright size', () {
+      final doc = PdfFile.open(onePage(
+        'BT /F1 12 Tf 1 0 0.3 1 10 100 Tm (Lean) Tj ET',
+        resources: kHelveticaRes,
+      ));
+      final run = ContentInterpreter(doc).run(doc.pages[0]).texts.single;
+      expect(run.italic, isTrue);
+      expect(run.rotated, isFalse);
+      expect(run.fontSize, closeTo(12, 1e-9));
+    });
+
+    test('a matrix measures its axes along themselves', () {
+      const turned = Mat(0, 1, -1, 0, 0, 0);
+      expect(turned.scaleX, 1);
+      expect(turned.scaleY, 1);
+      const slant = Mat(2, 0, 1, 3, 0, 0);
+      expect(slant.scaleX, 2);
+      expect(slant.heightY, closeTo(3, 1e-9));
+      expect(slant.slanted, isTrue);
+      expect(const Mat(2, 0, 0, 3, 0, 0).slanted, isFalse);
+    });
+
+    test('an embedded CMap cuts codes by its codespace and maps them to CIDs',
+        () {
+      final cmap = ascii.encode(
+          '1 begincodespacerange <00> <7F> <8000> <FFFF> endcodespacerange\n'
+          '1 begincidrange <41> <5A> 1 endcidrange\n'
+          '1 begincidchar <8001> 40 endcidchar\n');
+      final doc = PdfFile.open(withFont(
+        'BT /F1 10 Tf 10 100 Td <41428001> Tj ET',
+        '<< /Type /Font /Subtype /Type0 /BaseFont /Mixed /Encoding 6 0 R '
+            '/DescendantFonts [7 0 R] >>',
+        [
+          streamObj('/Type /CMap', cmap),
+          obj('<< /Type /Font /Subtype /CIDFontType2 /BaseFont /Mixed '
+              '/DW 900 /W [1 [600 700]] >>'),
+        ],
+      ));
+      final run = ContentInterpreter(doc).run(doc.pages[0]).texts.single;
+      expect(run.text, 'AB');
+      // A and B are one byte each and CIDs 1 and 2; <8001> is CID 40, which
+      // takes the default width.
+      expect(run.widthPts, closeTo((600 + 700 + 900) / 100, 1e-9));
+    });
+
+    test('a Unicode CMap reads its codes as the text', () {
+      final doc = PdfFile.open(onePage(
+        'BT /F1 10 Tf 10 100 Td <4E2D6587> Tj ET',
+        resources: '/Font << /F1 << /Type /Font /Subtype /Type0 /BaseFont '
+            '/Song /Encoding /UniGB-UCS2-H /DescendantFonts [<< /Type /Font '
+            '/Subtype /CIDFontType0 /BaseFont /Song /DW 1000 >>] >> >>',
+      ));
+      final run = ContentInterpreter(doc).run(doc.pages[0]).texts.single;
+      expect(run.text, '中文');
+      expect(run.widthPts, closeTo(20, 1e-9));
+    });
+
+    test('vertical writing sets each glyph below the last', () {
+      final doc = PdfFile.open(onePage(
+        'BT /F1 10 Tf 50 100 Td <00410042> Tj ET',
+        resources: '/Font << /F1 << /Type /Font /Subtype /Type0 /BaseFont '
+            '/Tate /Encoding /Identity-V /DescendantFonts [<< /Type /Font '
+            '/Subtype /CIDFontType2 /BaseFont /Tate /DW 1000 >>] >> >>',
+      ));
+      final texts = ContentInterpreter(doc).run(doc.pages[0]).texts;
+      expect(texts.map((t) => t.text).toList(), ['A', 'B']);
+      expect(texts[1].y - texts[0].y, closeTo(10, 1e-9));
+      expect(texts[0].x, closeTo(45, 1e-9),
+          reason: 'a vertical glyph hangs centred on the pen');
+    });
+
+    test('a composite font with no ToUnicode is read through its own cmap',
+        () {
+      String hex(int gid) => gid.toRadixString(16).padLeft(4, '0');
+      final h = interFont.glyphFor('H'.codeUnitAt(0));
+      final i = interFont.glyphFor('i'.codeUnitAt(0));
+      final doc = PdfFile.open(withFont(
+        'BT /F1 10 Tf 10 100 Td <${hex(h)}${hex(i)}> Tj ET',
+        '<< /Type /Font /Subtype /Type0 /BaseFont /Inter '
+            '/Encoding /Identity-H /DescendantFonts [6 0 R] >>',
+        [
+          obj('<< /Type /Font /Subtype /CIDFontType2 /BaseFont /Inter '
+              '/CIDToGIDMap /Identity /FontDescriptor 7 0 R >>'),
+          obj('<< /Type /FontDescriptor /FontName /Inter /Flags 32 '
+              '/FontFile2 8 0 R >>'),
+          streamObj('', inter),
+        ],
+      ));
+      expect(ContentInterpreter(doc).run(doc.pages[0]).texts.single.text,
+          'Hi');
+    });
+
+    test('a font with no /Widths is measured from the font it embeds', () {
+      final doc = PdfFile.open(withFont(
+        'BT /F1 10 Tf 10 100 Td (AW) Tj ET',
+        '<< /Type /Font /Subtype /TrueType /BaseFont /Inter '
+            '/FontDescriptor 6 0 R >>',
+        [
+          obj('<< /Type /FontDescriptor /FontName /Inter /Flags 32 '
+              '/FontFile2 7 0 R >>'),
+          streamObj('', inter),
+        ],
+      ));
+      final run = ContentInterpreter(doc).run(doc.pages[0]).texts.single;
+      final a = interFont.widthOf(interFont.glyphFor(0x41));
+      final w = interFont.widthOf(interFont.glyphFor(0x57));
+      expect(run.widthPts, closeTo((a + w) / 100, 1e-9));
+      expect(run.widthPts, isNot(closeTo((667 + 944) / 100, 0.05)),
+          reason: 'not Helvetica, which is what it fell back to before');
+    });
+
+    test('the word gap scales with the width of the font\'s own space', () {
+      // Half a point apart at 10pt: a break in a Helvetica-like face, and
+      // only kerning in a monospace one whose space is 0.6em.
+      final plain = mergeRuns([
+        spaced('foo', 0, space: 2.78),
+        spaced('bar', 30.5, space: 2.78),
+      ]);
+      expect(plain.single.text, 'foo bar');
+      final mono = mergeRuns([
+        spaced('foo', 0, space: 6),
+        spaced('bar', 30.5, space: 6),
+      ]);
+      expect(mono.single.text, 'foobar');
+      final unknown = mergeRuns([
+        spaced('foo', 0, space: 0),
+        spaced('bar', 30.5, space: 0),
+      ]);
+      expect(unknown.single.text, 'foo bar',
+          reason: 'a font with no space keeps the tuned threshold');
+    });
+
+    test('the space width reaches the runs the page emits', () {
+      final doc = PdfFile.open(
+          onePage('BT /F1 10 Tf 10 100 Td (a b) Tj ET', resources: kHelveticaRes));
+      final run = ContentInterpreter(doc).run(doc.pages[0]).texts.single;
+      expect(run.spaceWidthPts, closeTo(2.78, 1e-9));
+    });
+
+    test('the file says which program wrote it', () {
+      Uint8List withInfo(String info) => buildPdf([
+            obj('<< /Type /Catalog /Pages 2 0 R >>'),
+            obj('<< /Type /Pages /Kids [] /Count 0 >>'),
+            obj(info),
+          ], trailerExtra: '/Info 3 0 R ');
+      expect(PdfFile.open(withInfo('<< /Producer (iOS Version 16.7.11) >>'))
+          .producer, 'iOS Version 16.7.11');
+      expect(PdfFile.open(withInfo('<< /Producer <FEFF00690054006500780074> >>'))
+          .producer, 'iText');
+      expect(PdfFile.open(withInfo('<< >>')).producer, '');
+    });
+  });
+
   // -------------------------------------------------------------- painting
 
   group('painting a page', () {
@@ -876,6 +1114,59 @@ endbfrange
       expect((pixel >> 16) & 0xFF, 0xFF);
       expect((pixel >> 8) & 0xFF, inInclusiveRange(126, 129));
       expect(pixel & 0xFF, inInclusiveRange(126, 129));
+    });
+
+    testWidgets('a turned line is painted along its own baseline',
+        (WidgetTester tester) async {
+      final list = PageDisplayList(widthPts: 60, heightPts: 120, rotation: 0);
+      final run = LaidOutRun(
+          'WWWWWW', 20, 10, 10, 60, 0, 0xFF000000, 0, angle: math.pi / 2);
+      late ui.Rect inked;
+      await tester.runAsync(() async {
+        final recorder = ui.PictureRecorder();
+        PageListPainter(
+          list: list,
+          runs: [run],
+          images: const {},
+          serifFamily: 'Inter',
+          sansFamily: 'Inter',
+        ).paint(ui.Canvas(recorder), const ui.Size(60, 120));
+        final image = await recorder.endRecording().toImage(60, 120);
+        final b = (await image.toByteData(format: ui.ImageByteFormat.rawRgba))!
+            .buffer
+            .asUint8List();
+        var l = 60, t = 120, r = 0, bottom = 0;
+        for (var y = 0; y < 120; y++) {
+          for (var x = 0; x < 60; x++) {
+            if (b[(y * 60 + x) * 4] < 128) {
+              l = math.min(l, x);
+              t = math.min(t, y);
+              r = math.max(r, x);
+              bottom = math.max(bottom, y);
+            }
+          }
+        }
+        inked = ui.Rect.fromLTRB(l.toDouble(), t.toDouble(), r.toDouble(),
+            bottom.toDouble());
+        image.dispose();
+      });
+      expect(inked.height, greaterThan(inked.width * 3),
+          reason: 'drawn flat, six Ws would run across the page');
+      expect(inked.left, greaterThanOrEqualTo(19),
+          reason: 'turned clockwise, the letters stand to the right of it');
+    });
+
+    test('a line the file spreads wide is letter spaced to fill it', () {
+      final r = LaidOutRun('SLIDE', 0, 100, 10, 200, 0, 0xFF000000, 0);
+      final set = setRun(r, serifFamily: 'Inter', sansFamily: 'Inter');
+      expect(set.width, closeTo(200, 1));
+      expect(runSqueeze(r, set), closeTo(1, 0.01));
+    });
+
+    test('a line far too long for its width is squeezed only so far', () {
+      final r = LaidOutRun('squeezed', 0, 100, 10, 5, 0, 0xFF000000, 0);
+      final set = setRun(r, serifFamily: 'Inter', sansFamily: 'Inter');
+      expect(runSqueeze(r, set), kSqueezeMin);
     });
 
     testWidgets('an unpainted page is white, never transparent',

@@ -76,6 +76,23 @@ class PdfFile {
     return crypt.decrypt(data, number, generation);
   }
 
+  /// The program that wrote the file, from its /Info, or '' when it does not
+  /// say. Most reading faults belong to one producer, so this is the first
+  /// thing to know about a page that reads badly.
+  String get producer {
+    final value = resolve(dict(trailer['Info'])?['Producer']);
+    if (value is! PdfString) return '';
+    final b = value.bytes;
+    if (b.length >= 2 && b[0] == 0xFE && b[1] == 0xFF) {
+      final units = <int>[];
+      for (var i = 2; i + 1 < b.length; i += 2) {
+        units.add((b[i] << 8) | b[i + 1]);
+      }
+      return String.fromCharCodes(units);
+    }
+    return value.asLatin1;
+  }
+
   /// True when the trailer carries an /Encrypt dictionary, whether or not the
   /// file went on to open.
   bool encrypted = false;
