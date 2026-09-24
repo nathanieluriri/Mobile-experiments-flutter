@@ -8,36 +8,58 @@ export '../pdf/display_list.dart' show LaidOutRun, mergeRuns, kWordGapEm;
 
 /// A merged line of a page, set in the app's typeface the way the page paints
 /// it, laid out and ready to paint or measure.
+///
+/// A line the file spreads far wider than the typeface sets it is letter
+/// spaced, which is how a tracked heading like `S L I D E` is drawn, so it is
+/// opened up by spacing rather than by stretching every letter.
 TextPainter setRun(
   LaidOutRun r, {
   required String serifFamily,
   required String sansFamily,
 }) {
-  return TextPainter(
-    text: TextSpan(
-      text: r.text,
-      style: TextStyle(
-        fontFamily: (r.style & 4) != 0 ? serifFamily : sansFamily,
-        fontSize: r.size,
-        height: 1.0,
-        fontWeight: (r.style & 1) != 0 ? FontWeight.w700 : FontWeight.w400,
-        fontStyle: (r.style & 2) != 0 ? FontStyle.italic : FontStyle.normal,
-        color: Color(r.color),
-      ),
-    ),
-    textDirection: TextDirection.ltr,
-    maxLines: 1,
-  )..layout();
+  TextPainter set(double spacing) => TextPainter(
+        text: TextSpan(
+          text: r.text,
+          style: TextStyle(
+            fontFamily: (r.style & 4) != 0 ? serifFamily : sansFamily,
+            fontSize: r.size,
+            height: 1.0,
+            letterSpacing: spacing,
+            fontWeight: (r.style & 1) != 0 ? FontWeight.w700 : FontWeight.w400,
+            fontStyle: (r.style & 2) != 0 ? FontStyle.italic : FontStyle.normal,
+            color: Color(r.color),
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+        maxLines: 1,
+      )..layout();
+  final plain = set(0);
+  final letters = r.text.runes.length;
+  if (letters < 2 || plain.width <= 0 || r.width / plain.width < kSqueezeMax) {
+    return plain;
+  }
+  final spacing = (r.width - plain.width) / letters;
+  plain.dispose();
+  return set(spacing);
 }
+
+/// The narrowest and widest a line is fitted to the width the file gives it.
+const double kSqueezeMin = 0.55;
+const double kSqueezeMax = 1.8;
 
 /// How far [set] is squeezed or stretched across to fill the width the file
 /// says the line occupies, so line breaks and column edges land where they
-/// should. A line that would have to go past half again or half as much again
-/// is left at its own width, because by then the file's width is the wrong
-/// one rather than the typeface's.
+/// should.
+///
+/// A line far wider than the typeface is letter spaced by [setRun] instead.
+/// A line far narrower is squeezed only as far as still reads, and the
+/// painter clips what is left over, because letting it run on paints it over
+/// whatever the file put next to it.
 double runSqueeze(LaidOutRun r, TextPainter set) {
-  final sx = (r.width > 0 && set.width > 0) ? r.width / set.width : 1.0;
-  return sx > 0.55 && sx < 1.8 ? sx : 1.0;
+  if (r.width <= 0 || set.width <= 0) return 1.0;
+  final sx = r.width / set.width;
+  if (sx >= kSqueezeMax) return 1.0;
+  return sx < kSqueezeMin ? kSqueezeMin : sx;
 }
 
 /// The box characters [start] to [end] of [run] occupy as the page paints
@@ -57,6 +79,7 @@ Rect paintedSlice(
 }) {
   final held = _slices[run] ??= <(int, int), Rect>{};
   return held[(start, end)] ??= () {
+    if (run.angle != 0) return run.bounds;
     final set = setRun(run, serifFamily: serifFamily, sansFamily: sansFamily);
     final squeeze = runSqueeze(run, set);
     final letters = set.getBoxesForSelection(
@@ -201,10 +224,17 @@ class PageListPainter extends CustomPainter {
 
   void _text(Canvas canvas, LaidOutRun r) {
     final tp = setRun(r, serifFamily: serifFamily, sansFamily: sansFamily);
+    final squeeze = runSqueeze(r, tp);
     canvas.save();
-    canvas.translate(r.x, r.y - r.size * 0.8);
-    canvas.scale(runSqueeze(r, tp), 1);
-    tp.paint(canvas, Offset.zero);
+    canvas.translate(r.x, r.y);
+    if (r.angle != 0) canvas.rotate(r.angle);
+    if (r.width > 0 && tp.width * squeeze > r.width + r.size * 0.5) {
+      canvas.clipRect(
+          Rect.fromLTWH(-r.size, -r.size * 1.2, r.width + r.size * 1.5, r.size * 1.6));
+    }
+    canvas.scale(squeeze, 1);
+    tp.paint(canvas, Offset(0, -r.size * 0.8));
+    tp.dispose();
     canvas.restore();
   }
 

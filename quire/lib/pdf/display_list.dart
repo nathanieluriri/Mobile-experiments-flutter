@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' show Rect;
 
@@ -20,15 +21,37 @@ class Mat {
   double tx(double x, double y) => a * x + c * y + e;
   double ty(double x, double y) => b * x + d * y + f;
 
-  /// Uniform-ish scale, used to turn a text matrix into a font size.
-  double get scaleY {
-    final v = (b * b + d * d);
+  /// How long a unit step along x comes out, which is how far a run advances.
+  double get scaleX {
+    final v = (a * a + b * b);
     return v <= 0 ? 0 : _sqrt(v);
   }
 
-  double get scaleX {
-    final v = (a * a + c * c);
+  /// How long a unit step along y comes out.
+  double get scaleY {
+    final v = (c * c + d * d);
     return v <= 0 ? 0 : _sqrt(v);
+  }
+
+  /// The height of a unit square measured square to its baseline.
+  ///
+  /// A slanted matrix, which is how a producer fakes an italic, makes [scaleY]
+  /// longer than the letters are tall.
+  double get heightY {
+    final sx = scaleX;
+    return sx == 0 ? scaleY : (a * d - b * c).abs() / sx;
+  }
+
+  /// The direction the baseline runs, in radians clockwise from the page's x.
+  double get angle => math.atan2(b, a);
+
+  /// True when the y axis leans away from square to the baseline by more than
+  /// a few degrees.
+  bool get slanted {
+    final sx = scaleX, sy = scaleY;
+    if (sx == 0 || sy == 0) return false;
+    final cos = (a * c + b * d) / (sx * sy);
+    return cos.abs() > 0.1;
   }
 
   static double _sqrt(double v) {
@@ -60,6 +83,8 @@ class TextRunCmd {
     required this.color,
     required this.rotated,
     required this.seq,
+    this.angle = 0,
+    this.spaceWidthPts = 0,
   });
 
   /// Unicode text of the run.
@@ -74,6 +99,12 @@ class TextRunCmd {
   final int color;
   final bool rotated;
   final int seq;
+
+  /// The direction the baseline runs, in radians clockwise, when [rotated].
+  final double angle;
+
+  /// How wide the font's own space is at this size, or 0 when it has none.
+  final double spaceWidthPts;
 
   @override
   String toString() =>
@@ -186,7 +217,7 @@ const double kWordGapEm = 0.026;
 /// Adjacent runs on the same baseline merged into one paintable line.
 class LaidOutRun {
   LaidOutRun(this.text, this.x, this.y, this.size, this.width, this.style,
-      this.color, this.seq);
+      this.color, this.seq, {this.angle = 0});
 
   /// The merged unicode text of the line.
   final String text;
@@ -203,6 +234,10 @@ class LaidOutRun {
   /// the ordered paint pass and every effect that walks the page read from.
   final int seq;
 
+  /// The direction the baseline runs, in radians clockwise. The painter turns
+  /// the line about its origin by this much.
+  final double angle;
+
   bool get bold => (style & 1) != 0;
   bool get italic => (style & 2) != 0;
   bool get serif => (style & 4) != 0;
@@ -212,13 +247,29 @@ class LaidOutRun {
   ///
   /// The painter draws from `y - size * 0.8`, so a highlight drawn over this
   /// rect covers exactly the glyphs and not the line above.
-  Rect get bounds => Rect.fromLTWH(x, y - size * 0.8, width, size);
+  Rect get bounds {
+    final upright = Rect.fromLTWH(x, y - size * 0.8, width, size);
+    if (angle == 0) return upright;
+    final cos = math.cos(angle), sin = math.sin(angle);
+    var l = double.infinity, t = double.infinity;
+    var r = double.negativeInfinity, b = double.negativeInfinity;
+    for (final (dx, dy) in [(0.0, -size * 0.8), (width, -size * 0.8),
+        (0.0, size * 0.2), (width, size * 0.2)]) {
+      final px = x + dx * cos - dy * sin;
+      final py = y + dx * sin + dy * cos;
+      l = math.min(l, px);
+      t = math.min(t, py);
+      r = math.max(r, px);
+      b = math.max(b, py);
+    }
+    return Rect.fromLTRB(l, t, r, b);
+  }
 
   /// The box around characters [start] to [end] of [text], interpolated across
   /// [width]. Glyph-exact positions are gone by merge time, and a proportional
   /// slice is what lets a match be highlighted without re-running the page.
   Rect sliceBounds(int start, int end) {
-    if (text.isEmpty || width <= 0) return bounds;
+    if (text.isEmpty || width <= 0 || angle != 0) return bounds;
     final n = text.length;
     final a = (start.clamp(0, n)) / n;
     final b = (end.clamp(0, n)) / n;
@@ -244,9 +295,39 @@ int _styleOf(TextRunCmd r) =>
 ///
 /// [wordGapEm] is the threshold above which a horizontal gap becomes a space.
 /// It is a parameter so it can be swept over a corpus and pinned by evidence,
-/// not by taste.
+/// not by taste. It was swept on fonts whose space is about Helvetica's, so a
+/// run that knows its font's space scales it by how that space compares: a
+/// monospace face needs a wider gap before it means a word break, and a
+/// condensed one a narrower gap.
+///
+/// Turned runs cannot share a baseline with the upright page, so they are
+/// joined only to the run that carries on from where they end, in the order
+/// the file drew them, and come after the upright lines.
 List<LaidOutRun> mergeRuns(List<TextRunCmd> runs,
     {double wordGapEm = kWordGapEm}) {
+  if (runs.isEmpty) return const [];
+  final upright = <TextRunCmd>[];
+  final turned = <TextRunCmd>[];
+  for (final r in runs) {
+    (r.rotated ? turned : upright).add(r);
+  }
+  return [
+    ..._mergeUpright(upright, wordGapEm),
+    ..._mergeTurned(turned, wordGapEm),
+  ];
+}
+
+/// Helvetica's space, in ems, which is what [kWordGapEm] was swept against.
+const double _referenceSpaceEm = 0.278;
+
+double _gapFor(TextRunCmd r, double size, double wordGapEm) {
+  final base = size * wordGapEm;
+  if (r.spaceWidthPts <= 0 || r.fontSize <= 0) return base;
+  final ratio = (r.spaceWidthPts / r.fontSize) / _referenceSpaceEm;
+  return base * ratio.clamp(0.5, 2.5);
+}
+
+List<LaidOutRun> _mergeUpright(List<TextRunCmd> runs, double wordGapEm) {
   if (runs.isEmpty) return const [];
   final sorted = List<TextRunCmd>.from(runs)
     ..sort((a, b) {
@@ -287,7 +368,7 @@ List<LaidOutRun> mergeRuns(List<TextRunCmd> runs,
     if (sameLine && sameStyle && gap > -size * 0.6 && gap < size * 1.2) {
       // A gap this wide is a word break the producer expressed as positioning
       // rather than as a space glyph.
-      if (gap > size * wordGapEm && !buf.toString().endsWith(' ')) {
+      if (gap > _gapFor(r, size, wordGapEm) && !buf.toString().endsWith(' ')) {
         buf.write(' ');
       }
       buf.write(r.text);
@@ -305,5 +386,62 @@ List<LaidOutRun> mergeRuns(List<TextRunCmd> runs,
     cursor = r.x + r.widthPts;
   }
   flush(cursor);
+  return out;
+}
+
+List<LaidOutRun> _mergeTurned(List<TextRunCmd> runs, double wordGapEm) {
+  if (runs.isEmpty) return const [];
+  final sorted = List<TextRunCmd>.from(runs)
+    ..sort((a, b) => a.seq.compareTo(b.seq));
+  final out = <LaidOutRun>[];
+  TextRunCmd? head;
+  var buf = StringBuffer();
+  var length = 0.0;
+  var endX = 0.0, endY = 0.0;
+
+  void flush() {
+    final h = head;
+    if (h != null && buf.toString().trim().isNotEmpty) {
+      out.add(LaidOutRun(buf.toString(), h.x, h.y, h.fontSize, length,
+          _styleOf(h), h.color, h.seq,
+          angle: h.angle));
+    }
+    head = null;
+    buf = StringBuffer();
+  }
+
+  for (final r in sorted) {
+    final h = head;
+    if (h != null &&
+        (r.angle - h.angle).abs() < 0.01 &&
+        _styleOf(r) == _styleOf(h) &&
+        (r.fontSize - h.fontSize).abs() < 0.6 &&
+        r.color == h.color) {
+      final cos = math.cos(h.angle), sin = math.sin(h.angle);
+      final dx = r.x - endX, dy = r.y - endY;
+      final along = dx * cos + dy * sin;
+      final across = -dx * sin + dy * cos;
+      if (across.abs() <= h.fontSize * 0.3 &&
+          along > -h.fontSize * 0.6 &&
+          along < h.fontSize * 1.2) {
+        if (along > _gapFor(r, h.fontSize, wordGapEm) &&
+            !buf.toString().endsWith(' ')) {
+          buf.write(' ');
+        }
+        buf.write(r.text);
+        length += along + r.widthPts;
+        endX = r.x + r.widthPts * cos;
+        endY = r.y + r.widthPts * sin;
+        continue;
+      }
+    }
+    flush();
+    head = r;
+    buf.write(r.text);
+    length = r.widthPts;
+    endX = r.x + r.widthPts * math.cos(r.angle);
+    endY = r.y + r.widthPts * math.sin(r.angle);
+  }
+  flush();
   return out;
 }

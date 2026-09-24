@@ -128,6 +128,18 @@ class TrueTypeFont {
   /// nothing: a reader who sees a box knows something was there.
   int glyphFor(int rune) => _cmap[rune] ?? 0;
 
+  /// The character each glyph draws, for reading text back out of a page
+  /// whose font came without a map of its own. Codes from a symbol table are
+  /// not text and are left out.
+  Map<int, String> textByGlyph() {
+    final out = <int, String>{};
+    for (final e in _cmap.entries) {
+      if (e.key >= 0xF000 && e.key <= 0xF0FF) continue;
+      out.putIfAbsent(e.value, () => String.fromCharCode(e.key));
+    }
+    return out;
+  }
+
   /// True when the font has a glyph of its own for [rune].
   bool covers(int rune) => _cmap.containsKey(rune);
 
@@ -356,6 +368,11 @@ class TrueTypeFont {
         (0, _, 12) => 4,
         (3, 1, 4) => 3,
         (0, _, 4) => 2,
+        // A symbol font's codes sit at 0xF000 up, and an old Mac table maps
+        // single bytes: neither is Unicode, but a page's embedded subset may
+        // carry nothing else.
+        (3, 0, 4) => 1,
+        (1, 0, 0) => 0,
         _ => -1,
       };
       if (score > bestScore) {
@@ -367,8 +384,18 @@ class TrueTypeFont {
     return switch (data.getUint16(best)) {
       12 => _readCmap12(data, bytes, best),
       4 => _readCmap4(data, bytes, best),
+      0 => _readCmap0(bytes, best),
       _ => const <int, int>{},
     };
+  }
+
+  static Map<int, int> _readCmap0(Uint8List bytes, int at) {
+    final out = <int, int>{};
+    for (var code = 0; code < 256 && at + 6 + code < bytes.length; code++) {
+      final gid = bytes[at + 6 + code];
+      if (gid != 0) out[code] = gid;
+    }
+    return out;
   }
 
   static Map<int, int> _readCmap4(ByteData data, Uint8List bytes, int at) {
