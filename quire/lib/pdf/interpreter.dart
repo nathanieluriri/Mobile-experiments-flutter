@@ -143,7 +143,7 @@ class ContentInterpreter {
           x: start.e,
           y: start.f - rise * m.scaleY,
           fontSize: size,
-          widthPts: advance * gs.ctm.scaleX,
+          widthPts: advance * m.scaleX,
           fontKey: fontKey,
           bold: f.isBold,
           italic: f.isItalic,

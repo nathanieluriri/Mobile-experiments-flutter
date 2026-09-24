@@ -496,6 +496,22 @@ endbfrange
           reason: 'skipping the paint must not skip the text matrix');
     });
 
+    test('a type size carried by the text matrix still gives runs their width',
+        () {
+      // Cairo, Quartz and others set the font at 1 and scale the text matrix
+      // to the real size.
+      final doc = PdfFile.open(onePage(
+        'BT /F1 1 Tf 12 0 0 12 10 100 Tm (Mon) Tj (itoring) Tj ET',
+        resources: kHelveticaRes,
+      ));
+      final dl = ContentInterpreter(doc).run(doc.pages[0]);
+      // Mon in Helvetica is M+o+n = 1945/1000 em.
+      expect(dl.texts.first.widthPts, closeTo(1.945 * 12, 0.05));
+      expect(dl.texts.first.fontSize, closeTo(12, 1e-9));
+      expect(mergeRuns(dl.texts).single.text, 'Monitoring',
+          reason: 'a run measured at 1pt leaves a false gap and splits words');
+    });
+
     testWidgets('a decoded page image can be handed to the engine inside '
         'runAsync', (WidgetTester tester) async {
       // Awaiting a dart:ui decode directly inside testWidgets hangs the run
