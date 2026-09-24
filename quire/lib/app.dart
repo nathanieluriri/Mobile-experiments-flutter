@@ -14,13 +14,61 @@ import 'screens/reader/reader_host.dart';
 import 'screens/reader/reader_route.dart';
 import 'screens/sign/sign_screen.dart';
 import 'services/document_store.dart';
+import 'services/failure_log.dart';
 import 'services/incoming_documents.dart';
 import 'services/library_catalogue.dart';
 import 'theme/colors.dart';
 import 'theme/metrics.dart';
 import 'theme/typography.dart';
+import 'widgets/damaged_surface.dart';
 import 'widgets/dissolve/dissolve_scope.dart';
 import 'widgets/quire_spinner.dart';
+
+/// Starts quire with somewhere for a failure to go.
+///
+/// Three separate boundaries can be the first to see an error, and left alone
+/// every one of them is silent. A widget that throws while building draws
+/// Flutter's grey rectangle, sized to whatever slot the broken thing was in,
+/// with no text on it in a release build. An error on a future nobody awaited,
+/// which is how this app saves the desk, reaches the zone and prints one line
+/// to a device log the owner will never see, having silently not saved. And
+/// anything the engine raises outside a zone at all reaches the platform.
+///
+/// All three arrive here instead, so a fault is counted once, and what the
+/// reader is shown where the broken thing was is drawn in the app's own hand.
+///
+/// [app] is a seam for a test that wants a tree of its own. Nothing else
+/// passes it.
+void runQuire({Widget app = const App()}) {
+  installFailureHandlers();
+  runZonedGuarded(
+    () => runApp(app),
+    (error, stack) =>
+        failures.record(error, where: 'a future nobody awaited', stack: stack),
+  );
+}
+
+/// Points the three boundaries at the log, and puts the app's own damaged
+/// leaf where Flutter would have drawn a grey rectangle.
+///
+/// Separate from [runQuire] because it is the half a test can call: the other
+/// half starts an app, and a test already has one.
+void installFailureHandlers() {
+  FlutterError.onError = (details) {
+    failures.record(details.exception, where: 'a build', stack: details.stack);
+    // Still said out loud. In a debug run this is the red panel and the
+    // console dump, and taking those away would trade one silence for
+    // another.
+    FlutterError.presentError(details);
+  };
+  PlatformDispatcher.instance.onError = (error, stack) {
+    failures.record(error, where: 'the platform', stack: stack);
+    return true;
+  };
+  // Recorded already by the handler above, which runs first and always. This
+  // only has to decide what stands in the hole.
+  ErrorWidget.builder = (details) => const DamagedSurface();
+}
 
 /// The desk, where every document lives.
 const kDeskRoute = '/';

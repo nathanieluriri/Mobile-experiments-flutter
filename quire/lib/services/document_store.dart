@@ -8,6 +8,7 @@ import 'package:flutter/services.dart' show rootBundle;
 
 import '../data/library.dart';
 import '../format/document_loader.dart';
+import 'failure_log.dart';
 import '../model/document.dart';
 import '../model/search.dart';
 import '../pdf/display_list.dart';
@@ -296,14 +297,29 @@ class DocumentStore extends ChangeNotifier {
   final List<PlacedSignature> _signatures = <PlacedSignature>[];
 
   /// Parses [bytes] and moves the store to [ParseState.ready] or
-  /// [ParseState.failed]. Every exception the parsers raise is already caught
-  /// at the loader boundary, so this never throws.
+  /// [ParseState.failed].
+  ///
+  /// Those two are the only ways out, and the guard below is what makes that
+  /// true rather than hopeful. The comment here used to claim the loader
+  /// caught everything the parsers raise. It did not, and the one caller that
+  /// noticed was [unlock], which is reached by somebody typing a password
+  /// into a sheet: the least deserving moment in the app to meet a crash.
   ///
   /// [password] is only ever the one somebody typed into the password sheet.
   /// The engine tries the empty password on its own first, every time, so a
   /// file that carries only an owner password opens here with nobody asked
   /// for anything.
   void loadFrom(Uint8List bytes, {String password = ''}) {
+    try {
+      _loadFrom(bytes, password: password);
+    } on Object catch (error) {
+      // The bytes go with it. A document that failed to read is still a
+      // document somebody may have a password for.
+      fail(error, bytes: bytes);
+    }
+  }
+
+  void _loadFrom(Uint8List bytes, {String password = ''}) {
     _loaded = DocumentLoader.load(bytes, entry.fileName);
     _search = null;
     _locked = null;
@@ -367,11 +383,15 @@ class DocumentStore extends ChangeNotifier {
 
   /// Records a failure that happened outside the loader, for instance a bundle
   /// that could not hand over the bytes at all.
-  void fail(Object error) {
+  ///
+  /// [bytes] is kept when the caller still has them, because a file that
+  /// failed to read is not always a file that cannot be read: a sealed one
+  /// needs its own bytes again the moment a password arrives.
+  void fail(Object error, {Uint8List? bytes}) {
     _loaded = LoadedDocument(
       name: entry.fileName,
       format: entry.format.extension,
-      bytes: Uint8List(0),
+      bytes: bytes ?? Uint8List(0),
       error: error,
     );
     _state = ParseState.failed;
@@ -1134,6 +1154,13 @@ class LibraryStore extends ChangeNotifier {
         if (imported.isNotEmpty) _entries.insertAll(0, imported);
         _applyState(await catalogue.loadState());
         notifyListeners();
+      } on Object catch (error) {
+        // A read that fails here used to take the rest of the boot with it,
+        // and the caller reads the documents in the line after this one. So
+        // one unreadable file on the phone left every card on the desk
+        // spinning for the whole run, with nothing said and nothing to do
+        // about it. The shipped documents are still there to be read.
+        failures.record(error, where: 'reading the desk');
       } finally {
         // Whatever the phone had to say about this desk, it has said. One
         // that could not be read still holds what it holds.

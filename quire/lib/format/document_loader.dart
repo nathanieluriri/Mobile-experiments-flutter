@@ -84,11 +84,21 @@ class LoadedDocument {
 
 /// Sniffs a file and hands it to the right parser.
 ///
-/// The two exceptions that escape the office parsers are [ArchiveException]
-/// (garbage bytes, a truncated zip, an empty file) and [FormatException] (a
-/// valid zip whose payload is not the format the name promised). Both are
-/// caught here, so a damaged file is a designed state upstream and never a
-/// crash and never a dialog.
+/// Everything a parser can raise is caught here, so a damaged file is a
+/// designed state upstream and never a crash and never a dialog.
+///
+/// It used to catch only [ArchiveException] (garbage bytes, a truncated zip,
+/// an empty file) and [FormatException] (a valid zip whose payload is not the
+/// format the name promised), which are the two a parser is written to throw.
+/// The ones it did not catch are the ones nobody writes on purpose: a
+/// reference that indexes a list from the wrong end, a number the file says
+/// is a length, a nesting depth that runs the stack out. Those are exactly
+/// what a hostile or truncated file produces, and they were reaching the top
+/// of the app, where nothing was waiting for them.
+///
+/// The boundary is the place to end that. Guarding each parser against each
+/// bad index is a game with no last move, and a file quire cannot read is one
+/// state however it failed to read it.
 abstract final class DocumentLoader {
   /// Reads [bytes] as the format implied by [name] and its magic bytes.
   static LoadedDocument load(Uint8List bytes, String name) {
@@ -119,10 +129,7 @@ abstract final class DocumentLoader {
         bytes: bytes,
         document: doc,
       );
-    } on ArchiveException catch (e) {
-      return LoadedDocument(
-          name: name, format: format, bytes: bytes, error: e);
-    } on FormatException catch (e) {
+    } on Object catch (e) {
       return LoadedDocument(
           name: name, format: format, bytes: bytes, error: e);
     }
