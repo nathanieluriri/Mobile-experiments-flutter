@@ -11,6 +11,7 @@ import 'package:quire/screens/reader/reader_screen.dart';
 import 'package:quire/screens/reader/sheet_surface.dart';
 import 'package:quire/screens/sign/placement_layer.dart';
 import 'package:quire/screens/sign/sign_pad.dart';
+import 'package:quire/screens/sign/signature_stamp.dart';
 import 'package:quire/screens/sign/sign_screen.dart';
 import 'package:quire/services/document_store.dart';
 import 'package:quire/theme/metrics.dart';
@@ -37,7 +38,10 @@ void main() {
       await pumpScreen(tester, signApp(pad));
 
       expect(find.text('Signature'), findsOneWidget);
-      expect(find.text('Sign above the line.'), findsOneWidget);
+      expect(
+        find.text('Sign above the line, or bring a picture of your mark.'),
+        findsOneWidget,
+      );
       expect(find.text('Place on page'), findsOneWidget);
 
       final rect = tester.getRect(find.byType(SignPad));
@@ -192,8 +196,8 @@ void main() {
       final layer = key.currentState!;
       expect(layer.stampRect.width, kStampInitialWidth);
 
-      // Shrunk first, then grown, because a mark at its largest puts its own
-      // corner under the fore edge's hit band, which the shell owns outright.
+      // Down to the bottom stop and back up to the top one, in that order,
+      // because coming back up is the journey that used to be impossible.
       var handle = layer.handleRect.center;
       var gesture = await dragAndHold(tester, handle, handle - const Offset(600, 0));
       expect(layer.stampRect.width, kStampInitialWidth * kStampScaleMin);
@@ -211,6 +215,48 @@ void main() {
       expect(
         kSheetRect.inflate(0.01).contains(layer.stampRect.bottomRight),
         isTrue,
+      );
+    });
+
+    testWidgets('the handle is whole at the size that needs it most', (
+      tester,
+    ) async {
+      final store = await storeFor(kPressLease);
+      final page = await pressLeasePage(1);
+      final key = GlobalKey<PlacementLayerState>();
+      await pumpScreen(tester, placementApp(store, page, key));
+      await settle(tester);
+
+      final layer = key.currentState!;
+      // A mark at its smallest is shorter than the handle is tall, so the
+      // target has to hang off the corner. Laid out inside the mark it was
+      // cropped to nothing and the mark could never be grown again.
+      final handle = layer.handleRect.center;
+      final gesture = await dragAndHold(
+        tester,
+        handle,
+        handle - const Offset(600, 0),
+      );
+      await gesture.up();
+      await tester.pump();
+
+      final stamp = layer.stampRect;
+      expect(stamp.width, kStampInitialWidth * kStampScaleMin);
+      expect(stamp.height, lessThan(kStampHandle));
+
+      // What the state says the target is, is what is on the glass.
+      expect(tester.getRect(find.byType(StampHandle)), layer.handleRect);
+      // And a finger that puts itself in the middle of that target reaches it.
+      expect(
+        tester.hitTestOnBinding(layer.handleRect.center).path.any(
+          (entry) => entry.target is RenderBox &&
+              find
+                  .byType(StampHandle)
+                  .evaluate()
+                  .any((e) => e.renderObject == entry.target),
+        ),
+        isTrue,
+        reason: 'the handle must answer at its own centre',
       );
     });
 

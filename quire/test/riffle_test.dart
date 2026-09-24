@@ -61,6 +61,37 @@ void main() {
       expect(find.byType(RiffleSheet), findsNothing);
       expect(store.position, 2);
     });
+
+    testWidgets('the arc never covers the control that closes it', (
+      tester,
+    ) async {
+      await _pumpReader(tester, kBinderyNotes);
+      await tester.tapAt(foreEdgeAt(0.5));
+      await settle(tester);
+
+      // The arc borrowed the reading sheet's own band once, and when the
+      // sheet grew to fill the glass the arc came up over the standing head
+      // and swallowed every touch meant for the close control. A riffle that
+      // cannot be dismissed is a trapped reader, and a tap that lands on the
+      // wrong thing only warns, so it has to be asserted outright.
+      final close = tester.getRect(find.bySemanticsLabel('Close the riffle'));
+      expect(close.bottom, lessThanOrEqualTo(kRiffleArcTop));
+
+      final reached = tester
+          .hitTestOnBinding(close.center)
+          .path
+          .any(
+            (entry) => find
+                .bySemanticsLabel('Close the riffle')
+                .evaluate()
+                .any((e) => e.renderObject == entry.target),
+          );
+      expect(
+        reached,
+        isTrue,
+        reason: 'the close control must answer at its own centre',
+      );
+    });
   });
 
   group('the arc', () {

@@ -154,7 +154,7 @@ class RiffleSheet extends StatefulWidget {
 }
 
 class _RiffleSheetState extends State<RiffleSheet> {
-  static const double _viewport = kSheetHeight;
+  static const double _viewport = kRiffleArcHeight;
 
   late final ScrollController _controller = ScrollController(
     initialScrollOffset: finiteOrigin(widget.initialIndex, _viewport),
@@ -194,6 +194,33 @@ class _RiffleSheetState extends State<RiffleSheet> {
             ),
           ),
           Positioned(
+            left: 0,
+            top: kRiffleArcTop,
+            width: kScreenWidth,
+            height: _viewport,
+            child: AnimatedBuilder(
+              animation: _controller,
+              builder: (context, child) {
+                final centre = _centre;
+                return CardMarquee(
+                  controller: _controller,
+                  finite: true,
+                  itemCount: widget.items.length,
+                  viewportHeight: _viewport,
+                  ground: AppColors.ground,
+                  onItemTap: widget.onSelect,
+                  itemBuilder: (context, index) => _RiffleSlot(
+                    item: widget.items[index],
+                    centred: index == centre,
+                  ),
+                );
+              },
+            ),
+          ),
+          // The standing head goes on last so that it owns its own pixels.
+          // The arc is free to grow; the one control that closes the riffle
+          // is not free to stop answering.
+          Positioned(
             left: kScreenPadding,
             top: kRiffleHeaderTop,
             child: Text(
@@ -228,30 +255,6 @@ class _RiffleSheetState extends State<RiffleSheet> {
               ),
             ),
           ),
-          Positioned(
-            left: 0,
-            top: kSheetTop,
-            width: kScreenWidth,
-            height: _viewport,
-            child: AnimatedBuilder(
-              animation: _controller,
-              builder: (context, child) {
-                final centre = _centre;
-                return CardMarquee(
-                  controller: _controller,
-                  finite: true,
-                  itemCount: widget.items.length,
-                  viewportHeight: _viewport,
-                  ground: AppColors.ground,
-                  onItemTap: widget.onSelect,
-                  itemBuilder: (context, index) => _RiffleSlot(
-                    item: widget.items[index],
-                    centred: index == centre,
-                  ),
-                );
-              },
-            ),
-          ),
         ],
       ),
     );
@@ -260,6 +263,17 @@ class _RiffleSheetState extends State<RiffleSheet> {
 
 /// Where the riffle's standing head sits.
 const kRiffleHeaderTop = 74.0;
+
+/// The band the arc runs in.
+///
+/// It used to borrow the reading sheet's own top and height, which was the
+/// same measurement right up until the sheet grew to fill the glass. After
+/// that the arc began at the very top of the screen and ran straight through
+/// the standing head, taking the close control's touches with it: the riffle
+/// could be opened and never dismissed. The arc has its own band now, stated
+/// here, so that the head keeps its air whatever the sheet does next.
+const kRiffleArcTop = 118.0;
+const kRiffleArcHeight = 714.0;
 
 /// One slot of the arc: a page thumbnail with its folio under it, or a card
 /// carrying a section heading.

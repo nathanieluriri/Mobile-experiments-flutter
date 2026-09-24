@@ -207,7 +207,11 @@ class PlacementLayerState extends State<PlacementLayer>
     return free.translate(0, landed - free.bottom);
   }
 
-  /// The 24 point corner that scales the mark.
+  /// The corner target that scales the mark, hung on the mark's bottom right.
+  ///
+  /// This is the one statement of where the handle is. The widget is laid out
+  /// at exactly this rect, so the target a finger finds and the target a test
+  /// reads cannot drift apart.
   Rect get handleRect => Rect.fromLTWH(
     stampRect.right - kStampHandle,
     stampRect.bottom - kStampHandle,
@@ -394,12 +398,26 @@ class PlacementLayerState extends State<PlacementLayer>
                   ink: _committed ? 0 : 1,
                   outline: _committed ? 1 - outlineGone : 1,
                   onDrag: _drag,
-                  onScale: _scaleBy,
                   onPinchStart: _pinchStart,
                   onPinch: _pinchTo,
                 ),
               ),
             ),
+            // After the stamp, so that where the two overlap the corner wins
+            // the touch, and outside the stamp so that a mark smaller than the
+            // target still has a whole target.
+            if (!_committed || outlineGone < 1)
+              Positioned.fromRect(
+                key: const ValueKey<String>('handle'),
+                rect: handleRect,
+                child: IgnorePointer(
+                  ignoring: _committed,
+                  child: StampHandle(
+                    opacity: _committed ? 1 - outlineGone : 1,
+                    onScale: _scaleBy,
+                  ),
+                ),
+              ),
           ],
         );
       },

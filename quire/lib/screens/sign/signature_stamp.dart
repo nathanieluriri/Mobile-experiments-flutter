@@ -30,7 +30,6 @@ class SignatureStamp extends StatelessWidget {
     this.ink = 1,
     this.outline = 1,
     this.onDrag,
-    this.onScale,
     this.onPinchStart,
     this.onPinch,
   });
@@ -49,9 +48,6 @@ class SignatureStamp extends StatelessWidget {
 
   /// Moves the whole stamp.
   final ValueChanged<Offset>? onDrag;
-
-  /// Grows and shrinks it from the corner.
-  final ValueChanged<Offset>? onScale;
 
   /// A second finger has landed, so whatever comes next is measured from the
   /// size the mark is now.
@@ -90,22 +86,37 @@ class SignatureStamp extends StatelessWidget {
               child: CustomPaint(painter: _StampOutlinePainter(outline)),
             ),
           ),
-          if (outline > 0)
-            Positioned(
-              right: 0,
-              bottom: 0,
-              width: kStampHandle,
-              height: kStampHandle,
-              child: GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onPanUpdate: (details) => onScale?.call(details.delta),
-                child: Opacity(
-                  opacity: outline,
-                  child: const CustomPaint(painter: _StampHandlePainter()),
-                ),
-              ),
-            ),
         ],
+      ),
+    );
+  }
+}
+
+/// The corner target that scales the mark.
+///
+/// It is laid out beside the stamp rather than inside it, because a mark taken
+/// down to its smallest is shorter than this target is tall. As a child of the
+/// stamp the top of the target fell outside the stamp's own box, where nothing
+/// is clipped away but nothing can be touched either, so the one control that
+/// makes a mark bigger again stopped answering at exactly the size that needs
+/// it. Laid out beside the stamp it is always whole, whatever the mark does.
+class StampHandle extends StatelessWidget {
+  const StampHandle({super.key, this.opacity = 1, this.onScale});
+
+  /// How far in the chrome still is, which the handle shares with the outline.
+  final double opacity;
+
+  /// Grows and shrinks the mark from the corner.
+  final ValueChanged<Offset>? onScale;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onPanUpdate: (details) => onScale?.call(details.delta),
+      child: Opacity(
+        opacity: opacity,
+        child: const CustomPaint(painter: _StampHandlePainter()),
       ),
     );
   }
