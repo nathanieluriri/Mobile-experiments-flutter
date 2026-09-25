@@ -2,6 +2,8 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:quire/screens/reader/corner_peel.dart';
+import 'package:quire/theme/metrics.dart';
 import 'package:quire/data/library.dart';
 import 'package:quire/model/document.dart';
 import 'package:quire/painting/pdf_page_painter.dart';
@@ -20,6 +22,11 @@ import 'support/fixtures.dart';
 import 'support/golden.dart';
 
 void main() {
+  test('ten flip steps clear the commit distance of the sheet as it is', () {
+    final travel = (_flipStep * 10).distance;
+    expect(travel, greaterThan(flipCommitDistance(const Size(kSheetWidth, kSheetHeight)) + 20));
+  });
+
   group('the corner region', () {
     testWidgets('a hold then a drag peels the corner', (tester) async {
       await _pumpReader(tester, back: const SizedBox.expand());
@@ -134,7 +141,7 @@ void main() {
       final gesture = await tester.startGesture(sheetCornerHandle());
       await pumpMs(tester, 160);
       for (var i = 0; i < 10; i++) {
-        await gesture.moveBy(const Offset(-33, -33));
+        await gesture.moveBy(_flipStep);
         await pumpMs(tester, 16);
       }
       await gesture.up();
@@ -209,13 +216,22 @@ Future<List<String>> _pdfLines(String fileName, int page) async {
   return mergeRuns(list.texts).map((run) => run.text).toList();
 }
 
+/// One of the ten moves that carry the corner past the commit distance.
+///
+/// Ten stays ten, because the keyframes pump 16ms a step and more steps would
+/// move what `flip__t0000` photographs. The length follows the sheet: when it
+/// grew to the whole screen, ten steps of 33 fell short of the new commit
+/// distance, the page stopped turning, and the back goldens went on
+/// photographing the front.
+const _flipStep = Offset(-40, -40);
+
 /// Peels the corner past the commit distance, lets go, and lets the sheet
 /// finish turning over.
 Future<void> _flipOver(WidgetTester tester) async {
   final gesture = await tester.startGesture(sheetCornerHandle());
   await pumpMs(tester, 160);
   for (var i = 0; i < 10; i++) {
-    await gesture.moveBy(const Offset(-33, -33));
+    await gesture.moveBy(_flipStep);
     await pumpMs(tester, 16);
   }
   await gesture.up();

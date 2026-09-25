@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:quire/screens/reader/corner_peel.dart';
+import 'package:quire/theme/metrics.dart';
 import 'package:quire/data/library.dart';
 import 'package:quire/screens/reader/reader_screen.dart';
 import 'package:quire/screens/reader/sheet_surface.dart';
@@ -10,6 +12,12 @@ import 'package:quire/theme/typography.dart';
 import 'support/golden.dart';
 
 void main() {
+  test('ten catch steps land between the catch and the commit distances', () {
+    final travel = (_catchStep * 10).distance;
+    expect(travel, greaterThan(dogEarCatchDistance(const Size(kSheetWidth, kSheetHeight)) + 20));
+    expect(travel, lessThan(flipCommitDistance(const Size(kSheetWidth, kSheetHeight)) - 20));
+  });
+
   group('the dog ear catch', () {
     testWidgets('a peel held still catches, and stays caught', (tester) async {
       final store = await _pumpReader(tester);
@@ -48,6 +56,10 @@ void main() {
   });
 }
 
+/// One of ten moves that carry the corner past the dog ear's catch distance
+/// and short of the flip's commit distance, on the sheet as it is now.
+const _catchStep = Offset(-25, -25);
+
 /// Holds the corner until the peel arms, drags it past the catch distance, and
 /// stops moving, which is the moment the dog ear timer starts.
 ///
@@ -58,7 +70,7 @@ Future<TestGesture> _peelAndStop(WidgetTester tester) async {
   final gesture = await tester.startGesture(sheetCornerHandle());
   await pumpMs(tester, 160);
   for (var i = 0; i < 10; i++) {
-    await gesture.moveBy(const Offset(-21, -21));
+    await gesture.moveBy(_catchStep);
     await pumpMs(tester, 16);
   }
   return gesture;
