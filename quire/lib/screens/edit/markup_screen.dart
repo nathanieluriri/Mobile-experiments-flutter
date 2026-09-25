@@ -23,6 +23,7 @@ import '../../widgets/press_fade.dart';
 import '../desk/desk_sheet.dart';
 import '../reader/bodies/pdf_body.dart';
 import 'action_pill.dart';
+import 'doc_editor.dart' show docFont;
 import 'edit_frame.dart';
 import 'swatch_sheet.dart';
 
@@ -2117,6 +2118,26 @@ class MarkupPainter extends CustomPainter {
 
   static Color _colour(int argb, [double alpha = 1]) => Color(argb).withValues(alpha: alpha);
 
+  /// The style [edit]'s words are drawn in: the file's own typeface, or the
+  /// phone's face of the same kind, serif for Times and monospace for
+  /// Courier, and Inter for Helvetica and the words quire sets itself.
+  static TextStyle wordsStyle(TextBoxEdit edit) {
+    final family = edit.family ?? '';
+    final face = family.toLowerCase().startsWith('helvetica') || family.isEmpty ? null : docFont(family);
+    return TextStyle(
+      fontFamily: face?.family ?? 'Inter',
+      fontFamilyFallback: face?.fallback,
+      fontSize: edit.size,
+      color: _colour(edit.color),
+      // The file sets one glyph after another, with no kerning.
+      fontFeatures: const <FontFeature>[
+        FontFeature.disable('kern'),
+        FontFeature.disable('liga'),
+        FontFeature.disable('calt'),
+      ],
+    );
+  }
+
   @override
   void paint(Canvas canvas, Size size) {
     canvas.save();
@@ -2202,17 +2223,7 @@ class MarkupPainter extends CustomPainter {
       final painter = TextPainter(
         text: TextSpan(
           text: line,
-          style: TextStyle(
-            fontFamily: 'Inter',
-            fontSize: edit.size,
-            color: _colour(edit.color),
-            // The file sets one glyph after another, with no kerning.
-            fontFeatures: const <FontFeature>[
-              FontFeature.disable('kern'),
-              FontFeature.disable('liga'),
-              FontFeature.disable('calt'),
-            ],
-          ),
+          style: wordsStyle(edit),
         ),
         textDirection: TextDirection.ltr,
       )..layout();

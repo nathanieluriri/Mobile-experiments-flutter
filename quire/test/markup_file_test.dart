@@ -636,4 +636,16 @@ void main() {
       'q 1 0 0 RG 0 0 10 10 re S  5 5 m 6 6 l S BI /W 1 /H 1 /BPC 8 /CS /G ID \x00BT\x00 EI Q',
     );
   });
+
+  group('after round three', () {
+    test('another program\'s Courier and Times boxes are drawn in the phone\'s monospace and serif faces', () {
+      TextStyle style(String? family) => MarkupPainter.wordsStyle(
+        TextBoxEdit(0, rect: const Rect.fromLTWH(20, 40, 260, 80), text: 'Proof', family: family),
+      );
+      expect(style('Courier').fontFamilyFallback, contains('monospace'));
+      expect(style('Times-Roman').fontFamilyFallback, contains('serif'));
+      expect(style('Helvetica').fontFamily, 'Inter');
+      expect(style(null).fontFamily, 'Inter');
+    });
+  });
 }
