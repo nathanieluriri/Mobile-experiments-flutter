@@ -3,6 +3,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/rendering.dart';
 
 import '../theme/colors.dart';
+import 'arrival_bounds.dart';
 import 'arrival_geometry.dart';
 import 'arrival_motion.dart';
 import 'quire_mark.dart';
@@ -29,6 +30,10 @@ class ArrivalPainter extends CustomPainter {
   final ui.FragmentShader? shader;
 
   final double pixelRatio;
+
+  /// Whether the shader is run only where the goo can be. Off only to prove
+  /// the bound changes no pixel.
+  static bool bounded = true;
 
   /// How much of the mark and of the name to show at rest, for a splash that
   /// came up without them.
@@ -60,7 +65,43 @@ class ArrivalPainter extends CustomPainter {
       return;
     }
     _uniforms(shader, pose);
-    canvas.drawRect(full, Paint()..shader = shader);
+    final bounds = bounded ? arrivalBounds(pose, geometry, pixelRatio) : null;
+    if (bounds == null || bounds.expandToInclude(full) == bounds) {
+      canvas.drawRect(full, Paint()..shader = shader);
+    } else {
+      // Outside the bound the shader would draw the ground and nothing else,
+      // so most of an early frame is filled flat instead of shaded. Only
+      // around the bound: inside it the holes are translucent, and ground
+      // under them would show where the desk should.
+      final shaded = bounds.intersect(full);
+      final ground = Paint()
+        ..color = AppColors.ground
+        ..isAntiAlias = false;
+      if (shaded.isEmpty) {
+        canvas.drawRect(full, ground);
+      } else {
+        canvas
+          ..drawRect(Rect.fromLTRB(0, 0, full.right, shaded.top), ground)
+          ..drawRect(
+            Rect.fromLTRB(0, shaded.bottom, full.right, full.bottom),
+            ground,
+          )
+          ..drawRect(
+            Rect.fromLTRB(0, shaded.top, shaded.left, shaded.bottom),
+            ground,
+          )
+          ..drawRect(
+            Rect.fromLTRB(shaded.right, shaded.top, full.right, shaded.bottom),
+            ground,
+          )
+          ..drawRect(
+            shaded,
+            Paint()
+              ..shader = shader
+              ..isAntiAlias = false,
+          );
+      }
+    }
     if (pose.exactMark > 0) {
       // The resting frame is opaque, so laying the whole of it over the goo
       // at this opacity is a true crossfade. The mark alone laid over the
