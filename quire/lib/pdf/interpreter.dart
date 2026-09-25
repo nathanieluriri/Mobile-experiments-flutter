@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 import 'display_list.dart';
 import 'document.dart';
+import 'filters.dart' show PdfStreamTooLarge;
 import 'font.dart';
 import 'lexer.dart';
 import 'objects.dart';
@@ -131,6 +132,100 @@ class ContentInterpreter {
     final content = doc.pageContent(page);
     final res = doc.dict(page['Resources']) ?? const {};
     _exec(content, res, base, out, 0);
+    _drawAnnotations(page, res, base, out);
+    return out;
+  }
+
+  /// Draws each annotation on [page] the way it says it looks: its normal
+  /// appearance, fitted to its rectangle, over the page's own content.
+  ///
+  /// A highlight, a note typed onto the page or a form filled in is not part
+  /// of the page's content stream, so a reader that runs only that stream
+  /// shows the page as it was before anybody marked it. Hidden annotations
+  /// and ones that ask not to be shown are left out, and so is a popup, which
+  /// is a window for another annotation's text rather than a mark.
+  void _drawAnnotations(
+    Map<String, Object?> page,
+    Map<String, Object?> res,
+    Mat base,
+    PageDisplayList out,
+  ) {
+    final annots = doc.resolve(page['Annots']);
+    if (annots is! List) return;
+    for (final raw in annots.take(2000)) {
+      final annot = doc.dict(raw);
+      if (annot == null) continue;
+      final flags = (doc.resolve(annot['F']) as num?)?.toInt() ?? 0;
+      if (flags & 2 != 0 || flags & 32 != 0) continue;
+      final subtype = doc.resolve(annot['Subtype']);
+      if (subtype == const PdfName('Popup')) continue;
+      var appearance = doc.resolve(doc.dict(annot['AP'])?['N']);
+      if (appearance is Map<String, Object?>) {
+        final state = doc.resolve(annot['AS']);
+        appearance =
+            state is PdfName ? doc.resolve(appearance[state.value]) : null;
+      }
+      if (appearance is! PdfStream) continue;
+      final rect = _numbers(annot['Rect'], 4);
+      final box = _numbers(appearance.dict['BBox'], 4);
+      if (rect == null || box == null) continue;
+      final m = _numbers(appearance.dict['Matrix'], 6);
+      final form = m == null ? const Mat.identity() : Mat(m[0], m[1], m[2], m[3], m[4], m[5]);
+      // The box as the form's own matrix turns it, then fitted to the
+      // annotation's rectangle, which is what the format says a reader does.
+      final corners = [
+        (box[0], box[1]), (box[2], box[1]), (box[0], box[3]), (box[2], box[3]),
+      ];
+      var l = double.infinity, b = double.infinity;
+      var r = double.negativeInfinity, t = double.negativeInfinity;
+      for (final (x, y) in corners) {
+        final tx = form.tx(x, y), ty = form.ty(x, y);
+        if (tx < l) l = tx;
+        if (tx > r) r = tx;
+        if (ty < b) b = ty;
+        if (ty > t) t = ty;
+      }
+      if (r - l <= 0 || t - b <= 0) continue;
+      final rl = rect[0] < rect[2] ? rect[0] : rect[2];
+      final rb = rect[1] < rect[3] ? rect[1] : rect[3];
+      final sx = (rect[2] - rect[0]).abs() / (r - l);
+      final sy = (rect[3] - rect[1]).abs() / (t - b);
+      final fit = Mat(sx, 0, 0, sy, rl - l * sx, rb - b * sy);
+      final matrix = form.mul(fit).mul(base);
+      List<double> at(double x, double y) => [matrix.tx(x, y), matrix.ty(x, y)];
+      out.clips.add(PageClip(<ClipPath>[
+        ClipPath(<PathSeg>[
+          PathSeg(PathOp.move, at(box[0], box[1])),
+          PathSeg(PathOp.line, at(box[2], box[1])),
+          PathSeg(PathOp.line, at(box[2], box[3])),
+          PathSeg(PathOp.line, at(box[0], box[3])),
+          const PathSeg(PathOp.close, <double>[]),
+        ], evenOdd: false),
+      ]));
+      try {
+        _exec(
+          doc.decodeStream(appearance),
+          doc.dict(appearance.dict['Resources']) ?? res,
+          matrix,
+          out,
+          1,
+          clip: out.clips.length - 1,
+        );
+      } on PdfStreamTooLarge {
+        unsupported.add('annotation:too large');
+      }
+    }
+  }
+
+  List<double>? _numbers(Object? raw, int length) {
+    final v = doc.resolve(raw);
+    if (v is! List || v.length != length) return null;
+    final out = <double>[];
+    for (final e in v) {
+      final n = doc.resolve(e);
+      if (n is! num) return null;
+      out.add(n.toDouble());
+    }
     return out;
   }
 

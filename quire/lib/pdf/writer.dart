@@ -5,6 +5,8 @@ import 'dart:ui' show Offset, Rect;
 import 'package:archive/archive.dart';
 
 import 'document.dart';
+import 'encodings.dart' show winAnsiHigh;
+import 'standard_metrics.dart' show kHelvetica;
 import 'lexer.dart' show PdfKeyword;
 import 'objects.dart';
 
@@ -254,25 +256,8 @@ class PdfObjectWriter {
 /// that ended inside a transform still takes the ink where it was placed.
 /// The ink is the ribbons the reader drew, filled as polygons, which is the
 /// same shape the screen showed and not an approximation of it.
-class PdfSignatureWriter {
-  PdfSignatureWriter._(this.file)
-      : _next = _firstFreeNumber(file),
-        _out = BytesBuilder(copy: false);
-
-  final PdfFile file;
-  int _next;
-  final BytesBuilder _out;
-
-  /// Objects go out through the file's own key, so an update added to an
-  /// encrypted document is encrypted the way the rest of it already is.
-  late final PdfObjectWriter _writer = PdfObjectWriter(file.encryptForObject);
-
-  /// New objects by number, each already serialised in full.
-  final Map<int, Uint8List> _objects = <int, Uint8List>{};
-
-  /// The generation each new object number carries: 0 for a fresh object,
-  /// and the page's own for a page written again.
-  final Map<int, int> _generations = <int, int>{};
+class PdfSignatureWriter extends PdfUpdate {
+  PdfSignatureWriter._(super.file);
 
   /// The whole file with [marks] set into its pages.
   static Uint8List signed(PdfFile file, List<PlacedInk> marks) {
@@ -297,16 +282,6 @@ class PdfSignatureWriter {
     return PdfSignatureWriter._(file)._write(marks);
   }
 
-  static int _firstFreeNumber(PdfFile file) {
-    var next = 1;
-    for (final number in file.xref.keys) {
-      if (number >= next) next = number + 1;
-    }
-    final size = file.resolve(file.trailer['Size']);
-    if (size is int && size > next) next = size;
-    return next;
-  }
-
   Uint8List _write(List<PlacedInk> marks) {
     final byPage = <int, List<PlacedInk>>{};
     for (final mark in marks) {
@@ -316,24 +291,7 @@ class PdfSignatureWriter {
       _signPage(entry.key, entry.value);
     }
 
-    // The original, then a line break in case it ended without one, then
-    // every new object at an offset the cross reference can point at.
-    _out.add(file.bytes);
-    _out.add(const <int>[0x0a]);
-    final offsets = <int, int>{};
-    final numbers = _objects.keys.toList()..sort();
-    for (final number in numbers) {
-      offsets[number] = _out.length;
-      _out.add(_objects[number]!);
-    }
-    final startxref = _out.length;
-    if (file.xrefIsStream) {
-      _xrefStream(offsets);
-    } else {
-      _xrefTable(offsets);
-    }
-    _out.add(ascii.encode('startxref\n$startxref\n%%EOF\n'));
-    return _out.takeBytes();
+    return _finish();
   }
 
   // --------------------------------------------------------------- pages
@@ -384,6 +342,142 @@ class PdfSignatureWriter {
           xobjects.isEmpty ? page['Resources'] : _resourcesWith(page, xobjects);
     _objects[ref.number] = _writer.object(ref.number, ref.generation, dict);
     _generations[ref.number] = ref.generation;
+  }
+
+  /// The content that draws [marks], in the page's user space.
+  Uint8List _inkStream(
+    List<double> box,
+    int quarter,
+    List<PlacedInk> marks,
+    Map<PlacedInk, String> names,
+  ) {
+    final x0 = box[0] < box[2] ? box[0] : box[2];
+    final y0 = box[1] < box[3] ? box[1] : box[3];
+    final width = (box[2] - box[0]).abs();
+    final height = (box[3] - box[1]).abs();
+    // One matrix carries the whole difference between the two spaces: the
+    // reader's, whose origin is the top left of the page as it is read and
+    // whose y runs down, and the page's own, whose origin is the bottom left
+    // of the box and whose y runs up. Everything after it is written in the
+    // reader's coordinates, turn and all.
+    final place = switch (quarter) {
+      1 => <double>[0, 1, 1, 0, x0, y0],
+      2 => <double>[-1, 0, 0, 1, x0 + width, y0],
+      3 => <double>[0, -1, -1, 0, x0 + width, y0 + height],
+      _ => <double>[1, 0, 0, -1, x0, y0 + height],
+    };
+    final buffer = StringBuffer()
+      ..writeln('Q')
+      ..writeln('q');
+    for (final value in place) {
+      buffer
+        ..write(PdfObjectWriter.real(value))
+        ..write(' ');
+    }
+    buffer
+      ..writeln('cm')
+      ..writeln('0.067 0.067 0.067 rg');
+    for (final mark in marks) {
+      final name = names[mark];
+      if (name != null) {
+        // A picture is placed by the matrix that maps the unit square onto
+        // the box it was put in: width and height along the diagonal, the
+        // bottom left corner in the translation.
+        // Height runs the other way in this space, so the picture is
+        // placed from the foot of its box with its own axis flipped back.
+        buffer
+          ..writeln('q')
+          ..write(PdfObjectWriter.real(mark.rect.width))
+          ..write(' 0 0 ')
+          ..write(PdfObjectWriter.real(-mark.rect.height))
+          ..write(' ')
+          ..write(PdfObjectWriter.real(mark.rect.left))
+          ..write(' ')
+          ..write(PdfObjectWriter.real(mark.rect.top + mark.rect.height))
+          ..writeln(' cm')
+          ..writeln('${PdfObjectWriter.name(name)} Do')
+          ..writeln('Q');
+        continue;
+      }
+      var drew = false;
+      for (final outline in mark.outlines) {
+        if (outline.length < 3) continue;
+        for (var i = 0; i < outline.length; i++) {
+          final point = outline[i];
+          final x = mark.rect.left + point.dx * mark.rect.width;
+          final y = mark.rect.top + point.dy * mark.rect.height;
+          buffer
+            ..write(PdfObjectWriter.real(x))
+            ..write(' ')
+            ..write(PdfObjectWriter.real(y))
+            ..writeln(i == 0 ? ' m' : ' l');
+        }
+        buffer.writeln('h');
+        drew = true;
+      }
+      if (drew) buffer.writeln('f');
+    }
+    buffer.writeln('Q');
+    return ascii.encode(buffer.toString());
+  }
+}
+
+/// What every update quire appends to a PDF shares: new objects numbered
+/// after the file's own, pictures written as image objects, the page's box
+/// and turn, and a cross reference section of the kind the file already has.
+///
+/// An update is added after the file's last byte, never written into it. The
+/// original is still there, whole, under everything quire added.
+abstract class PdfUpdate {
+  PdfUpdate(this.file)
+      : _next = _firstFreeNumber(file),
+        _out = BytesBuilder(copy: false);
+
+  final PdfFile file;
+  int _next;
+  final BytesBuilder _out;
+
+  /// Objects go out through the file's own key, so an update added to an
+  /// encrypted document is encrypted the way the rest of it already is.
+  late final PdfObjectWriter _writer = PdfObjectWriter(file.encryptForObject);
+
+  /// New objects by number, each already serialised in full.
+  final Map<int, Uint8List> _objects = <int, Uint8List>{};
+
+  /// The generation each new object number carries: 0 for a fresh object,
+  /// and the page's own for a page written again.
+  final Map<int, int> _generations = <int, int>{};
+
+  static int _firstFreeNumber(PdfFile file) {
+    var next = 1;
+    for (final number in file.xref.keys) {
+      if (number >= next) next = number + 1;
+    }
+    final size = file.resolve(file.trailer['Size']);
+    if (size is int && size > next) next = size;
+    return next;
+  }
+
+  /// The whole file with every object added so far appended to it.
+  Uint8List _finish() {
+    // The original, then a line break in case it ended without one, then
+    // every new object at an offset the cross reference can point at.
+    _out.add(file.bytes);
+    _out.add(const <int>[0x0a]);
+    final offsets = <int, int>{};
+    final numbers = _objects.keys.toList()..sort();
+    for (final number in numbers) {
+      offsets[number] = _out.length;
+      _out.add(_objects[number]!);
+    }
+    final startxref = _out.length;
+    if (file.xrefIsStream) {
+      _xrefStream(offsets);
+    } else {
+      _xrefTable(offsets);
+    }
+    _out.add(ascii.encode('startxref\n$startxref\n%%EOF\n'));
+    return _out.takeBytes();
   }
 
   /// The quarter turns [page] says it is meant to be seen through, which is
@@ -485,83 +579,6 @@ class PdfSignatureWriter {
     return Uint8List.fromList(<int>[...head, ...body, ...tail]);
   }
 
-  /// The content that draws [marks], in the page's user space.
-  Uint8List _inkStream(
-    List<double> box,
-    int quarter,
-    List<PlacedInk> marks,
-    Map<PlacedInk, String> names,
-  ) {
-    final x0 = box[0] < box[2] ? box[0] : box[2];
-    final y0 = box[1] < box[3] ? box[1] : box[3];
-    final width = (box[2] - box[0]).abs();
-    final height = (box[3] - box[1]).abs();
-    // One matrix carries the whole difference between the two spaces: the
-    // reader's, whose origin is the top left of the page as it is read and
-    // whose y runs down, and the page's own, whose origin is the bottom left
-    // of the box and whose y runs up. Everything after it is written in the
-    // reader's coordinates, turn and all.
-    final place = switch (quarter) {
-      1 => <double>[0, 1, 1, 0, x0, y0],
-      2 => <double>[-1, 0, 0, 1, x0 + width, y0],
-      3 => <double>[0, -1, -1, 0, x0 + width, y0 + height],
-      _ => <double>[1, 0, 0, -1, x0, y0 + height],
-    };
-    final buffer = StringBuffer()
-      ..writeln('Q')
-      ..writeln('q');
-    for (final value in place) {
-      buffer
-        ..write(PdfObjectWriter.real(value))
-        ..write(' ');
-    }
-    buffer
-      ..writeln('cm')
-      ..writeln('0.067 0.067 0.067 rg');
-    for (final mark in marks) {
-      final name = names[mark];
-      if (name != null) {
-        // A picture is placed by the matrix that maps the unit square onto
-        // the box it was put in: width and height along the diagonal, the
-        // bottom left corner in the translation.
-        // Height runs the other way in this space, so the picture is
-        // placed from the foot of its box with its own axis flipped back.
-        buffer
-          ..writeln('q')
-          ..write(PdfObjectWriter.real(mark.rect.width))
-          ..write(' 0 0 ')
-          ..write(PdfObjectWriter.real(-mark.rect.height))
-          ..write(' ')
-          ..write(PdfObjectWriter.real(mark.rect.left))
-          ..write(' ')
-          ..write(PdfObjectWriter.real(mark.rect.top + mark.rect.height))
-          ..writeln(' cm')
-          ..writeln('${PdfObjectWriter.name(name)} Do')
-          ..writeln('Q');
-        continue;
-      }
-      var drew = false;
-      for (final outline in mark.outlines) {
-        if (outline.length < 3) continue;
-        for (var i = 0; i < outline.length; i++) {
-          final point = outline[i];
-          final x = mark.rect.left + point.dx * mark.rect.width;
-          final y = mark.rect.top + point.dy * mark.rect.height;
-          buffer
-            ..write(PdfObjectWriter.real(x))
-            ..write(' ')
-            ..write(PdfObjectWriter.real(y))
-            ..writeln(i == 0 ? ' m' : ' l');
-        }
-        buffer.writeln('h');
-        drew = true;
-      }
-      if (drew) buffer.writeln('f');
-    }
-    buffer.writeln('Q');
-    return ascii.encode(buffer.toString());
-  }
-
   // ------------------------------------------------------------- objects
 
   /// Takes the next object number for [bytes] and returns it.
@@ -657,5 +674,441 @@ class PdfSignatureWriter {
     _out.add(latin1.encode(buffer.toString()));
     _out.add(data);
     _out.add(ascii.encode('\nendstream\nendobj\n'));
+  }
+}
+
+/// One change laid onto a page, in the reader's own points: the origin at
+/// the top left of the page as it is read, and y running down.
+sealed class PageEdit {
+  const PageEdit(this.pageIndex);
+  final int pageIndex;
+}
+
+/// Words typed onto the page, in a box.
+class TextBoxEdit extends PageEdit {
+  const TextBoxEdit(
+    super.pageIndex, {
+    required this.rect,
+    required this.text,
+    this.size = 12,
+    this.color = 0xFF111111,
+  });
+  final Rect rect;
+  final String text;
+  final double size;
+  final int color;
+}
+
+/// A picture laid onto the page.
+class ImageEdit extends PageEdit {
+  const ImageEdit(super.pageIndex, {required this.rect, required this.image});
+  final Rect rect;
+  final PdfImage image;
+}
+
+/// Lines drawn by hand.
+class InkEdit extends PageEdit {
+  const InkEdit(
+    super.pageIndex, {
+    required this.strokes,
+    this.width = 2,
+    this.color = 0xFF1F4FD8,
+  });
+  final List<List<Offset>> strokes;
+  final double width;
+  final int color;
+}
+
+/// Words marked over, one box per line of them.
+class HighlightEdit extends PageEdit {
+  const HighlightEdit(super.pageIndex, {required this.rects, this.color = 0xFFFFD84D});
+  final List<Rect> rects;
+  final int color;
+}
+
+/// Words struck through, one box per line of them.
+class StrikeEdit extends PageEdit {
+  const StrikeEdit(super.pageIndex, {required this.rects, this.color = 0xFFD23B3B});
+  final List<Rect> rects;
+  final int color;
+}
+
+/// Lays [PageEdit]s onto a PDF as annotations, in an update appended to it.
+///
+/// Every edit is a proper annotation of its own kind, a text box, a stamp, ink,
+/// a highlight or a strike out, so another reader lists it as one and can
+/// remove it, and each carries an appearance of its own, so every reader
+/// draws it the way quire does rather than guessing at it. Nothing already in
+/// the file is changed but the list of annotations on the pages written to.
+class PdfAnnotator extends PdfUpdate {
+  PdfAnnotator._(super.file);
+
+  /// The whole file with [edits] laid onto its pages.
+  static Uint8List annotated(PdfFile file, List<PageEdit> edits) {
+    if (edits.isEmpty) return file.bytes;
+    if (file.recoveredByScan) {
+      throw const PdfWriteError(
+        'This file is too damaged to add to without rewriting it.',
+      );
+    }
+    if (file.startxref <= 0) {
+      throw const PdfWriteError('This file has no cross reference to add to.');
+    }
+    return PdfAnnotator._(file)._write(edits);
+  }
+
+  int _named = 0;
+
+  Uint8List _write(List<PageEdit> edits) {
+    final byPage = <int, List<PageEdit>>{};
+    for (final edit in edits) {
+      byPage.putIfAbsent(edit.pageIndex, () => <PageEdit>[]).add(edit);
+    }
+    for (final entry in byPage.entries) {
+      _annotatePage(entry.key, entry.value);
+    }
+    return _finish();
+  }
+
+  void _annotatePage(int index, List<PageEdit> edits) {
+    final pages = file.pages;
+    if (index < 0 || index >= pages.length) {
+      throw PdfWriteError('Page ${index + 1} is not in this file.');
+    }
+    final ref = file.pageRefs[index];
+    if (ref == null) {
+      throw const PdfWriteError('This page cannot be found in the file.');
+    }
+    final page = pages[index];
+    final place = _placeFor(_boxOf(page), _quarterOf(page));
+    final annots = <Object?>[];
+    final had = file.resolve(page['Annots']);
+    if (had is List) annots.addAll(had);
+    for (final edit in edits) {
+      annots.add(PdfRef(_annotation(edit, ref, place), 0));
+    }
+    final dict = Map<String, Object?>.of(page)..['Annots'] = annots;
+    _objects[ref.number] = _writer.object(ref.number, ref.generation, dict);
+    _generations[ref.number] = ref.generation;
+  }
+
+  /// The matrix from the reader's points to the page's user space, as
+  /// `a b c d e f`.
+  static List<double> _placeFor(List<double> box, int quarter) {
+    final x0 = box[0] < box[2] ? box[0] : box[2];
+    final y0 = box[1] < box[3] ? box[1] : box[3];
+    final width = (box[2] - box[0]).abs();
+    final height = (box[3] - box[1]).abs();
+    return switch (quarter) {
+      1 => <double>[0, 1, 1, 0, x0, y0],
+      2 => <double>[-1, 0, 0, 1, x0 + width, y0],
+      3 => <double>[0, -1, -1, 0, x0 + width, y0 + height],
+      _ => <double>[1, 0, 0, -1, x0, y0 + height],
+    };
+  }
+
+  static (double, double) _user(List<double> m, Offset p) =>
+      (m[0] * p.dx + m[2] * p.dy + m[4], m[1] * p.dx + m[3] * p.dy + m[5]);
+
+  static List<double> _userRect(List<double> m, Iterable<Offset> points) {
+    var left = double.infinity, bottom = double.infinity;
+    var right = double.negativeInfinity, top = double.negativeInfinity;
+    for (final p in points) {
+      final (x, y) = _user(m, p);
+      if (x < left) left = x;
+      if (x > right) right = x;
+      if (y < bottom) bottom = y;
+      if (y > top) top = y;
+    }
+    return <double>[left, bottom, right, top];
+  }
+
+  static String _r(double v) => PdfObjectWriter.real(v);
+
+  static String _colour(int argb, {bool stroke = false}) {
+    final r = ((argb >> 16) & 0xff) / 255;
+    final g = ((argb >> 8) & 0xff) / 255;
+    final b = (argb & 0xff) / 255;
+    return '${_r(r)} ${_r(g)} ${_r(b)} ${stroke ? 'RG' : 'rg'}';
+  }
+
+  static List<Object?> _colourArray(int argb) => <Object?>[
+        ((argb >> 16) & 0xff) / 255,
+        ((argb >> 8) & 0xff) / 255,
+        (argb & 0xff) / 255,
+      ];
+
+  /// Writes [edit] as an annotation with its appearance, and returns its
+  /// object number.
+  int _annotation(PageEdit edit, PdfRef page, List<double> place) {
+    final draw = StringBuffer()
+      ..writeln('q')
+      ..writeln('${place.map(_r).join(' ')} cm');
+    final resources = <String, Object?>{};
+    final Map<String, Object?> annot;
+    final List<double> rect;
+    switch (edit) {
+      case TextBoxEdit():
+        rect = _userRect(place, [edit.rect.topLeft, edit.rect.bottomRight]);
+        resources['Font'] = <String, Object?>{
+          'Helv': <String, Object?>{
+            'Type': const PdfName('Font'),
+            'Subtype': const PdfName('Type1'),
+            'BaseFont': const PdfName('Helvetica'),
+            'Encoding': const PdfName('WinAnsiEncoding'),
+          },
+        };
+        draw.writeln(_colour(edit.color));
+        final lines = _wrap(edit.text, edit.size, edit.rect.width);
+        var baseline = edit.rect.top + edit.size;
+        for (final line in lines) {
+          if (baseline > edit.rect.bottom + edit.size * 0.3) break;
+          // The reader's y runs down, so the text matrix flips it back up.
+          draw.writeln(
+            'BT /Helv ${_r(edit.size)} Tf 1 0 0 -1 '
+            '${_r(edit.rect.left)} ${_r(baseline)} Tm '
+            '${_winAnsiString(line)} Tj ET',
+          );
+          baseline += edit.size * 1.2;
+        }
+        annot = <String, Object?>{
+          'Subtype': const PdfName('FreeText'),
+          'Contents': _utf16(edit.text),
+          'DA': PdfString(latin1.encode('/Helv ${_r(edit.size)} Tf ${_colour(edit.color)}')),
+          'C': <Object?>[],
+        };
+      case ImageEdit():
+        rect = _userRect(place, [edit.rect.topLeft, edit.rect.bottomRight]);
+        resources['XObject'] = <String, Object?>{
+          'Img': PdfRef(_addImage(edit.image), 0),
+        };
+        draw
+          ..writeln(
+            '${_r(edit.rect.width)} 0 0 ${_r(-edit.rect.height)} '
+            '${_r(edit.rect.left)} ${_r(edit.rect.bottom)} cm',
+          )
+          ..writeln('/Img Do');
+        annot = <String, Object?>{
+          'Subtype': const PdfName('Stamp'),
+          'Name': const PdfName('Image'),
+        };
+      case InkEdit():
+        final points = [for (final s in edit.strokes) ...s];
+        if (points.isEmpty) {
+          throw const PdfWriteError('A drawing has no lines to write.');
+        }
+        final pad = edit.width;
+        final box = _userRect(place, points);
+        rect = <double>[box[0] - pad, box[1] - pad, box[2] + pad, box[3] + pad];
+        draw
+          ..writeln(_colour(edit.color, stroke: true))
+          ..writeln('${_r(edit.width)} w 1 J 1 j');
+        for (final stroke in edit.strokes) {
+          if (stroke.isEmpty) continue;
+          for (var i = 0; i < stroke.length; i++) {
+            draw.writeln('${_r(stroke[i].dx)} ${_r(stroke[i].dy)} ${i == 0 ? 'm' : 'l'}');
+          }
+          if (stroke.length == 1) {
+            draw.writeln('${_r(stroke[0].dx)} ${_r(stroke[0].dy)} l');
+          }
+          draw.writeln('S');
+        }
+        annot = <String, Object?>{
+          'Subtype': const PdfName('Ink'),
+          'InkList': <Object?>[
+            for (final stroke in edit.strokes)
+              <Object?>[
+                for (final p in stroke) ...() {
+                  final (x, y) = _user(place, p);
+                  return <Object?>[x, y];
+                }(),
+              ],
+          ],
+          'BS': <String, Object?>{'W': edit.width},
+          'C': _colourArray(edit.color),
+        };
+      case HighlightEdit():
+        if (edit.rects.isEmpty) {
+          throw const PdfWriteError('A highlight covers nothing.');
+        }
+        rect = _userRect(place, [
+          for (final r in edit.rects) ...[r.topLeft, r.bottomRight],
+        ]);
+        resources['ExtGState'] = <String, Object?>{
+          'Mark': <String, Object?>{
+            'Type': const PdfName('ExtGState'),
+            'ca': 0.4,
+            'BM': const PdfName('Multiply'),
+          },
+        };
+        draw
+          ..writeln('/Mark gs')
+          ..writeln(_colour(edit.color));
+        for (final r in edit.rects) {
+          draw.writeln('${_r(r.left)} ${_r(r.top)} ${_r(r.width)} ${_r(r.height)} re f');
+        }
+        annot = <String, Object?>{
+          'Subtype': const PdfName('Highlight'),
+          'QuadPoints': _quads(place, edit.rects),
+          'C': _colourArray(edit.color),
+          'CA': 0.4,
+        };
+      case StrikeEdit():
+        if (edit.rects.isEmpty) {
+          throw const PdfWriteError('A strike through covers nothing.');
+        }
+        rect = _userRect(place, [
+          for (final r in edit.rects) ...[r.topLeft, r.bottomRight],
+        ]);
+        draw.writeln(_colour(edit.color, stroke: true));
+        for (final r in edit.rects) {
+          final weight = r.height * 0.08 < 0.8 ? 0.8 : r.height * 0.08;
+          final middle = r.top + r.height * 0.55;
+          draw
+            ..writeln('${_r(weight)} w')
+            ..writeln('${_r(r.left)} ${_r(middle)} m ${_r(r.right)} ${_r(middle)} l S');
+        }
+        annot = <String, Object?>{
+          'Subtype': const PdfName('StrikeOut'),
+          'QuadPoints': _quads(place, edit.rects),
+          'C': _colourArray(edit.color),
+        };
+    }
+    draw.writeln('Q');
+    final appearance = _form(rect, resources, ascii.encode(draw.toString()));
+    final number = _next++;
+    final dict = <String, Object?>{
+      'Type': const PdfName('Annot'),
+      ...annot,
+      'Rect': rect,
+      'P': page,
+      'F': 4,
+      'NM': PdfString(ascii.encode('quire-${DateTime.now().microsecondsSinceEpoch}-${_named++}')),
+      'T': PdfString(ascii.encode('quire')),
+      'M': PdfString(ascii.encode(_pdfDate(DateTime.now().toUtc()))),
+      'AP': <String, Object?>{'N': PdfRef(appearance, 0)},
+    };
+    _objects[number] = _writer.object(number, 0, dict);
+    _generations[number] = 0;
+    return number;
+  }
+
+  /// A form XObject drawing [content] in the page's user space, its box the
+  /// annotation's own, so the appearance lands exactly where it was drawn.
+  int _form(List<double> bbox, Map<String, Object?> resources, Uint8List content) {
+    final number = _next++;
+    final body = file.encryptForObject(content, number, 0);
+    final buffer = StringBuffer()..write('$number 0 obj\n');
+    _writer.write(
+      buffer,
+      <String, Object?>{
+        'Type': const PdfName('XObject'),
+        'Subtype': const PdfName('Form'),
+        'BBox': bbox,
+        'Resources': resources,
+        'Length': body.length,
+      },
+      number,
+      0,
+      encrypt: true,
+    );
+    buffer.write('\nstream\n');
+    _objects[number] = (BytesBuilder(copy: false)
+          ..add(latin1.encode(buffer.toString()))
+          ..add(body)
+          ..add(ascii.encode('\nendstream\nendobj\n')))
+        .takeBytes();
+    _generations[number] = 0;
+    return number;
+  }
+
+  /// Each box as the four corners a text markup names: top left, top right,
+  /// bottom left, bottom right, in user space.
+  static List<Object?> _quads(List<double> m, List<Rect> rects) => <Object?>[
+        for (final r in rects)
+          for (final p in [r.topLeft, r.topRight, r.bottomLeft, r.bottomRight])
+            ...() {
+              final (x, y) = _user(m, p);
+              return <Object?>[x, y];
+            }(),
+      ];
+
+  /// [text] broken into lines that fit [width] at [size] in Helvetica, at
+  /// the words where it can and inside a word where one is too long.
+  static List<String> _wrap(String text, double size, double width) {
+    double measure(String s) {
+      var total = 0.0;
+      for (final rune in s.runes) {
+        final code = _winAnsiCode(rune);
+        total += kHelvetica[code < kHelvetica.length ? code : 63] * size;
+      }
+      return total;
+    }
+
+    final out = <String>[];
+    for (final paragraph in text.split('\n')) {
+      var line = '';
+      for (final word in paragraph.split(' ')) {
+        final tried = line.isEmpty ? word : '$line $word';
+        if (measure(tried) <= width || line.isEmpty && measure(word) <= width) {
+          line = tried;
+          continue;
+        }
+        if (line.isNotEmpty) out.add(line);
+        line = word;
+        while (measure(line) > width && line.length > 1) {
+          var cut = line.length - 1;
+          while (cut > 1 && measure(line.substring(0, cut)) > width) {
+            cut--;
+          }
+          out.add(line.substring(0, cut));
+          line = line.substring(cut);
+        }
+      }
+      out.add(line);
+    }
+    return out;
+  }
+
+  /// The WinAnsi code for [rune], or `?` for one Helvetica's WinAnsi cannot
+  /// set, which is the honest answer for a character this font does not have.
+  static int _winAnsiCode(int rune) {
+    if (rune >= 0x20 && rune < 0x7F) return rune;
+    for (final entry in winAnsiHigh.entries) {
+      if (entry.value == rune) return entry.key;
+    }
+    if (rune >= 0xA0 && rune <= 0xFF) return rune;
+    return 0x3F;
+  }
+
+  static String _winAnsiString(String line) {
+    final out = StringBuffer('(');
+    for (final rune in line.runes) {
+      final code = _winAnsiCode(rune);
+      if (code == 0x28 || code == 0x29 || code == 0x5C) {
+        out.write('\\${String.fromCharCode(code)}');
+      } else if (code < 0x20 || code > 0x7E) {
+        out.write('\\${code.toRadixString(8).padLeft(3, '0')}');
+      } else {
+        out.writeCharCode(code);
+      }
+    }
+    out.write(')');
+    return out.toString();
+  }
+
+  static PdfString _utf16(String text) {
+    final out = <int>[0xFE, 0xFF];
+    for (final unit in text.codeUnits) {
+      out
+        ..add(unit >> 8)
+        ..add(unit & 0xff);
+    }
+    return PdfString(Uint8List.fromList(out));
+  }
+
+  static String _pdfDate(DateTime t) {
+    String two(int v) => v.toString().padLeft(2, '0');
+    return "D:${t.year}${two(t.month)}${two(t.day)}${two(t.hour)}${two(t.minute)}${two(t.second)}Z";
   }
 }
