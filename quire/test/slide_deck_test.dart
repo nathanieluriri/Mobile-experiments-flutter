@@ -1482,4 +1482,20 @@ void main() {
       expect((gradient.begin as Alignment).y, closeTo(-1, 1e-9));
     });
   });
+
+  group('after the round two critic, links', () {
+    test('a link is drawn in the theme\'s link colour, underlined', () {
+      final deck = PptxDeck(_linked(bytes));
+      final spans = deck.shape(deck.slides[1], 3)!.blocks.expand((b) => switch (b) {
+            ListItemBlock() => b.spans,
+            ParagraphBlock() => b.spans,
+            _ => const <DocSpan>[],
+          });
+      final link = spans.firstWhere((s) => s.text == 'Visit the site');
+      final plain = spans.firstWhere((s) => s.text == ' or ');
+      expect(link.underline, isTrue);
+      expect(link.color, deck.themeColours(deck.masters.single)['hlink']! | 0xFF000000);
+      expect(plain.underline, isFalse);
+    });
+  });
 }
