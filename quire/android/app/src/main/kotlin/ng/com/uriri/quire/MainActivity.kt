@@ -65,6 +65,7 @@ class MainActivity : FlutterActivity() {
             }
         }
         arrival = MethodChannel(messenger, ARRIVAL)
+        PageRenderer(this, messenger)
         screen = MethodChannel(messenger, SCREEN).also { hold ->
             hold.setMethodCallHandler { call, result ->
                 if (call.method == HOLD) {

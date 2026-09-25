@@ -11,7 +11,9 @@ import '../../painting/overflow_dots_painter.dart';
 import '../../model/document.dart' show TableBlock;
 import '../../pdf/pdf_search.dart';
 import '../../pdf/writer.dart' show PdfWriteError;
+import '../../data/library.dart' show DocSource;
 import '../../services/document_store.dart';
+import '../../services/native_pdf.dart';
 import '../../theme/colors.dart';
 import '../../theme/feedback.dart';
 import '../../theme/easings.dart';
@@ -550,6 +552,7 @@ class _ReaderHostState extends State<ReaderHost> with TickerProviderStateMixin {
   }
 
   void _onStore() {
+    _pages?.drawnByPhone = !widget.store.quireType;
     if (!mounted) return;
     // A document opened from the desk has not been read yet when the reader is
     // built, so the deck only becomes a deck here.
@@ -577,9 +580,28 @@ class _ReaderHostState extends State<ReaderHost> with TickerProviderStateMixin {
     final store = widget.store;
     final file = store.pdf;
     if (_pages != null || file == null) return;
-    final pages = PdfPages(file, onPageRun: store.recordPageWords);
+    final pages = PdfPages(file, onPageRun: store.recordPageWords)
+      ..drawnByPhone = !store.quireType;
     _pages = pages;
     store.pdfPageCount = pages.pageCount;
+    unawaited(_drawByPhone(pages));
+  }
+
+  /// Opens the document in the phone's own renderer, so its pages can be
+  /// drawn in their own print. A document already on the phone is opened
+  /// where it lies; a shipped one is handed over as bytes.
+  Future<void> _drawByPhone(PdfPages pages) async {
+    final store = widget.store;
+    final entry = store.entry;
+    final native = await NativePdf.open(
+      path: entry.source == DocSource.file ? entry.path : null,
+      bytes: entry.source == DocSource.file ? null : store.bytes,
+    );
+    if (!mounted || !identical(pages, _pages)) {
+      unawaited(native?.close());
+      return;
+    }
+    pages.attachNative(native);
   }
 
   // Find.

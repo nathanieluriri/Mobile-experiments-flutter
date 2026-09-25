@@ -24,6 +24,11 @@ spreadsheet from anything with a grid, a Word file from anything without one,
 and a PDF set fresh in the app's own typeface. Every conversion says what it
 will cost before you pick it, because every conversion loses something.
 
+**A PDF looks like its print.** Pages are drawn by the phone's own PDF
+renderer, in the file's own fonts, while quire's engine reads every page
+underneath for search, the back of the sheet and signing. A document whose
+fonts read badly can be set in quire's own type instead, from View.
+
 **It reads a page file's shape, not just its words.** A PDF states where its
 glyphs sit and nothing else. Quire works the rest out from the setting: type
 markedly bigger than the body is a heading, a line that fills its column without

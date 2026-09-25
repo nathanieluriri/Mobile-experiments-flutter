@@ -28,7 +28,7 @@ class ViewSheet extends StatelessWidget {
         return DeskSheet(
           title: 'View',
           note: pages
-              ? 'The page is set again at every size, so it stays sharp.'
+              ? 'The page is drawn again at every size, so it stays sharp.'
               : 'The type reflows, so a line always finishes on the screen.',
           children: <Widget>[
             if (pages) ...<Widget>[
@@ -53,6 +53,19 @@ class ViewSheet extends StatelessWidget {
                   enabled: false,
                   onTap: () {},
                 ),
+              DeskSheetRow(
+                label: store.quireType
+                    ? 'Show the original print'
+                    : 'Set in quire\'s type',
+                icon: store.quireType
+                    ? LucideIcons.fileImage
+                    : LucideIcons.type,
+                note: store.quireType
+                    ? 'The page in its own fonts, as it was printed'
+                    : 'Every line reset evenly in one clear face, for a page '
+                          'whose own fonts read badly',
+                onTap: () => store.quireType = !store.quireType,
+              ),
               const DeskSheetRule(),
             ] else ...<Widget>[
               DeskSheetStepper(

@@ -491,6 +491,18 @@ class DocumentStore extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// True when a page file is set in quire's own type rather than drawn in
+  /// its own print by the phone. Remembered per document, because the reason
+  /// to choose it is the document: a page whose fonts read badly, or one read
+  /// better evenly set.
+  bool get quireType => _quireType;
+  bool _quireType = false;
+  set quireType(bool value) {
+    if (value == _quireType) return;
+    _quireType = value;
+    notifyListeners();
+  }
+
   double get textScale => _textScale;
   set textScale(double value) {
     final wanted = value.clamp(kTextScaleMin, kTextScaleMax);
@@ -670,6 +682,7 @@ class DocumentStore extends ChangeNotifier {
     'lastOpened': _lastOpened,
     'dogEared': _dogEared.toList()..sort(),
     'signatures': <Object?>[for (final mark in _signatures) mark.toJson()],
+    if (_quireType) 'quireType': true,
   };
 
   /// Takes back what [toJson] wrote, before or after the document has been
@@ -681,6 +694,7 @@ class DocumentStore extends ChangeNotifier {
     final lastOpened = json['lastOpened'];
     final dogEared = json['dogEared'];
     final signatures = json['signatures'];
+    _quireType = json['quireType'] == true;
     if (position is int) _position = position < 0 ? 0 : position;
     _place = SheetPlace.fromJson(json['place']) ?? _place;
     if (opens is int) _opens = opens;

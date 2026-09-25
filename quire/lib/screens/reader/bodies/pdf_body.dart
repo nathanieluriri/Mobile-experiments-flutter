@@ -15,6 +15,7 @@ import '../../../pdf/display_list.dart';
 import '../../../pdf/document.dart';
 import '../../../pdf/interpreter.dart';
 import '../../../services/document_store.dart';
+import '../../../services/native_pdf.dart';
 import '../../../services/page_cache.dart';
 import '../../../services/render_plan.dart';
 import '../../../theme/colors.dart';
@@ -114,6 +115,7 @@ class PdfPageRender {
     this.list,
     this.runs = const <LaidOutRun>[],
     this.images = const <String, ui.Image>{},
+    this.raster,
   });
 
   /// Zero based, though the page prints [index] + 1 in its corner.
@@ -134,6 +136,10 @@ class PdfPageRender {
   /// Decoded images by the name the content stream gave them.
   final Map<String, ui.Image> images;
 
+  /// The page as the phone's own renderer drew it, in the file's own fonts,
+  /// or null while quire draws it itself.
+  final ui.Image? raster;
+
   /// True once there is something real to draw. A damaged page counts: the
   /// tear is the drawing.
   bool get ready => list != null || plan == RenderPlan.damaged;
@@ -142,6 +148,10 @@ class PdfPageRender {
   double heightFor(double width) =>
       size.width <= 0 ? 0 : width * size.height / size.width;
 }
+
+/// How many pages drawn by the phone are held at once. A page at the width
+/// of a phone is about six megabytes of pixels.
+const int kRasterCacheCapacity = 6;
 
 /// The page block of one open PDF: how many pages there are, how big each one
 /// is, and what has been interpreted so far.
@@ -154,6 +164,85 @@ class PdfPageRender {
 class PdfPages extends ChangeNotifier {
   PdfPages(this.file, {PageCache? cache, this.onPageRun})
     : _cache = cache ?? PageCache();
+
+  /// The phone's own renderer for this document, once it has opened it.
+  NativePdf? _native;
+
+  /// Pages as the phone drew them, and how wide in pixels, most recently used
+  /// last. Few are held: each is the whole page in pixels.
+  final Map<int, ui.Image> _rasters = <int, ui.Image>{};
+  final Set<int> _rasterizing = <int>{};
+
+  /// Whether pages are drawn by the phone when it can, which is the file's
+  /// own print, or always set by quire in its own type.
+  bool _drawnByPhone = true;
+
+  /// Hands the pages to [native] to draw, or takes them back with null.
+  /// Whatever it was holding is let go.
+  void attachNative(NativePdf? native) {
+    final old = _native;
+    _native = native;
+    if (old != null && old != native) unawaited(old.close());
+    _dropRasters();
+    notifyListeners();
+  }
+
+  /// True while the phone is drawing the pages.
+  bool get drawnByPhone => _drawnByPhone && _native != null;
+
+  /// Draws the pages in the file's own print when [value], and in quire's
+  /// type when not.
+  set drawnByPhone(bool value) {
+    if (value == _drawnByPhone) return;
+    _drawnByPhone = value;
+    _dropRasters();
+    notifyListeners();
+  }
+
+  /// True when [page] should be drawn by the phone at [width] pixels and has
+  /// not been, or was drawn at a size too far from it to look right.
+  bool wantsRaster(int page, int width) {
+    final native = _native;
+    if (!_drawnByPhone || native == null || page >= native.pageCount) {
+      return false;
+    }
+    if (_rasterizing.contains(page) || width <= 0) return false;
+    final held = _rasters[page];
+    if (held == null) return true;
+    return width > held.width * 1.2 || width < held.width * 0.6;
+  }
+
+  /// Has the phone draw [page] [width] pixels across, off the paint path.
+  Future<void> rasterize(int page, int width) async {
+    final native = _native;
+    if (native == null || !_rasterizing.add(page)) return;
+    try {
+      final size = sizeOf(page);
+      if (size.width <= 0 || size.height <= 0) return;
+      final height = (width * size.height / size.width).round();
+      final image = await native.render(page, width, height);
+      if (image == null) return;
+      if (!identical(native, _native) || !_drawnByPhone) {
+        image.dispose();
+        return;
+      }
+      _rasters.remove(page)?.dispose();
+      _rasters[page] = image;
+      while (_rasters.length > kRasterCacheCapacity) {
+        _rasters.remove(_rasters.keys.first)?.dispose();
+      }
+      notifyListeners();
+    } finally {
+      _rasterizing.remove(page);
+    }
+  }
+
+  void _dropRasters() {
+    for (final image in _rasters.values) {
+      image.dispose();
+    }
+    _rasters.clear();
+  }
 
   /// Opens [bytes] as a page file. The engine never throws here: a file it
   /// cannot make sense of comes back with no pages, and the reader shows the
@@ -240,6 +329,7 @@ class PdfPages extends ChangeNotifier {
       list: list,
       runs: list == null ? const <LaidOutRun>[] : (_runs[page] ?? const []),
       images: _cache.imagesFor(page),
+      raster: _drawnByPhone ? _rasters[page] : null,
     );
   }
 
@@ -365,6 +455,9 @@ class PdfPages extends ChangeNotifier {
     _cache.clear();
     _runs.clear();
     _plans.clear();
+    _dropRasters();
+    unawaited(_native?.close());
+    _native = null;
     super.dispose();
   }
 }
@@ -554,7 +647,9 @@ class PdfPageView extends StatelessWidget {
   /// presented as the document.
   bool get waiting =>
       !page.ready ||
-      (page.plan == RenderPlan.scan && page.images.isEmpty);
+      (page.plan == RenderPlan.scan &&
+          page.images.isEmpty &&
+          page.raster == null);
 
   @override
   Widget build(BuildContext context) {
@@ -588,17 +683,22 @@ class PdfPageView extends StatelessWidget {
     }
     final list = page.list!;
     final scale = list.widthPts <= 0 ? 1.0 : size.width / list.widthPts;
+    // The phone's picture of the page already holds its images and its
+    // scans, so nothing quire could not draw needs standing in for.
+    final raster = page.raster;
     return Stack(
       children: [
         Positioned.fill(
           child: CustomPaint(
-            painter: PageListPainter(
-              list: list,
-              runs: page.runs,
-              images: page.images,
-              serifFamily: kPdfSerifFamily,
-              sansFamily: kPdfSansFamily,
-            ),
+            painter: raster != null
+                ? RasterPagePainter(raster)
+                : PageListPainter(
+                    list: list,
+                    runs: page.runs,
+                    images: page.images,
+                    serifFamily: kPdfSerifFamily,
+                    sansFamily: kPdfSansFamily,
+                  ),
             // The mark is drawn over the page inside the same layer the page
             // was drawn in, which is what lets it multiply against the print
             // underneath it rather than against a fresh white ground.
@@ -619,14 +719,14 @@ class PdfPageView extends StatelessWidget {
             ),
           ),
         ),
-        if (page.plan == RenderPlan.textOnly)
+        if (raster == null && page.plan == RenderPlan.textOnly)
           for (final image in list.images)
             if (page.images[image.name] == null)
               Positioned.fromRect(
                 rect: imageRectOf(image, scale),
                 child: const UnsupportedImageBox(onPage: true),
               ),
-        if (page.plan == RenderPlan.scanUnreadable)
+        if (raster == null && page.plan == RenderPlan.scanUnreadable)
           const Positioned.fill(
             child: ColoredBox(
               color: AppColors.surface,
@@ -673,6 +773,26 @@ class PdfPageView extends StatelessWidget {
       style: AppText.folio.copyWith(color: color),
     ),
   );
+}
+
+/// A page as the phone drew it, laid over the whole of the page's rect.
+class RasterPagePainter extends CustomPainter {
+  RasterPagePainter(this.raster);
+
+  final ui.Image raster;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    canvas.drawImageRect(
+      raster,
+      Rect.fromLTWH(0, 0, raster.width.toDouble(), raster.height.toDouble()),
+      Offset.zero & size,
+      Paint()..filterQuality = FilterQuality.medium,
+    );
+  }
+
+  @override
+  bool shouldRepaint(RasterPagePainter old) => old.raster != raster;
 }
 
 /// Where an image sits on the drawn page, whichever way round its own rect
@@ -1261,9 +1381,26 @@ class _PdfPageBlockState extends State<PdfPageBlock>
     if (ran != null && widget.pages.wantsImages(ran)) {
       unawaited(widget.pages.decodeImages(ran));
     }
+    _rasterize(first, last);
     _follow(first, last);
     _band(first, last);
     _report();
+  }
+
+  /// Asks the phone to draw the pages on screen at the pixels they are drawn
+  /// at. A pinch asks again once it has settled on a size far enough from the
+  /// last one; until then the page it has is scaled.
+  void _rasterize(int first, int last) {
+    final pages = widget.pages;
+    if (!pages.drawnByPhone || last < first) return;
+    final ratio = MediaQuery.maybeDevicePixelRatioOf(context) ?? 1;
+    // Rounded up to a step, so a small pinch does not draw the page again.
+    final width = ((_drawnWidth * ratio / 128).ceil() * 128).toInt();
+    for (var page = first; page <= last; page++) {
+      if (pages.wantsRaster(page, width)) {
+        unawaited(pages.rasterize(page, width));
+      }
+    }
   }
 
   /// Says where the current page has ended up, so a mark can be set on it.
