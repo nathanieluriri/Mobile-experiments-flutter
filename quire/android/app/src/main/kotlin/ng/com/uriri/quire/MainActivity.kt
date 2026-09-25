@@ -39,6 +39,7 @@ class MainActivity : FlutterActivity() {
     private var screen: MethodChannel? = null
     private var arrival: MethodChannel? = null
     private var storage: DeviceStorage? = null
+    private var notices: ArrivalNotices? = null
 
     /** True from launch until Android 12's splash has been dealt with. */
     private var splashUp = false
@@ -68,6 +69,7 @@ class MainActivity : FlutterActivity() {
         arrival = MethodChannel(messenger, ARRIVAL)
         PageRenderer(this, messenger)
         storage = DeviceStorage(this, messenger)
+        notices = ArrivalNotices(this, messenger)
         screen = MethodChannel(messenger, SCREEN).also { hold ->
             hold.setMethodCallHandler { call, result ->
                 if (call.method == HOLD) {
@@ -320,6 +322,15 @@ class MainActivity : FlutterActivity() {
         super.onActivityResult(requestCode, resultCode, data)
     }
 
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray,
+    ) {
+        if (notices?.onRequestPermissionsResult(requestCode, grantResults) == true) return
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+    }
+
     override fun onNewIntent(next: Intent) {
         super.onNewIntent(next)
         val path = copyOf(next) ?: return
@@ -336,6 +347,13 @@ class MainActivity : FlutterActivity() {
      * later, or null when it carries none.
      */
     private fun copyOf(intent: Intent?): String? {
+        // A notice that a document arrived in a folder quire reads opens it
+        // where it lies, so it is named rather than copied.
+        if (intent?.action == OPEN_DEVICE) {
+            val uri = intent.getStringExtra(DEVICE_URI) ?: return null
+            val name = intent.getStringExtra(DEVICE_NAME) ?: return null
+            return "quire-device:$uri\n$name"
+        }
         val uri = when (intent?.action) {
             Intent.ACTION_VIEW -> intent.data
             Intent.ACTION_SEND -> intent.getParcelableExtra(Intent.EXTRA_STREAM)
@@ -381,18 +399,21 @@ class MainActivity : FlutterActivity() {
         return uri.lastPathSegment
     }
 
-    private companion object {
-        const val CHANNEL = "ng.com.uriri.quire/incoming"
-        const val INITIAL = "getInitialFile"
-        const val OPENED = "opened"
-        const val SCREEN = "ng.com.uriri.quire/screen"
-        const val HOLD = "hold"
-        const val ARRIVAL = "ng.com.uriri.quire/arrival"
-        const val HANDS_OVER = "handsOver"
-        const val PLACE = "place"
-        const val GONE = "gone"
-        const val HANDOVER_LIMIT_MS = 600L
-        const val BARE_AFTER_MS = 300L
-        const val LATE_FADE_MS = 200L
+    companion object {
+        const val OPEN_DEVICE = "ng.com.uriri.quire.OPEN_DEVICE"
+        const val DEVICE_URI = "uri"
+        const val DEVICE_NAME = "name"
+        private const val CHANNEL = "ng.com.uriri.quire/incoming"
+        private const val INITIAL = "getInitialFile"
+        private const val OPENED = "opened"
+        private const val SCREEN = "ng.com.uriri.quire/screen"
+        private const val HOLD = "hold"
+        private const val ARRIVAL = "ng.com.uriri.quire/arrival"
+        private const val HANDS_OVER = "handsOver"
+        private const val PLACE = "place"
+        private const val GONE = "gone"
+        private const val HANDOVER_LIMIT_MS = 600L
+        private const val BARE_AFTER_MS = 300L
+        private const val LATE_FADE_MS = 200L
     }
 }

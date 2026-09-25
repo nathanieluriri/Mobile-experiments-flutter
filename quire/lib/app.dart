@@ -250,6 +250,19 @@ class _AppState extends State<App> with WidgetsBindingObserver {
   Future<void> _openIncoming(IncomingDocument document) async {
     final library = _library;
     if (library == null) return;
+    // A document from a notice stays where it lies. It is read in place like
+    // any other on the phone, and back goes to the desk rather than away.
+    if (document.onDevice) {
+      final entry = LibraryEntry.onDevice(
+        uri: document.path,
+        name: document.name,
+        format: document.format,
+        bytes: 0,
+      );
+      _open(entry, Rect.zero);
+      _lowerOpening();
+      return;
+    }
     final Uint8List bytes;
     try {
       bytes = await File(document.path).readAsBytes();

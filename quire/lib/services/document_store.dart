@@ -16,6 +16,8 @@ import '../pdf/display_list.dart';
 import '../pdf/document.dart';
 import '../pdf/seal.dart';
 import '../pdf/writer.dart';
+import '../data/arrival_lines.dart';
+import 'arrival_notices.dart';
 import 'device_storage.dart';
 import 'library_catalogue.dart';
 import 'picture.dart';
@@ -910,6 +912,7 @@ class LibraryStore extends ChangeNotifier {
     List<LibraryEntry> entries = libraryEntries,
     this._catalogue,
     this._device = const DeviceStorage(),
+    this._notices = const ArrivalNotices(),
   }) : _entries = List<LibraryEntry>.of(entries) {
     // A desk with nowhere to read from, which is a desk a test built, holds
     // everything it will ever hold from its first frame.
@@ -925,6 +928,16 @@ class LibraryStore extends ChangeNotifier {
 
   /// The phone's folders, through the platform.
   final DeviceStorage _device;
+
+  /// The notices that a document has arrived in one of them.
+  final ArrivalNotices _notices;
+
+  /// What the notices say, dealt without repeats. Its seed is made on the
+  /// first run that needs one and kept.
+  LineDealer? _dealer;
+
+  /// True once the reader has been asked for leave to post notices.
+  bool _askedLeave = false;
 
   /// Folders on the phone the reader has handed over, in the order they
   /// were.
@@ -1139,6 +1152,12 @@ class LibraryStore extends ChangeNotifier {
   /// Everything the desk remembers, as plain data.
   Map<String, Object?> _stateJson() => <String, Object?>{
     'adopted': <Object?>[for (final folder in _adopted) folder.toJson()],
+    if (_dealer case final dealer?)
+      'notices': <String, Object?>{
+        'seed': dealer.seed,
+        'dealt': dealer.dealt,
+        'asked': _askedLeave,
+      },
     'folders': _folders,
     'signatures': <Object?>[
       for (final signature in _recentSignatures) signature.toJson(),
@@ -1162,6 +1181,19 @@ class LibraryStore extends ChangeNotifier {
       into.addAll(list.whereType<String>().where(known.contains));
     }
 
+    final notices = state['notices'];
+    if (notices is Map<String, Object?>) {
+      final seed = notices['seed'];
+      final dealt = notices['dealt'];
+      if (seed is int) {
+        _dealer = LineDealer(
+          kArrivalLines,
+          seed: seed,
+          dealt: dealt is int && dealt >= 0 ? dealt : 0,
+        );
+      }
+      _askedLeave = notices['asked'] == true;
+    }
     final adopted = state['adopted'];
     if (adopted is List<Object?>) {
       for (final json in adopted) {
@@ -1302,9 +1334,14 @@ class LibraryStore extends ChangeNotifier {
     if (folder == null) return null;
     if (!_adopted.contains(folder)) _adopted.add(folder);
     _missing.remove(folder.tree);
+    if (!_askedLeave) {
+      _askedLeave = true;
+      await _notices.askLeave();
+    }
     _scheduleSave();
     notifyListeners();
     await scanDevice();
+    await watchForArrivals();
     return folder;
   }
 
@@ -1320,6 +1357,19 @@ class LibraryStore extends ChangeNotifier {
     _scheduleSave();
     notifyListeners();
     await _device.release(folder.tree);
+    await watchForArrivals();
+  }
+
+  /// Tells the phone which folders to watch for new documents and hands it
+  /// the next lines to say, taking back how many it has said.
+  Future<void> watchForArrivals() async {
+    final dealer = _dealer ??= LineDealer(kArrivalLines, seed: freshDealerSeed());
+    final before = dealer.dealt;
+    await _notices.watch(
+      <String>[for (final folder in _adopted) folder.tree],
+      dealer,
+    );
+    if (dealer.dealt != before) _scheduleSave();
   }
 
   bool _underTree(LibraryEntry entry, AdoptedFolder folder) =>
@@ -1367,7 +1417,7 @@ class LibraryStore extends ChangeNotifier {
         if (imported.isNotEmpty) _entries.insertAll(0, imported);
         _applyState(await catalogue.loadState());
         notifyListeners();
-        unawaited(scanDevice());
+        unawaited(scanDevice().then((_) => watchForArrivals()));
       } on Object catch (error) {
         // A read that fails here used to take the rest of the boot with it,
         // and the caller reads the documents in the line after this one. So

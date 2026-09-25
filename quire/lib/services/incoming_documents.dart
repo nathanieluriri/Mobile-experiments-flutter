@@ -15,6 +15,10 @@ const kIncomingOpened = 'opened';
 /// What this asks the platform for when it starts.
 const kIncomingInitial = 'getInitialFile';
 
+/// What a document handed over from a notice starts with, to tell it from a
+/// path to a copy in the cache.
+const kDeviceOpenPrefix = 'quire-device:';
+
 /// Why a document another app offered was not taken.
 enum IncomingRefusal {
   /// The path came through but there is nothing at it. A share sheet can hand
@@ -36,10 +40,21 @@ enum IncomingRefusal {
 
 /// A document handed to quire by another app.
 class IncomingDocument {
-  const IncomingDocument({required this.path, required this.format});
+  const IncomingDocument({
+    required this.path,
+    required this.format,
+    this.deviceName,
+  });
 
   final String path;
   final DocFormat format;
+
+  /// The document's name when it is one in a folder on the phone, opened
+  /// from a notice that it had arrived. Such a document is read where it
+  /// lies, not copied in.
+  final String? deviceName;
+
+  bool get onDevice => deviceName != null;
 
   /// The file's own name, which is what it goes onto the desk as.
   ///
@@ -47,6 +62,8 @@ class IncomingDocument {
   /// files with one name cannot overwrite each other on the way in. The stamp
   /// is how the copy is kept apart, not part of what the document is called.
   String get name {
+    final named = deviceName;
+    if (named != null) return named;
     final cut = path.lastIndexOf(RegExp(r'[/\\]'));
     final file = cut < 0 ? path : path.substring(cut + 1);
     return file.replaceFirst(RegExp(r'^\d{10,}_'), '');
@@ -134,6 +151,10 @@ class IncomingDocuments extends ChangeNotifier {
   }
 
   void _offer(String path) {
+    if (path.startsWith(kDeviceOpenPrefix)) {
+      _offerDevice(path.substring(kDeviceOpenPrefix.length));
+      return;
+    }
     final format = formatOfPath(path);
     if (format == null) {
       _waiting = null;
@@ -148,6 +169,24 @@ class IncomingDocuments extends ChangeNotifier {
       return;
     }
     _waiting = IncomingDocument(path: path, format: format);
+    _refused = null;
+    notifyListeners();
+  }
+
+  /// A document in a folder on the phone, as `<uri>` then a new line then
+  /// its name, which a notice hands over when it is tapped.
+  void _offerDevice(String handed) {
+    final cut = handed.indexOf('\n');
+    final uri = cut < 0 ? handed : handed.substring(0, cut);
+    final name = cut < 0 ? '' : handed.substring(cut + 1);
+    final format = formatOfPath(name);
+    if (format == null || !uri.startsWith('content://')) {
+      _waiting = null;
+      _refused = IncomingRefusal.unreadable;
+      notifyListeners();
+      return;
+    }
+    _waiting = IncomingDocument(path: uri, format: format, deviceName: name);
     _refused = null;
     notifyListeners();
   }

@@ -1,10 +1,18 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- The notice that a document has arrived in a folder quire reads. On
+         Android 13 and later the reader is asked for this, when the first
+         folder is handed over and not before. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <!-- Keeps the look for new documents scheduled across a restart of the
+         phone. Granted at install and never asked about. -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
     <application
         android:label="Quire"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         android:allowBackup="false"
-        android:fullBackupContent="false">
+        android:fullBackupContent="false"
+        android:dataExtractionRules="@xml/data_extraction_rules">
         <!-- Nothing leaves the phone, the library included. Left on, backup
              copies every imported document to the owner's cloud account and
              on to their next phone. -->
@@ -266,6 +274,15 @@
                 <data android:mimeType="text/plain"/>
             </intent-filter>
         </activity-alias>
+        <!-- Looks in the folders quire was handed for new documents, on the
+             phone's own schedule. -->
+        <service
+            android:name=".ArrivalJob"
+            android:permission="android.permission.BIND_JOB_SERVICE"
+            android:exported="false" />
+        <receiver
+            android:name=".NoticeDismissed"
+            android:exported="false" />
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data

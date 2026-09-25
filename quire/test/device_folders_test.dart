@@ -7,6 +7,7 @@ import 'package:quire/data/library.dart';
 import 'package:quire/screens/desk/desk_screen.dart';
 import 'package:quire/screens/desk/folder_body.dart';
 import 'package:quire/screens/desk/shell_model.dart';
+import 'package:quire/services/arrival_notices.dart';
 import 'package:quire/services/device_storage.dart';
 import 'package:quire/services/document_store.dart';
 
@@ -64,11 +65,21 @@ class _FakePhone {
 
 _FakePhone _install() {
   final phone = _FakePhone();
-  TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-      .setMockMethodCallHandler(kDeviceStorageChannel, phone.handle);
-  addTearDown(() => TestDefaultBinaryMessengerBinding
-      .instance.defaultBinaryMessenger
-      .setMockMethodCallHandler(kDeviceStorageChannel, null));
+  final messenger =
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+  messenger.setMockMethodCallHandler(kDeviceStorageChannel, phone.handle);
+  // Handing a folder over also asks for leave to post notices and tells the
+  // phone what to watch. A channel nobody answers never completes under a
+  // widget test's clock, so the phone answers this one too.
+  messenger.setMockMethodCallHandler(
+    kArrivalNoticesChannel,
+    (call) async => call.method == 'configure' ? 0 : true,
+  );
+  addTearDown(() {
+    messenger
+      ..setMockMethodCallHandler(kDeviceStorageChannel, null)
+      ..setMockMethodCallHandler(kArrivalNoticesChannel, null);
+  });
   return phone;
 }
 
