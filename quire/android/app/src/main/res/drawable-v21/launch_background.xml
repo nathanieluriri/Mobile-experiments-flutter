@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The splash on phones older than Android 12, which have no splash of their
+     own to fill in. The same three things in the same places: the ground, the
+     mark where the system would centre it, and the name low down where the
+     branding image sits. quire should not arrive differently depending on how
+     old the phone is.
+
+     288 is the box the newer splash gives its icon, so the mark comes out the
+     same size on both. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- AppColors.ground. The app is dark, so a white window behind it is a
+         flash of white between the launcher and the first frame. -->
+    <item android:drawable="@color/launch_ground" />
+    <item
+        android:width="288dp"
+        android:height="288dp"
+        android:gravity="center"
+        android:drawable="@drawable/quire_splash_icon" />
+    <item
+        android:width="200dp"
+        android:height="80dp"
+        android:bottom="60dp"
+        android:gravity="center_horizontal|bottom"
+        android:drawable="@drawable/quire_wordmark" />
+</layer-list>

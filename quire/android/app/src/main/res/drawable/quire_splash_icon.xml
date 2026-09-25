@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- quire's mark, for the window the system puts up before the app itself is
+     running. It is drawn in the purple that holds as a line against the ground
+     rather than in the launcher icon's black, because here there is no paper
+     behind it.
+
+     The canvas is 240 and the mark is 119 tall, which is what keeps its outer
+     corners inside the circle a splash icon is masked to. A mark drawn out to
+     the edges of this box would lose a pane at each corner. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="240dp"
+    android:height="240dp"
+    android:viewportWidth="240"
+    android:viewportHeight="240">
+    <path
+        android:fillColor="#FFD0BCFF"
+        android:fillType="evenOdd"
+        android:pathData="M69.08,76.91A16.41,16.41 0 0,1 85.49,60.5L98.23,60.5L98.23,75.64L117.41,75.64L117.41,125.99L67.06,125.99L67.06,98.36Q67.06,93.69 69.08,89.65ZM76.65,82.21L76.65,76.91A8.83,8.83 0 0,1 85.49,68.07L90.66,68.07L90.66,82.21ZM76.65,89.78L90.66,89.78L90.66,83.21L109.84,83.21L109.84,118.42L74.63,118.42L74.63,98.36Q74.63,93.69 76.65,89.78ZM122.59,75.64L150.22,75.64A22.71,22.71 0 0,1 172.94,98.36L172.94,125.99L122.59,125.99ZM130.16,83.21L150.22,83.21A15.14,15.14 0 0,1 165.37,98.36L165.37,118.42L130.16,118.42ZM72.11,129.15L112.37,129.15A5.05,5.05 0 0,1 117.41,134.2L117.41,174.45A5.05,5.05 0 0,1 112.37,179.5L72.11,179.5A5.05,5.05 0 0,1 67.06,174.45L67.06,134.2A5.05,5.05 0 0,1 72.11,129.15ZM74.63,136.72L109.84,136.72L109.84,171.93L74.63,171.93ZM127.63,129.15L167.89,129.15A5.05,5.05 0 0,1 172.94,134.2L172.94,174.45A5.05,5.05 0 0,1 167.89,179.5L127.63,179.5A5.05,5.05 0 0,1 122.59,174.45L122.59,134.2A5.05,5.05 0 0,1 127.63,129.15ZM130.16,136.72L165.37,136.72L165.37,171.93L130.16,171.93Z" />
+</vector>

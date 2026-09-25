@@ -1,0 +1,296 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
+import 'package:archive/archive.dart';
+
+import '../model/document.dart';
+import 'csv_parser.dart';
+import 'docx_parser.dart';
+import 'markdown_parser.dart';
+import 'pptx_parser.dart';
+import 'xlsx_parser.dart';
+
+/// The eight bytes an OLE compound file starts with.
+///
+/// A password protected .docx or .xlsx is not a zip at all. Office wraps the
+/// whole package in one of these and puts the ciphertext inside it, so the
+/// magic number is the only honest way to tell a protected workbook from a
+/// broken one before the unzip fails.
+const List<int> kOleMagic = <int>[
+  0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1,
+];
+
+/// The mechanism a protected Office package is sealed with, named so the
+/// reader can say which one it met rather than saying `error`.
+const String kOfficeCipher = 'ECMA-376';
+
+/// A perfectly good Office file this reader cannot open, because it is sealed
+/// rather than broken.
+///
+/// It exists so the loader can stop calling these files damaged. Accusing an
+/// intact document of being corrupt is the worst thing a reader can say about
+/// a file: somebody who believes it deletes the file.
+class ProtectedPackage implements Exception {
+  const ProtectedPackage(this.cipher);
+
+  /// What sealed it, for the sheet that has to name it.
+  final String cipher;
+
+  @override
+  String toString() => 'ProtectedPackage($cipher)';
+}
+
+/// The result of trying to read one file.
+///
+/// Every load returns one of these, including the failures. A parser that
+/// throws and a parser that quietly produces nothing both end up here with
+/// [error] set, because a blank page that claims success is the worse of the
+/// two failures: it lies about what is in the file.
+class LoadedDocument {
+  const LoadedDocument({
+    required this.name,
+    required this.format,
+    required this.bytes,
+    this.document,
+    this.error,
+  });
+
+  /// The file name the bytes came in under.
+  final String name;
+
+  /// 'pdf', 'docx', 'xlsx', 'pptx', 'csv', 'md', or 'unknown'.
+  final String format;
+
+  /// The original bytes, kept because a PDF is opened by the page engine
+  /// rather than parsed into [QuireDocument] here.
+  final Uint8List bytes;
+
+  /// The parsed document, or null for a PDF and for every failure.
+  final QuireDocument? document;
+
+  /// What went wrong, or null.
+  final Object? error;
+
+  /// True when nothing readable came back.
+  bool get failed => error != null;
+
+  /// True when the file is intact and sealed rather than broken.
+  bool get protected => error is ProtectedPackage;
+
+  /// True when this file belongs to the page engine rather than the block
+  /// model.
+  bool get isPdf => format == 'pdf';
+}
+
+/// Sniffs a file and hands it to the right parser.
+///
+/// Everything a parser can raise is caught here, so a damaged file is a
+/// designed state upstream and never a crash and never a dialog.
+///
+/// It used to catch only [ArchiveException] (garbage bytes, a truncated zip,
+/// an empty file) and [FormatException] (a valid zip whose payload is not the
+/// format the name promised), which are the two a parser is written to throw.
+/// The ones it did not catch are the ones nobody writes on purpose: a
+/// reference that indexes a list from the wrong end, a number the file says
+/// is a length, a nesting depth that runs the stack out. Those are exactly
+/// what a hostile or truncated file produces, and they were reaching the top
+/// of the app, where nothing was waiting for them.
+///
+/// The boundary is the place to end that. Guarding each parser against each
+/// bad index is a game with no last move, and a file quire cannot read is one
+/// state however it failed to read it.
+abstract final class DocumentLoader {
+  /// Reads [bytes] as the format implied by [name] and its magic bytes.
+  static LoadedDocument load(Uint8List bytes, String name) {
+    final format = sniff(bytes, name);
+    final title = titleFor(name);
+    if (format == 'pdf') {
+      return LoadedDocument(name: name, format: format, bytes: bytes);
+    }
+    if (_startsWith(bytes, kOleMagic)) {
+      // Sniffed before the unzip rather than after it, because `archive`
+      // throws on these bytes and the catch below cannot tell that failure
+      // apart from a truncated download.
+      return LoadedDocument(
+        name: name,
+        format: format,
+        bytes: bytes,
+        error: const ProtectedPackage(kOfficeCipher),
+      );
+    }
+    try {
+      final doc = _parse(bytes, format, title);
+      if (_isEmpty(doc)) {
+        throw FormatException('$format file holds no content', name);
+      }
+      return LoadedDocument(
+        name: name,
+        format: format,
+        bytes: bytes,
+        document: doc,
+      );
+    } on Object catch (e) {
+      return LoadedDocument(
+          name: name, format: format, bytes: bytes, error: e);
+    }
+  }
+
+  static QuireDocument _parse(Uint8List bytes, String format, String title) {
+    switch (format) {
+      case 'docx':
+        return DocxParser(bytes).parse(title: title);
+      case 'xlsx':
+        return xlsxToDocument(XlsxParser(bytes).parse(), title);
+      case 'pptx':
+        return PptxParser(bytes).parse(title: title);
+      case 'csv':
+        return csvToDocument(readCsv(bytes), title);
+      case 'md':
+        return MarkdownParser(_decodeText(bytes)).parse(title: title);
+      default:
+        throw FormatException('unrecognised format', title);
+    }
+  }
+
+  /// True when a parse succeeded but produced nothing worth painting.
+  ///
+  /// This is the silent failure the boundary exists to catch. A reader that
+  /// shows an empty sheet and reports success sends the reader looking for a
+  /// bug in their own eyes.
+  static bool _isEmpty(QuireDocument doc) {
+    for (final section in doc.sections) {
+      for (final block in section.blocks) {
+        switch (block) {
+          case TableBlock():
+            for (final row in block.rows) {
+              for (final cell in row.cells) {
+                if (cell.text.trim().isNotEmpty) return false;
+              }
+            }
+          case ParagraphBlock():
+            if (block.text.trim().isNotEmpty) return false;
+          case HeadingBlock():
+            if (block.text.trim().isNotEmpty) return false;
+          case ListItemBlock():
+            if (block.text.trim().isNotEmpty) return false;
+          case CodeBlock():
+            if (block.text.trim().isNotEmpty) return false;
+          case ImageBlock():
+            return false;
+          case SlideBlock():
+            // A slide with nothing on it is a slide, and a deck of them is a
+            // deck somebody is part way through writing. Only a file with no
+            // slides at all is empty, and the parser throws on that first.
+            return false;
+          case DividerBlock():
+            break;
+        }
+      }
+    }
+    return true;
+  }
+
+  /// Decides the format from the magic bytes first and the extension second.
+  ///
+  /// The bytes are the authority because a renamed file is common and a lying
+  /// extension would send a spreadsheet to the Word parser, which throws a
+  /// [FormatException] that reads like corruption rather than a mismatch.
+  static String sniff(Uint8List bytes, String name) {
+    final ext = extensionOf(name);
+    if (_startsWith(bytes, const [0x25, 0x50, 0x44, 0x46])) return 'pdf';
+    if (_startsWith(bytes, const [0x50, 0x4B, 0x03, 0x04])) {
+      final inside = _zipFlavour(bytes);
+      if (inside != null) return inside;
+      if (ext == 'docx' || ext == 'xlsx' || ext == 'pptx') return ext;
+      return 'unknown';
+    }
+    switch (ext) {
+      case 'pdf':
+        return 'pdf';
+      case 'csv':
+      case 'tsv':
+        return 'csv';
+      case 'md':
+      case 'markdown':
+      case 'txt':
+        return 'md';
+      case 'docx':
+      case 'xlsx':
+      case 'pptx':
+        // The name promises a container that is not there.
+        return ext;
+      default:
+        return 'unknown';
+    }
+  }
+
+  /// Looks inside a zip for the one part that names the format.
+  ///
+  /// Reading the container rather than trusting the extension is what lets a
+  /// .docx that is really a workbook parse as a workbook.
+  static String? _zipFlavour(Uint8List bytes) {
+    try {
+      final zip = ZipDecoder().decodeBytes(bytes, verify: false);
+      var hasWord = false;
+      var hasSheet = false;
+      var hasDeck = false;
+      for (final f in zip.files) {
+        if (f.name == 'word/document.xml') hasWord = true;
+        if (f.name == 'xl/workbook.xml') hasSheet = true;
+        if (f.name == 'ppt/presentation.xml') hasDeck = true;
+      }
+      if (hasWord) return 'docx';
+      if (hasSheet) return 'xlsx';
+      if (hasDeck) return 'pptx';
+      return null;
+    } on ArchiveException {
+      return null;
+    } on FormatException {
+      return null;
+    } on RangeError {
+      return null;
+    }
+  }
+
+  static bool _startsWith(Uint8List bytes, List<int> magic) {
+    if (bytes.length < magic.length) return false;
+    for (var i = 0; i < magic.length; i++) {
+      if (bytes[i] != magic[i]) return false;
+    }
+    return true;
+  }
+
+  /// Text bytes, BOM stripped, never throwing on a stray byte.
+  static String _decodeText(Uint8List bytes) {
+    if (bytes.length >= 3 &&
+        bytes[0] == 0xEF &&
+        bytes[1] == 0xBB &&
+        bytes[2] == 0xBF) {
+      return utf8.decode(bytes.sublist(3), allowMalformed: true);
+    }
+    return utf8.decode(bytes, allowMalformed: true);
+  }
+
+  /// The lowercased extension of [name] without its dot.
+  static String extensionOf(String name) {
+    final slash = name.lastIndexOf(RegExp(r'[/\\]'));
+    final base = slash < 0 ? name : name.substring(slash + 1);
+    final dot = base.lastIndexOf('.');
+    return dot <= 0 ? '' : base.substring(dot + 1).toLowerCase();
+  }
+
+  /// The display title of a file: extension stripped, hyphens and underscores
+  /// turned to spaces, every word capitalised.
+  static String titleFor(String name) {
+    final slash = name.lastIndexOf(RegExp(r'[/\\]'));
+    var base = slash < 0 ? name : name.substring(slash + 1);
+    final dot = base.lastIndexOf('.');
+    if (dot > 0) base = base.substring(0, dot);
+    final words = base
+        .replaceAll(RegExp(r'[-_]+'), ' ')
+        .split(' ')
+        .where((w) => w.isNotEmpty)
+        .map((w) => w[0].toUpperCase() + w.substring(1));
+    return words.join(' ');
+  }
+}

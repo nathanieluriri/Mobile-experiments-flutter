@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The paper the mark is drawn on, which is AppColors.page. The mark is
+         line art with nothing behind it, so the disc has to be the layer under
+         it rather than part of it. -->
+    <color name="ic_launcher_background">#FFFFFFFF</color>
+</resources>

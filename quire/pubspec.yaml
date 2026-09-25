@@ -1,0 +1,52 @@
+name: quire
+description: A reader for PDF, Word, spreadsheet and Markdown files, with pages you peel and search that sweeps a highlighter across every match.
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.12.2
+
+dependencies:
+  archive: ^4.2.0
+  file_picker: ^12.2.0
+  flutter:
+    sdk: flutter
+  flutter_quill: ^11.6.0
+  lucide_icons_flutter: ^3.1.19
+  markdown: ^7.3.1
+  path_provider: ^2.1.6
+  share_plus: ^13.3.0
+  xml: ^7.0.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  integration_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
+  shaders:
+    - shaders/arrival.frag
+  assets:
+    - assets/brand/
+    - assets/documents/
+    # Named one by one: listing the folder would bundle every font twice.
+    - assets/fonts/OFL-Inter.txt
+    - assets/fonts/OFL-Quicksand.txt
+  fonts:
+    - family: Inter
+      fonts:
+        - asset: assets/fonts/Inter-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/Inter-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/Inter-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/Inter-Bold.ttf
+          weight: 700
+    - family: Quicksand
+      fonts:
+        - asset: assets/fonts/Quicksand-SemiBold.ttf
+          weight: 600

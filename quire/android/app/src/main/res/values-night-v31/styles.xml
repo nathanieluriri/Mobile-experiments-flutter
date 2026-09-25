@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The same splash again for a phone in dark mode. It has to be said
+         twice: night is weighed before version when a resource is picked, so
+         the plain values-night theme would answer first on Android 12 and the
+         splash would quietly fall back to a bare window on most of the phones
+         this app runs on. -->
+    <style name="LaunchTheme" parent="@android:style/Theme.Black.NoTitleBar">
+        <item name="android:windowSplashScreenBackground">@color/launch_ground</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/quire_splash_icon</item>
+        <item name="android:windowSplashScreenBrandingImage">@drawable/quire_wordmark</item>
+        <!-- What is left once the system's icon has gone and before Flutter has
+             drawn: the ground on its own. The mark and the name are the
+             system's to draw here, and a second copy of them underneath would
+             show through the frame that has not arrived yet. -->
+        <item name="android:windowBackground">@color/launch_ground</item>
+    </style>
+</resources>

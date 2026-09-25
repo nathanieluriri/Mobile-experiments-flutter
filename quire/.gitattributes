@@ -1,0 +1,10 @@
+# The sample documents are files, not source.
+#
+# Git must not rewrite their line endings on the way out. The desk states each
+# one's exact byte count as a literal, so that laying out the first frame needs
+# no file system read, and a checkout that turned every newline into two would
+# make every one of those numbers wrong, on one platform only.
+assets/documents/* -text
+assets/brand/* -text
+assets/fonts/* -text
+test/goldens/* -text

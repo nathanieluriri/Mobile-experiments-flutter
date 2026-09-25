@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- What the chooser shows when the phone has a pdf to open: the launcher icon
+     with its bottom right pane given over to that format's own type mark, so
+     the answer to "open with" is quire carrying this kind of file rather than
+     a second logo nobody has seen before.
+
+     The paper coloured ground round the type mark is the gap between it and
+     the panes it sits against, which at the size a chooser draws an icon would
+     otherwise close up. The whole drawing sits inside the 66 wide circle a
+     round mask leaves, as the launcher icon does. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#FF111111"
+        android:fillType="evenOdd"
+        android:pathData="M32.31,34.28A4.14,4.14 0 0,1 36.44,30.14L39.66,30.14L39.66,33.96L44.49,33.96L44.49,46.65L31.8,46.65L31.8,39.68Q31.8,38.51 32.31,37.49ZM34.22,35.61L34.22,34.28A2.23,2.23 0 0,1 36.44,32.05L37.75,32.05L37.75,35.61ZM34.22,37.52L37.75,37.52L37.75,35.87L42.58,35.87L42.58,44.74L33.71,44.74L33.71,39.68Q33.71,38.51 34.22,37.52ZM45.8,33.96L52.77,33.96A5.73,5.73 0 0,1 58.49,39.68L58.49,46.65L45.8,46.65ZM47.71,35.87L52.77,35.87A3.82,3.82 0 0,1 56.58,39.68L56.58,44.74L47.71,44.74ZM33.07,47.45L43.22,47.45A1.27,1.27 0 0,1 44.49,48.72L44.49,58.87A1.27,1.27 0 0,1 43.22,60.14L33.07,60.14A1.27,1.27 0 0,1 31.8,58.87L31.8,48.72A1.27,1.27 0 0,1 33.07,47.45ZM33.71,49.36L42.58,49.36L42.58,58.23L33.71,58.23Z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M53.91,47.45L68.08,47.45A8.12,8.12 0 0,1 76.2,55.56L76.2,69.73A8.12,8.12 0 0,1 68.08,77.85L53.91,77.85A8.12,8.12 0 0,1 45.8,69.73L45.8,55.56A8.12,8.12 0 0,1 53.91,47.45Z" />
+    <path
+        android:fillColor="#FFE8544A"
+        android:pathData="M54.47,48.65L67.52,48.65A7.48,7.48 0 0,1 75,56.12L75,69.17A7.48,7.48 0 0,1 67.52,76.65L54.47,76.65A7.48,7.48 0 0,1 47,69.17L47,56.12A7.48,7.48 0 0,1 54.47,48.65Z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M49.61 67.13V58.16H52.96Q53.99 58.16 54.69 58.55Q55.4 58.93 55.76 59.61Q56.12 60.28 56.12 61.13Q56.12 61.99 55.76 62.66Q55.39 63.33 54.68 63.71Q53.97 64.1 52.94 64.1H51.22V67.13ZM51.22 62.77H52.73Q53.63 62.77 54.06 62.31Q54.48 61.85 54.48 61.13Q54.48 60.41 54.06 59.96Q53.63 59.51 52.71 59.51H51.22ZM60.84 67.13H57.8V58.16H60.9Q62.23 58.16 63.19 58.7Q64.15 59.24 64.66 60.24Q65.17 61.24 65.17 62.63Q65.17 64.04 64.66 65.04Q64.14 66.05 63.17 66.59Q62.2 67.13 60.84 67.13ZM59.41 65.74H60.76Q63.59 65.74 63.59 62.63Q63.59 59.55 60.8 59.55H59.41ZM66.95 67.13V58.16H72.69V59.52H68.55V62.21H72.28V63.54H68.55V67.13Z" />
+</vector>

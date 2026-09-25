@@ -1,0 +1,479 @@
+import 'dart:math' as math;
+import 'dart:typed_data';
+
+import 'package:flutter/widgets.dart';
+
+import '../../../model/document.dart';
+import '../../../services/document_store.dart';
+import '../../../theme/colors.dart';
+import '../../../theme/edges.dart';
+import '../../../theme/feedback.dart';
+import '../../../theme/metrics.dart';
+import '../../../theme/typography.dart';
+import '../../../widgets/press_fade.dart';
+import '../reader_chrome.dart';
+import '../sheet_surface.dart';
+import 'page_states.dart';
+import 'slide_sheet.dart';
+
+/// How far a slide sits in from the sheet's edges, and how far apart two
+/// slides sit.
+///
+/// The inset is the screen's own padding, which makes a slide on the bench
+/// exactly [kCardWidth] wide: the same measure as a document's card on the
+/// desk. A slide is an object laid on a surface and so is a card, and the two
+/// are the same size for the same reason.
+const double kDeckMargin = kScreenPadding;
+const double kDeckGap = kSpace20;
+
+/// The folio under each slide, and the space it needs.
+const double kDeckFolioGap = kSpace4;
+const double kDeckFolioHeight = kSpace14;
+
+/// A slide's corner.
+///
+/// Slides are cut square, so this is a hairline's worth of softening rather
+/// than a radius: anything more and a deck reads as a set of playing cards.
+const double kDeckCorner = 2.0;
+
+/// A deck of slides, read the way a deck is read: one slide after another,
+/// each at the shape the file laid it out on.
+///
+/// A slide is not a page and not a paragraph, which is why this is its own
+/// body rather than a setting on the prose one. Its content is placed rather
+/// than flowed, so it cannot be poured into a column, and it has an aspect
+/// ratio the deck chose, so it cannot be cropped to the sheet either. The
+/// sheet becomes a bench, and the slides lie on it.
+class DeckBody extends ReaderBody {
+  const DeckBody({
+    super.key,
+    required this.store,
+    required this.document,
+    required this.onPresent,
+  });
+
+  final DocumentStore store;
+  final QuireDocument document;
+
+  /// Opens present mode at a slide. The body raises it; the reader owns it,
+  /// because present mode takes the whole screen and the sheet is only part
+  /// of it.
+  final ValueChanged<int> onPresent;
+
+  List<SlideBlock> get slides => <SlideBlock>[
+    for (final section in document.sections)
+      ...section.blocks.whereType<SlideBlock>(),
+  ];
+
+  @override
+  Widget buildFront(BuildContext context) {
+    final deck = slides;
+    if (deck.isEmpty) {
+      return TornPage(
+        size: const Size(kSheetWidth, kSheetHeight),
+        label: kDeckEmptyLabel,
+      );
+    }
+    return DeckSheet(
+      store: store,
+      slides: deck,
+      assets: document.assets,
+      onPresent: onPresent,
+    );
+  }
+
+  /// The back of a deck: what was said, and what was going to be said.
+  ///
+  /// This is the one thing a deck has that no other format does. Speaker notes
+  /// are written to be read by one person and are invisible everywhere the
+  /// deck is shown, so the back of the sheet is exactly where they belong.
+  @override
+  Widget buildBack(BuildContext context) =>
+      DeckBack(slides: slides, titles: _titles);
+
+  List<String> get _titles => <String>[
+    for (var i = 0; i < document.sections.length; i++)
+      document.sections[i].title,
+  ];
+
+  @override
+  int get unitCount => slides.length;
+
+  @override
+  String get positionLabel => store.positionLabel;
+
+  /// One hairline per slide, which is what a deck's divisions are.
+  @override
+  List<double> get foreEdgeMarks {
+    final count = slides.length;
+    if (count <= 1) return const <double>[0];
+    return <double>[for (var i = 0; i < count; i++) i / (count - 1)];
+  }
+}
+
+/// What a deck with no slides in it prints across the sheet.
+const String kDeckEmptyLabel = 'THIS DECK HAS NO SLIDES';
+
+/// What the band says the first time a deck is opened.
+///
+/// Tapping a slide takes the whole screen, and a mode that large arriving on
+/// an unhinted tap is a mode most readers meet by accident and the rest never
+/// find at all. The menu carries the same thing in words, so this is said once
+/// in the life of the app and then never again.
+const String kDeckHint = 'Tap a slide to present it.';
+
+/// The bench the slides lie on.
+class DeckSheet extends StatefulWidget {
+  const DeckSheet({
+    super.key,
+    required this.store,
+    required this.slides,
+    required this.assets,
+    required this.onPresent,
+  });
+
+  final DocumentStore store;
+  final List<SlideBlock> slides;
+  final Map<String, Uint8List> assets;
+  final ValueChanged<int> onPresent;
+
+  @override
+  State<DeckSheet> createState() => _DeckSheetState();
+}
+
+class _DeckSheetState extends State<DeckSheet> {
+  late final ScrollController _controller = ScrollController(
+    initialScrollOffset: _offsetOf(widget.store.position),
+  );
+
+  /// The slide the scroll last reported, so a rebuild that did not move the
+  /// bench does not write the same position back to the store.
+  int _reported = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _reported = widget.store.position;
+    _controller.addListener(_onScroll);
+    widget.store.addListener(_onStore);
+  }
+
+  @override
+  void dispose() {
+    widget.store.removeListener(_onStore);
+    _controller.dispose();
+    super.dispose();
+  }
+
+  /// One slide plus the gap under it, which is exact because every slide in a
+  /// deck stands on the same stage.
+  ///
+  /// Having it exactly rather than measuring it is what lets the bench open at
+  /// a named slide on its first frame, with no settle and no jump.
+  double get _extent {
+    final slide = widget.slides.first;
+    return slideHeightFor(slide, _cardWidth) +
+        kDeckFolioGap +
+        kDeckFolioHeight +
+        kDeckGap;
+  }
+
+  /// The measure a slide is drawn at, which is a desk card's own width.
+  double get _cardWidth => kSheetWidth - 2 * kDeckMargin;
+
+  double _offsetOf(int slide) => slide <= 0 ? 0 : slide * _extent;
+
+  /// The slide nearest the top of the bench.
+  int get _at {
+    if (!_controller.hasClients || _extent <= 0) return 0;
+    return (_controller.offset / _extent).round().clamp(
+      0,
+      widget.slides.length - 1,
+    );
+  }
+
+  void _onScroll() {
+    final now = _at;
+    if (now == _reported) return;
+    _reported = now;
+    widget.store.position = now;
+  }
+
+  /// Brings the bench to where something other than this scroll put the
+  /// reader: a scrub, the fore edge, a dog ear, a jump out of present mode.
+  void _onStore() {
+    if (!mounted || !_controller.hasClients) return;
+    final wanted = widget.store.position;
+    if (wanted == _reported) return;
+    _reported = wanted;
+    _controller.jumpTo(
+      _offsetOf(wanted).clamp(0.0, _controller.position.maxScrollExtent),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final safeArea = ReaderInsets.of(context);
+    final band = kHeadBandHeight * (ReaderBand.maybeOf(context)?.shown ?? 1);
+    return ColoredBox(
+      color: AppColors.surface,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final top = safeArea.top + band + kDeckGap;
+          return ListView.builder(
+            controller: _controller,
+            padding: EdgeInsets.only(top: top, bottom: _tail(constraints, top)),
+            itemExtent: _extent,
+            itemCount: widget.slides.length,
+            itemBuilder: (context, index) => _BenchedSlide(
+              slide: widget.slides[index],
+              assets: widget.assets,
+              index: index,
+              width: _cardWidth,
+              onTap: () => widget.onPresent(index),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  /// The space under the last slide.
+  ///
+  /// Enough that the last slide can be brought to the top of the bench, and
+  /// not a point more. Without it the bench stops scrolling several slides
+  /// short of its end, and then a reading asked to go to the last slide is
+  /// clamped, rounded back off the clamped offset, and quietly rewritten to an
+  /// earlier one: a deck closed on its last slide would reopen three slides
+  /// back, and present mode and the reader would disagree about where the
+  /// reading is.
+  double _tail(BoxConstraints constraints, double top) {
+    final room = constraints.hasBoundedHeight
+        ? constraints.maxHeight - top
+        : _extent;
+    return math.max(kDeckGap * 2, room - _extent);
+  }
+}
+
+/// One slide on the bench, with its number under it.
+class _BenchedSlide extends StatelessWidget {
+  const _BenchedSlide({
+    required this.slide,
+    required this.assets,
+    required this.index,
+    required this.width,
+    required this.onTap,
+  });
+
+  final SlideBlock slide;
+  final Map<String, Uint8List> assets;
+  final int index;
+  final double width;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.symmetric(horizontal: kDeckMargin),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        PaperPress(
+          onTap: onTap,
+          semanticLabel: 'Present from slide ${index + 1}',
+          feel: Feel.tap,
+          child: SlideCard(slide: slide, assets: assets, width: width),
+        ),
+        const SizedBox(height: kDeckFolioGap),
+        SizedBox(
+          height: kDeckFolioHeight,
+          child: Align(
+            alignment: Alignment.centerRight,
+            child: Text(
+              '${index + 1}',
+              style: AppText.folioSmall.copyWith(color: AppColors.inkFaint),
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+/// A slide with an edge and a shadow: the object, rather than the picture of
+/// it.
+class SlideCard extends StatelessWidget {
+  const SlideCard({
+    super.key,
+    required this.slide,
+    required this.assets,
+    required this.width,
+    this.radius = kDeckCorner,
+  });
+
+  final SlideBlock slide;
+  final Map<String, Uint8List> assets;
+  final double width;
+
+  final double radius;
+
+  /// Nothing in this app casts a shadow, a slide included. A slide carries the
+  /// file's own ground, which can be any colour at all, so the hairline is
+  /// what gives it an edge: it is the one value that differs from both the
+  /// bench and any paper laid on it.
+  @override
+  Widget build(BuildContext context) => DecoratedBox(
+    decoration: BoxDecoration(
+      borderRadius: BorderRadius.circular(radius),
+      border: AppEdges.all(context),
+    ),
+    child: ClipRRect(
+      borderRadius: BorderRadius.circular(radius),
+      child: SlideSheet(slide: slide, assets: assets, width: width),
+    ),
+  );
+}
+
+/// The back of a deck: every slide read out, with its notes under it.
+class DeckBack extends StatelessWidget {
+  const DeckBack({super.key, required this.slides, required this.titles});
+
+  final List<SlideBlock> slides;
+  final List<String> titles;
+
+  @override
+  Widget build(BuildContext context) {
+    final safeArea = ReaderInsets.of(context);
+    final band = kHeadBandHeight * (ReaderBand.maybeOf(context)?.shown ?? 1);
+    return ColoredBox(
+      color: AppColors.leafBack,
+      child: ListView.builder(
+        padding: EdgeInsets.only(
+          top: safeArea.top + band + kSheetPadding,
+          bottom: safeArea.bottom + kSheetPadding,
+          left: kSheetPadding,
+          right: kSheetPadding,
+        ),
+        itemCount: slides.length,
+        itemBuilder: (context, index) => _SlideRead(
+          slide: slides[index],
+          title: index < titles.length ? titles[index] : '',
+          index: index,
+        ),
+      ),
+    );
+  }
+}
+
+class _SlideRead extends StatelessWidget {
+  const _SlideRead({
+    required this.slide,
+    required this.title,
+    required this.index,
+  });
+
+  final SlideBlock slide;
+  final String title;
+  final int index;
+
+  @override
+  Widget build(BuildContext context) {
+    final said = <String>[
+      for (final shape in slide.shapes)
+        if (!shape.inherited && shape.role != SlideRole.title)
+          for (final line in _linesOf(shape))
+            if (line.trim().isNotEmpty) line.trim(),
+    ];
+    final notes = <String>[
+      for (final block in slide.notes)
+        if (_lineOf(block).trim().isNotEmpty) _lineOf(block).trim(),
+    ];
+    return Padding(
+      padding: const EdgeInsets.only(bottom: kSpace24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text(
+            '${index + 1}  ${title.toUpperCase()}',
+            style: AppText.label.copyWith(color: AppColors.inkFaint),
+          ),
+          const SizedBox(height: kSpace8),
+          for (final line in said)
+            Padding(
+              padding: const EdgeInsets.only(bottom: kSpace4),
+              child: Text(
+                line,
+                style: AppText.pageBody.copyWith(color: AppColors.ink),
+              ),
+            ),
+          if (notes.isNotEmpty) ...<Widget>[
+            const SizedBox(height: kSpace8),
+            // The notes are set apart and named, because a line the room never
+            // saw must not be mistaken for a line that was on the slide.
+            Text(
+              'NOTES',
+              style: AppText.label.copyWith(color: AppColors.accentBright),
+            ),
+            const SizedBox(height: kSpace4),
+            for (final line in notes)
+              Padding(
+                padding: const EdgeInsets.only(bottom: kSpace4),
+                child: Text(
+                  line,
+                  style: AppText.pageBody.copyWith(color: AppColors.inkSoft),
+                ),
+              ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  /// Everything a shape says, a line at a time.
+  ///
+  /// A table is read out row by row rather than skipped. A deck read from the
+  /// back with its tables missing is a deck missing its numbers, which on most
+  /// slides is the only part anybody wanted.
+  static List<String> _linesOf(SlideShape shape) => <String>[
+    for (final block in shape.blocks)
+      if (block is TableBlock)
+        for (final row in block.rows)
+          <String>[
+            for (final cell in row.cells)
+              if (!cell.merged) cell.text.replaceAll('\n', ' '),
+          ].join('   ')
+      else
+        _lineOf(block),
+  ];
+
+  static String _lineOf(DocBlock block) => switch (block) {
+    ParagraphBlock() => block.text,
+    HeadingBlock() => block.text,
+    ListItemBlock() => block.text,
+    CodeBlock() => block.text,
+    // What the deck said the picture was. A slide carrying only a picture
+    // would otherwise read on the back as a bare number and nothing else.
+    ImageBlock() => block.alt ?? '',
+    _ => '',
+  };
+}
+
+/// How far a deck has to be scrolled for one slide, used by the tests and by
+/// anything that has to move the bench without owning it.
+double deckExtentFor(SlideBlock slide) =>
+    slideHeightFor(slide, kSheetWidth - 2 * kDeckMargin) +
+    kDeckFolioGap +
+    kDeckFolioHeight +
+    kDeckGap;
+
+/// The largest a slide can be drawn inside [room] without changing its shape.
+///
+/// Present mode is the one place a slide is fitted to the screen rather than
+/// to a column, and both directions can be the binding one: a sixteen by nine
+/// slide is width bound on a phone held upright and height bound on its side.
+Size slideFitted(SlideBlock slide, Size room) {
+  if (slide.width <= 0 || slide.height <= 0) return Size.zero;
+  final byWidth = room.width;
+  final byHeight = room.height * slide.width / slide.height;
+  final width = math.min(byWidth, byHeight);
+  return Size(width, slideHeightFor(slide, width));
+}

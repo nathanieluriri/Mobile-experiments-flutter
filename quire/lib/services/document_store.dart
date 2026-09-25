@@ -1,0 +1,1948 @@
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+import 'dart:isolate';
+import 'dart:ui' as ui;
+
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart' show rootBundle;
+
+import '../data/library.dart';
+import '../format/document_loader.dart';
+import 'failure_log.dart';
+import '../model/document.dart';
+import '../model/search.dart';
+import '../pdf/display_list.dart';
+import '../pdf/document.dart';
+import '../pdf/seal.dart';
+import '../pdf/writer.dart';
+import '../data/arrival_lines.dart';
+import 'arrival_notices.dart';
+import 'device_storage.dart';
+import 'library_catalogue.dart';
+import 'picture.dart';
+import 'recent_signatures.dart';
+import 'reading_time.dart';
+import 'revisions.dart';
+import 'render_plan.dart';
+
+/// Where a document is in its journey from bytes to something readable.
+enum ParseState { loading, ready, failed }
+
+/// The three shelves on the desk.
+enum Shelf { all, reading, signed }
+
+/// A signature that has been set into a page.
+///
+/// The strokes are normalised inside [rect] rather than stored in page points,
+/// so a mark keeps its shape when a page is drawn at any scale, and a page
+/// that has not been laid out yet can still hold one.
+class PlacedSignature {
+  const PlacedSignature({
+    required this.pageIndex,
+    required this.rect,
+    required this.strokes,
+    this.encoded,
+    this.picture,
+  });
+
+  /// The page the mark belongs to, zero based.
+  final int pageIndex;
+
+  /// Where the mark sits in page space, in logical points.
+  final ui.Rect rect;
+
+  /// Each stroke as points in the unit square of [rect]. Empty for a mark
+  /// that is a picture.
+  final List<List<ui.Offset>> strokes;
+
+  /// The picture's own file, for a mark that is one.
+  final Uint8List? encoded;
+
+  /// That picture decoded, once somebody has decoded it. A mark read back
+  /// from an earlier run arrives without one and gets it a moment later,
+  /// which is a moment the page spends drawing everything else.
+  final ui.Image? picture;
+
+  /// The same mark, now that its picture has been decoded.
+  PlacedSignature withPicture(ui.Image decoded) => PlacedSignature(
+    pageIndex: pageIndex,
+    rect: rect,
+    strokes: strokes,
+    encoded: encoded,
+    picture: decoded,
+  );
+
+  /// The mark as plain numbers, for the desk to write down.
+  Map<String, Object?> toJson() => <String, Object?>{
+    'page': pageIndex,
+    'rect': <double>[rect.left, rect.top, rect.width, rect.height],
+    'strokes': <Object?>[
+      for (final stroke in strokes)
+        <Object?>[
+          for (final point in stroke) <double>[point.dx, point.dy],
+        ],
+    ],
+    if (encoded != null) 'picture': base64Encode(encoded!),
+  };
+
+  /// The mark read back, or null for numbers that do not make one.
+  static PlacedSignature? fromJson(Object? json) {
+    if (json is! Map<String, Object?>) return null;
+    final page = json['page'];
+    final rect = json['rect'];
+    final strokes = json['strokes'];
+    if (page is! int || rect is! List<Object?> || strokes is! List<Object?>) {
+      return null;
+    }
+    final box = _doubles(rect);
+    if (box == null || box.length != 4) return null;
+    final picture = json['picture'];
+    Uint8List? bytes;
+    if (picture is String && picture.isNotEmpty) {
+      try {
+        bytes = base64Decode(picture);
+      } on FormatException {
+        return null;
+      }
+    }
+    final marks = <List<ui.Offset>>[];
+    for (final stroke in strokes) {
+      if (stroke is! List<Object?>) return null;
+      final points = <ui.Offset>[];
+      for (final point in stroke) {
+        final pair = point is List<Object?> ? _doubles(point) : null;
+        if (pair == null || pair.length != 2) return null;
+        points.add(ui.Offset(pair[0], pair[1]));
+      }
+      marks.add(points);
+    }
+    return PlacedSignature(
+      pageIndex: page,
+      rect: ui.Rect.fromLTWH(box[0], box[1], box[2], box[3]),
+      strokes: marks,
+      encoded: bytes,
+    );
+  }
+
+  static List<double>? _doubles(List<Object?> raw) {
+    final out = <double>[];
+    for (final value in raw) {
+      if (value is! num) return null;
+      out.add(value.toDouble());
+    }
+    return out;
+  }
+}
+
+/// One open document: what was parsed, where the reader is in it, and what
+/// they have done to it.
+///
+/// It is a [ChangeNotifier] rather than something smaller because the reader,
+/// the fore edge, the folio chip and the desk card all watch the same position
+/// and must never disagree about it.
+/// What a reader has fastened down while they read.
+///
+/// Reading is done in places where the screen is being touched by more than
+/// the one finger doing the reading: on a bus, lying down, handing the phone
+/// to somebody else. Both of these exist so that a reading survives that.
+enum ReaderLock {
+  /// Nothing is fastened. The reading behaves as it always has.
+  none,
+
+  /// The way out. Back does nothing and the edge swipe does nothing, so the
+  /// document cannot be closed by the heel of a hand.
+  back,
+
+  /// The page as well. The reading is pinned where it is, every bar goes, and
+  /// what is left on the screen is the page and nothing else.
+  page;
+
+  /// True when leaving the document is fastened.
+  bool get holdsBack => this != ReaderLock.none;
+
+  /// True when the page itself is fastened, which is also what clears the
+  /// screen: a bar you cannot use is a bar in the way.
+  bool get holdsPage => this == ReaderLock.page;
+}
+
+/// How big the page is drawn, said as an intention rather than a number.
+///
+/// A named fit survives a page of a different size, which a number does not:
+/// a document whose pages change shape halfway through still fits its width
+/// on every one of them.
+enum FitMode {
+  /// The page fills the width it is given. The reading default, because a
+  /// line of type you have to scroll sideways to finish is not a line you can
+  /// read.
+  width,
+
+  /// The whole page on screen at once, however small that makes it. What you
+  /// want when the shape of the page is the thing you are looking at.
+  page,
+
+  /// One point of the page to one point of the screen, which is the size the
+  /// page was drawn to be printed at.
+  actual,
+
+  /// Whatever the last pinch left it at.
+  free;
+
+  /// True when the reader set the size by hand and no rule should take it
+  /// back off them.
+  bool get byHand => this == FitMode.free;
+}
+
+/// The smallest and largest a page may be drawn, as a multiple of its fit to
+/// the width.
+///
+/// The floor is a whole page still being worth looking at. The ceiling is set
+/// by what a phone can hold: past about six times, a line of type is a few
+/// words long and the reading is all thumb.
+const kZoomMin = 0.5;
+const kZoomMax = 6.0;
+
+/// What a double tap takes the page to, and back from.
+const kZoomDoubleTap = 2.4;
+
+/// The range the type may be scaled over for a document with no pages.
+const kTextScaleMin = 0.8;
+const kTextScaleMax = 2.2;
+const kTextScaleStep = 0.1;
+
+/// Where a grid was left: which sheet of a workbook, and how far that sheet
+/// was pushed across and down, in points.
+///
+/// The row alone is not where a reader was. A workbook is read across as much
+/// as down, and a sheet brought back at column A would lose the column
+/// somebody was reading for the sake of remembering the row.
+class SheetPlace {
+  const SheetPlace({
+    required this.sheet,
+    required this.across,
+    required this.down,
+  });
+
+  final int sheet;
+  final double across;
+  final double down;
+
+  Map<String, Object?> toJson() => <String, Object?>{
+    'sheet': sheet,
+    'across': across,
+    'down': down,
+  };
+
+  /// The place read back, or null for numbers that do not make one.
+  static SheetPlace? fromJson(Object? json) {
+    if (json is! Map<String, Object?>) return null;
+    final sheet = json['sheet'];
+    final across = json['across'];
+    final down = json['down'];
+    if (sheet is! int || across is! num || down is! num) return null;
+    if (sheet < 0) return null;
+    return SheetPlace(
+      sheet: sheet,
+      across: across.toDouble().clamp(0.0, double.maxFinite),
+      down: down.toDouble().clamp(0.0, double.maxFinite),
+    );
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is SheetPlace &&
+      other.sheet == sheet &&
+      other.across == across &&
+      other.down == down;
+
+  @override
+  int get hashCode => Object.hash(sheet, across, down);
+}
+
+/// Everything reading one file produces, with nothing in it tied to the
+/// isolate that drew it, so it can be read anywhere and handed back.
+class ParsedDocument {
+  const ParsedDocument._({
+    required this.loaded,
+    this.pdf,
+    this.locked,
+    this.pdfPageCount = 0,
+  });
+
+  final LoadedDocument loaded;
+  final PdfFile? pdf;
+  final PdfLocked? locked;
+  final int pdfPageCount;
+
+  /// Reads [bytes] as the file [name].
+  ///
+  /// A PDF is opened here rather than in the reader so a PDF nobody has
+  /// opened still prints `6 PAGES` on its card. Only the count is taken: the
+  /// pages themselves are not run. The open file is kept, and that is what
+  /// makes the password flow work: a password opens a file, not a document,
+  /// and keeping the file means quire never holds on to what somebody typed.
+  static ParsedDocument read(Uint8List bytes, String name, String password) {
+    final loaded = DocumentLoader.load(bytes, name);
+    if (!loaded.isPdf || loaded.failed) return ParsedDocument._(loaded: loaded);
+    try {
+      final file = PdfFile.open(bytes, password: password);
+      return ParsedDocument._(
+        loaded: loaded,
+        pdf: file,
+        pdfPageCount: file.pageCount,
+      );
+    } on PdfLocked catch (locked) {
+      // Not a failure. The file is intact and this reader simply does not
+      // hold the key yet, which is a question rather than an error.
+      return ParsedDocument._(loaded: loaded, locked: locked);
+    } on Object {
+      // A file that opens as bytes but not as a page tree keeps no count, and
+      // the card prints its format and its size alone.
+      return ParsedDocument._(loaded: loaded);
+    }
+  }
+
+  /// This result holding [bytes], the caller's own copy of what was read,
+  /// rather than the copy the isolate was handed.
+  ParsedDocument withBytes(Uint8List bytes) => ParsedDocument._(
+        loaded: LoadedDocument(
+          name: loaded.name,
+          format: loaded.format,
+          bytes: bytes,
+          document: loaded.document,
+          error: loaded.error,
+        ),
+        pdf: pdf,
+        locked: locked,
+        pdfPageCount: pdfPageCount,
+      );
+}
+
+class DocumentStore extends ChangeNotifier {
+  DocumentStore(this.entry);
+
+  /// A store already holding a parsed document, for tests and for fixtures.
+  factory DocumentStore.ready(LibraryEntry entry, Uint8List bytes) =>
+      DocumentStore(entry)..loadFrom(bytes);
+
+  /// The desk entry this document came from.
+  final LibraryEntry entry;
+
+  /// What is fastened down, which is not remembered between runs.
+  ///
+  /// A document that opened locked, with nothing on screen saying why and no
+  /// memory of having done it, would be a document that looked broken.
+  ReaderLock _lock = ReaderLock.none;
+
+  /// How the page is sized, and the number behind it when the reader set it
+  /// by hand.
+  FitMode _fit = FitMode.width;
+  double _zoom = 1;
+
+  /// How large the type is set for a document with no pages of its own.
+  double _textScale = 1;
+
+  /// True while the loupe is following the finger.
+  bool _magnifier = false;
+
+  ParseState _state = ParseState.loading;
+  LoadedDocument? _loaded;
+  DocSearch? _search;
+  PdfLocked? _locked;
+  PdfFile? _pdf;
+  int _position = 0;
+  SheetPlace? _place;
+  int _pdfPageCount = 0;
+  bool _opened = false;
+  int _opens = 0;
+  int _lastOpened = 0;
+  final Map<int, int> _pageWords = <int, int>{};
+  final Set<int> _dogEared = <int>{};
+  final List<PlacedSignature> _signatures = <PlacedSignature>[];
+
+  /// Parses [bytes] and moves the store to [ParseState.ready] or
+  /// [ParseState.failed].
+  ///
+  /// Those two are the only ways out, and the guard below is what makes that
+  /// true rather than hopeful. The comment here used to claim the loader
+  /// caught everything the parsers raise. It did not, and the one caller that
+  /// noticed was [unlock], which is reached by somebody typing a password
+  /// into a sheet: the least deserving moment in the app to meet a crash.
+  ///
+  /// [password] is only ever the one somebody typed into the password sheet.
+  /// The engine tries the empty password on its own first, every time, so a
+  /// file that carries only an owner password opens here with nobody asked
+  /// for anything.
+  void loadFrom(Uint8List bytes, {String password = ''}) {
+    try {
+      _loadFrom(bytes, password: password);
+    } on Object catch (error) {
+      // The bytes go with it. A document that failed to read is still a
+      // document somebody may have a password for.
+      fail(error, bytes: bytes);
+    }
+  }
+
+  void _loadFrom(Uint8List bytes, {String password = ''}) {
+    _apply(ParsedDocument.read(bytes, entry.fileName, password));
+  }
+
+  /// Parses [bytes] on a background isolate when [parseInBackground] is set,
+  /// and moves the store on exactly as [loadFrom] does.
+  ///
+  /// A 6.6 MB CSV took 2.66s to read on a desktop, all of it on the thread
+  /// that draws the app, and a phone is three to five times slower than that
+  /// while Android stops waiting at five seconds.
+  Future<void> loadInBackground(Uint8List bytes) async {
+    if (!parseInBackground) return loadFrom(bytes);
+    final name = entry.fileName;
+    final ParsedDocument parsed;
+    try {
+      parsed = await _readAway(bytes, name);
+    } on Object catch (error) {
+      fail(error, bytes: bytes);
+      return;
+    }
+    try {
+      _apply(parsed.withBytes(bytes));
+    } on Object catch (error) {
+      fail(error, bytes: bytes);
+    }
+  }
+
+  // Static, so the closure sent to the isolate cannot reach this store.
+  static Future<ParsedDocument> _readAway(Uint8List bytes, String name) =>
+      Isolate.run(() => ParsedDocument.read(bytes, name, ''));
+
+  /// Whether [loadInBackground] leaves the main isolate. Off under test, so
+  /// the suite checks a parser without spinning an isolate for it.
+  static bool parseInBackground = true;
+
+  /// True when what is being read is a revision the reader saved rather than
+  /// the file as it arrived, so nothing opens the file itself in its place.
+  bool revised = false;
+
+  void _apply(ParsedDocument parsed) {
+    _loaded = parsed.loaded;
+    _search = null;
+    _locked = parsed.locked;
+    _pdf = parsed.pdf;
+    _pdfPageCount = parsed.pdfPageCount;
+    _state = _loaded!.failed ? ParseState.failed : ParseState.ready;
+    // A place remembered from an earlier run was remembered against a
+    // document that could be laid out. If this one has fewer units now, the
+    // place is pulled back inside it; if it cannot be laid out at all, which
+    // is a locked file waiting for its password, the place is kept for when
+    // it can.
+    if (_state == ParseState.ready && _locked == null && unitCount > 0) {
+      _position = _position.clamp(0, unitCount - 1);
+    }
+    notifyListeners();
+    unawaited(decodePictures());
+  }
+
+  /// Tries [password] against a document that asked for one.
+  ///
+  /// It is a whole reload rather than a patch to the open file, because the
+  /// key decides how every byte in the document is read: an object resolved
+  /// while the file was locked was resolved in cipher text, and keeping it
+  /// would leave a page that opens to noise.
+  void unlock(String password) {
+    final bytes = _loaded?.bytes;
+    if (bytes == null || bytes.isEmpty) return;
+    loadFrom(bytes, password: password);
+  }
+
+  /// Records a failure that happened outside the loader, for instance a bundle
+  /// that could not hand over the bytes at all.
+  ///
+  /// [bytes] is kept when the caller still has them, because a file that
+  /// failed to read is not always a file that cannot be read: a sealed one
+  /// needs its own bytes again the moment a password arrives.
+  void fail(Object error, {Uint8List? bytes}) {
+    _loaded = LoadedDocument(
+      name: entry.fileName,
+      format: entry.format.extension,
+      bytes: bytes ?? Uint8List(0),
+      error: error,
+    );
+    _state = ParseState.failed;
+    notifyListeners();
+  }
+
+  ReaderLock get lock => _lock;
+  set lock(ReaderLock value) {
+    if (value == _lock) return;
+    _lock = value;
+    notifyListeners();
+  }
+
+  FitMode get fit => _fit;
+
+  /// The size the page is drawn at as a multiple of its fit to the width,
+  /// which only means anything while the reader is holding the size by hand.
+  double get zoom => _zoom;
+
+  /// Puts the page at a named size, and forgets whatever number was there.
+  set fit(FitMode value) {
+    if (value == _fit) return;
+    _fit = value;
+    notifyListeners();
+  }
+
+  /// Puts the page at a size the reader chose, which is what a pinch does.
+  void zoomTo(double value) {
+    final wanted = value.clamp(kZoomMin, kZoomMax);
+    if (wanted == _zoom && _fit == FitMode.free) return;
+    _zoom = wanted;
+    _fit = FitMode.free;
+    notifyListeners();
+  }
+
+  /// True when a page file is set in quire's own type rather than drawn in
+  /// its own print by the phone. Remembered per document, because the reason
+  /// to choose it is the document: a page whose fonts read badly, or one read
+  /// better evenly set.
+  bool get quireType => _quireType;
+  bool _quireType = false;
+  set quireType(bool value) {
+    if (value == _quireType) return;
+    _quireType = value;
+    notifyListeners();
+  }
+
+  double get textScale => _textScale;
+  set textScale(double value) {
+    final wanted = value.clamp(kTextScaleMin, kTextScaleMax);
+    if ((wanted - _textScale).abs() < 0.001) return;
+    _textScale = wanted;
+    notifyListeners();
+  }
+
+  bool get magnifier => _magnifier;
+  set magnifier(bool value) {
+    if (value == _magnifier) return;
+    _magnifier = value;
+    notifyListeners();
+  }
+
+  ParseState get state => _state;
+
+  /// The parsed document, or null for a PDF and for a failure.
+  QuireDocument? get document => _loaded?.document;
+
+  /// The original bytes, which is what a PDF is opened from.
+  Uint8List get bytes => _loaded?.bytes ?? Uint8List(0);
+
+  /// What went wrong, or null.
+  Object? get error => _loaded?.error;
+
+  /// True when this document belongs to the page engine.
+  bool get isPdf => _loaded?.isPdf ?? entry.format == DocFormat.pdf;
+
+  /// The page file, open and decrypted, or null for anything that is not a
+  /// readable PDF.
+  PdfFile? get pdf => _pdf;
+
+  /// The encryption this document is behind, or null when there is none or
+  /// when a password has already opened it.
+  PdfLocked? get locked => _locked;
+
+  /// True when a password was supplied and turned down, which is the one thing
+  /// that separates the sheet's two messages.
+  bool get wrongPassword => _locked?.wrongPassword ?? false;
+
+  /// What sealed the file, for the sheet that has to name it. Empty when
+  /// nothing did.
+  String get cipher =>
+      _locked?.cipher ??
+      (_loaded?.error is ProtectedPackage
+          ? (_loaded!.error! as ProtectedPackage).cipher
+          : '');
+
+  /// The rung this whole document is on, before any single page is looked at.
+  ///
+  /// A failed parse is [RenderPlan.damaged] here; a PDF's per page rung is
+  /// decided later by `planFor` once its display list exists.
+  RenderPlan get plan {
+    final locked = _locked;
+    if (locked != null) return planForLocked(locked);
+    // A sealed Office package is intact, so it is never damage. There is no
+    // password field for it either, because this version does not decrypt the
+    // mechanism at all and a field would be an offer the app cannot keep.
+    if (_loaded?.protected ?? false) return RenderPlan.unsupportedCipher;
+    return _state == ParseState.failed ? RenderPlan.damaged : RenderPlan.rich;
+  }
+
+  /// The page engine's page count, which only the reader can supply.
+  int get pdfPageCount => _pdfPageCount;
+  set pdfPageCount(int value) {
+    if (value == _pdfPageCount) return;
+    _pdfPageCount = value;
+    notifyListeners();
+  }
+
+  /// Pages for a PDF, rows for a grid, slides for a deck, blocks for prose. It
+  /// is the scale the fore edge and the position label are drawn against.
+  int get unitCount {
+    if (isPdf) return _pdfPageCount;
+    final doc = document;
+    if (doc == null) return 0;
+    if (isGrid) {
+      var rows = 0;
+      for (final section in doc.sections) {
+        for (final block in section.blocks) {
+          if (block is TableBlock) rows += block.rows.length;
+        }
+      }
+      return rows;
+    }
+    var blocks = 0;
+    for (final section in doc.sections) {
+      blocks += section.blocks.length;
+    }
+    return blocks;
+  }
+
+  /// The deck's slides, in order, or empty for anything that is not a deck.
+  ///
+  /// One slide per section by construction, so the slide count, the section
+  /// count and the unit count are the same number and can never disagree about
+  /// how long a deck is.
+  List<SlideBlock> get slides {
+    final doc = document;
+    if (doc == null) return const <SlideBlock>[];
+    return <SlideBlock>[
+      for (final section in doc.sections)
+        ...section.blocks.whereType<SlideBlock>(),
+    ];
+  }
+
+  /// True when the document is a deck of slides.
+  bool get isDeck => document?.sourceFormat == 'pptx';
+
+  /// True when the document is a spreadsheet or a CSV.
+  bool get isGrid {
+    final doc = document;
+    if (doc == null) return false;
+    for (final section in doc.sections) {
+      for (final block in section.blocks) {
+        if (block is TableBlock && block.grid) return true;
+      }
+    }
+    return false;
+  }
+
+  /// Where the reader is, in units.
+  int get position => _position;
+  set position(int value) {
+    final max = unitCount == 0 ? 0 : unitCount - 1;
+    final next = value.clamp(0, max);
+    if (next == _position) return;
+    _position = next;
+    _opened = true;
+    notifyListeners();
+  }
+
+  /// Where a grid was left, or null for a document that has never been
+  /// pushed about or is not a grid at all.
+  SheetPlace? get place => _place;
+
+  /// Remembers where a grid has been left, without a word to anybody.
+  ///
+  /// A sheet moves under a finger at every frame, and a store that spoke each
+  /// time would have the desk behind the reader rebuilt sixty times a second
+  /// for a number nothing on screen is reading. It is written out with
+  /// everything else the next time the desk saves, which is the next row the
+  /// reader crosses or the moment the app goes into the background.
+  void rememberPlace(SheetPlace place) {
+    if (place == _place) return;
+    _place = place;
+  }
+
+  /// True once the document has been opened, which is what puts it on the
+  /// READING shelf and draws its progress track.
+  bool get opened => _opened;
+
+  /// How many times the document has been opened, which is what the back of
+  /// its card prints. Moving the reader inside a document already open is not
+  /// another opening, so only an arrival counts.
+  int get opens => _opens;
+
+  /// When the document was last opened, in milliseconds since the epoch, or
+  /// 0 for one that never has been. Nothing draws it; the desk orders by it.
+  int get lastOpened => _lastOpened;
+
+  /// Marks the document as opened without moving the reader.
+  void markOpened() {
+    _opens++;
+    _opened = true;
+    _lastOpened = DateTime.now().millisecondsSinceEpoch;
+    notifyListeners();
+  }
+
+  /// Everything the reader has done with this document, as plain numbers.
+  Map<String, Object?> toJson() => <String, Object?>{
+    'position': _position,
+    if (_place != null) 'place': _place!.toJson(),
+    'opens': _opens,
+    'opened': _opened,
+    'lastOpened': _lastOpened,
+    'dogEared': _dogEared.toList()..sort(),
+    'signatures': <Object?>[for (final mark in _signatures) mark.toJson()],
+    if (_quireType) 'quireType': true,
+  };
+
+  /// Takes back what [toJson] wrote, before or after the document has been
+  /// read: a place beyond the end is pulled inside it once the file is known.
+  void restore(Map<String, Object?> json) {
+    final position = json['position'];
+    final opens = json['opens'];
+    final opened = json['opened'];
+    final lastOpened = json['lastOpened'];
+    final dogEared = json['dogEared'];
+    final signatures = json['signatures'];
+    _quireType = json['quireType'] == true;
+    if (position is int) _position = position < 0 ? 0 : position;
+    _place = SheetPlace.fromJson(json['place']) ?? _place;
+    if (opens is int) _opens = opens;
+    if (opened is bool) _opened = opened;
+    if (lastOpened is int) _lastOpened = lastOpened;
+    if (dogEared is List<Object?>) {
+      _dogEared
+        ..clear()
+        ..addAll(dogEared.whereType<int>());
+    }
+    if (signatures is List<Object?>) {
+      _signatures.clear();
+      for (final item in signatures) {
+        final mark = PlacedSignature.fromJson(item);
+        if (mark != null) _signatures.add(mark);
+      }
+    }
+    if (_state == ParseState.ready && _locked == null && unitCount > 0) {
+      _position = _position.clamp(0, unitCount - 1);
+    }
+    notifyListeners();
+  }
+
+  /// How far through the document the reader is, 0 to 1.
+  double get progress {
+    if (unitCount <= 1) return _opened ? 1 : 0;
+    return (_position + 1) / unitCount;
+  }
+
+  /// What the card and the folio chip print: `4 / 6` for a PDF, `24 / 73` for
+  /// a grid, `38%` for prose, because a block index means nothing to a reader
+  /// while a percentage of a flowing document does.
+  String get positionLabel {
+    if (unitCount == 0) return '';
+    // A deck counts in slides, which a reader counts too. A percentage
+    // through a deck would be the one format where the honest number is
+    // already on the screen.
+    if (isPdf || isGrid || isDeck) return '${_position + 1} / $unitCount';
+    return '${(progress * 100).round()}%';
+  }
+
+  /// What [unit] is called where a reader would look for it: a page, a row,
+  /// or for prose, how far through the document it sits.
+  String unitName(int unit) {
+    if (isPdf) return 'Page ${unit + 1}';
+    if (isGrid) return 'Row ${unit + 1}';
+    if (isDeck) return 'Slide ${unit + 1}';
+    final count = unitCount;
+    if (count <= 1) return 'The start';
+    return '${((unit + 1) / count * 100).round()}% through';
+  }
+
+  /// The pages the reader has caught a corner on.
+  Set<int> get dogEared => Set<int>.unmodifiable(_dogEared);
+
+  /// Catches or releases the corner of [page].
+  void toggleDogEar(int page) {
+    if (!_dogEared.remove(page)) _dogEared.add(page);
+    notifyListeners();
+  }
+
+  /// Every signature set into this document.
+  List<PlacedSignature> get signatures =>
+      List<PlacedSignature>.unmodifiable(_signatures);
+
+  /// True when the document carries a signature, which is what puts it on the
+  /// SIGNED shelf and draws the chip on its card.
+  bool get signed => _signatures.isNotEmpty;
+
+  /// Sets a signature into the document.
+  void placeSignature(PlacedSignature signature) {
+    _signatures.add(signature);
+    notifyListeners();
+  }
+
+  /// Decodes the pictures of any marks that arrived as bytes alone.
+  ///
+  /// Restoring a document reads its signatures back as numbers and files;
+  /// a picture has to be turned into something drawable before the page can
+  /// show it, and that is the one part of a restore that cannot be done in
+  /// the same breath as the rest.
+  Future<void> decodePictures() async {
+    var changed = false;
+    for (var i = 0; i < _signatures.length; i++) {
+      final mark = _signatures[i];
+      final bytes = mark.encoded;
+      if (bytes == null || mark.picture != null) continue;
+      try {
+        _signatures[i] = mark.withPicture(await decodePicture(bytes));
+        changed = true;
+      } on Object {
+        // A picture that will not decode is a mark that cannot be drawn.
+        // Dropping the bytes stops the app trying again on every restore.
+        _signatures[i] = PlacedSignature(
+          pageIndex: mark.pageIndex,
+          rect: mark.rect,
+          strokes: mark.strokes,
+        );
+        changed = true;
+      }
+    }
+    if (changed) notifyListeners();
+  }
+
+  /// The whole PDF with every signature written into its pages, or null when
+  /// there is no open PDF or nothing has been signed.
+  ///
+  /// Throws [PdfWriteError] for a file the writer cannot add to, with the
+  /// reason in words.
+  Uint8List? signedPdf({
+    Map<int, PdfImage> pictures = const <int, PdfImage>{},
+  }) {
+    final file = _pdf;
+    if (file == null || _signatures.isEmpty) return null;
+    return PdfSignatureWriter.signed(file, <PlacedInk>[
+      for (var i = 0; i < _signatures.length; i++)
+        PlacedInk(
+          pageIndex: _signatures[i].pageIndex,
+          rect: _signatures[i].rect,
+          outlines: _signatures[i].strokes,
+          image: pictures[i],
+        ),
+    ]);
+  }
+
+  /// Every picture among the signatures, read into the planes a PDF wants.
+  ///
+  /// It is done here rather than in the writer because reading pixels off a
+  /// decoded picture is asynchronous and writing a PDF is not.
+  Future<Map<int, PdfImage>> signaturePictures() async {
+    final out = <int, PdfImage>{};
+    for (var i = 0; i < _signatures.length; i++) {
+      final mark = _signatures[i];
+      var picture = mark.picture;
+      // A mark read back from an earlier run may not have been decoded yet,
+      // and skipping it would write a file without it.
+      final bytes = mark.encoded;
+      if (picture == null && bytes != null) {
+        picture = await decodePicture(bytes);
+      }
+      if (picture == null) continue;
+      final planes = await picturePlanes(picture);
+      if (planes == null) {
+        throw const PdfWriteError('A signature picture could not be read.');
+      }
+      out[i] = PdfImage(
+        width: planes.width,
+        height: planes.height,
+        rgb: planes.rgb,
+        alpha: planes.opaque ? null : planes.alpha,
+      );
+    }
+    return out;
+  }
+
+  /// Removes the most recent signature, if there is one.
+  void removeLastSignature() {
+    if (_signatures.isEmpty) return;
+    _signatures.removeLast();
+    notifyListeners();
+  }
+
+  /// The search over this document, built on the first query and kept.
+  ///
+  /// It is built here rather than in the find layer so a find that is closed
+  /// and reopened does not pay for the walk twice.
+  DocSearch? get search {
+    final doc = document;
+    if (doc == null) return null;
+    return _search ??= searchFor(doc);
+  }
+
+  /// Records how many words the engine found on [page].
+  ///
+  /// A page file holds no block model, so its words only exist once the pages
+  /// have been run and their runs merged back into lines. The count is kept
+  /// per page rather than summed on arrival so a page the reader visits twice
+  /// is not counted twice.
+  void recordPageWords(int page, PageDisplayList list) {
+    final words = countWords(
+      mergeRuns(list.texts).map((run) => run.text).join(' '),
+    );
+    if (_pageWords[page] == words) return;
+    _pageWords[page] = words;
+    notifyListeners();
+  }
+
+  /// Every word in the document, or 0 for a failure.
+  ///
+  /// For a page file it is the words on every page the engine has run so far,
+  /// which is why a PDF's contribution to the colophon grows as it is read
+  /// rather than arriving whole.
+  int get wordCount {
+    if (isPdf) {
+      var total = 0;
+      for (final words in _pageWords.values) {
+        total += words;
+      }
+      return total;
+    }
+    return document?.wordCount ?? 0;
+  }
+
+  /// How long the document takes to read.
+  int get minutes => readingMinutes(wordCount);
+}
+
+/// The desk: the six bundled documents, the shelf, the query, and whatever has
+/// been removed but not yet forgotten.
+class LibraryStore extends ChangeNotifier {
+  LibraryStore({
+    List<LibraryEntry> entries = libraryEntries,
+    this._catalogue,
+    this._device = const DeviceStorage(),
+    this._notices = const ArrivalNotices(),
+    this._revisions,
+  }) : _entries = List<LibraryEntry>.of(entries) {
+    // A desk with nowhere to read from, which is a desk a test built, holds
+    // everything it will ever hold from its first frame.
+    _booted = _catalogue == null;
+  }
+
+  /// The desk in order, shipped documents and brought in ones together.
+  final List<LibraryEntry> _entries;
+
+  /// Where brought in documents are kept between runs, or null for a desk
+  /// that only ever holds the shipped six, which is what a test builds.
+  final LibraryCatalogue? _catalogue;
+
+  /// The phone's folders, through the platform.
+  final DeviceStorage _device;
+
+  /// The notices that a document has arrived in one of them.
+  final ArrivalNotices _notices;
+
+  /// Every edit saved, kept beside each document rather than over it, or
+  /// null for a desk that cannot save edits.
+  final RevisionStore? _revisions;
+
+  /// What the notices say, dealt without repeats. Its seed is made on the
+  /// first run that needs one and kept.
+  LineDealer? _dealer;
+
+  /// True once the reader has been asked for leave to post notices.
+  bool _askedLeave = false;
+
+  /// Folders on the phone the reader has handed over, in the order they
+  /// were.
+  final List<AdoptedFolder> _adopted = <AdoptedFolder>[];
+
+  /// Those of [_adopted] that could not be read the last time they were
+  /// asked, because the grant was taken back or the folder went.
+  final Set<String> _missing = <String>{};
+
+  /// The documents quire reads in the adopted folders, as last scanned.
+  List<LibraryEntry> _onDevice = const <LibraryEntry>[];
+
+  /// What earlier runs remembered about documents not yet on the desk this
+  /// run, such as one in a folder on the phone that has not been scanned.
+  /// A store made for one of them takes its memory back.
+  final Map<String, Object?> _savedDocuments = <String, Object?>{};
+
+  /// Documents the reader has starred.
+  final Set<String> _starred = <String>{};
+
+  /// Which folder each document is in, by path. A document not in one is not
+  /// in here.
+  final Map<String, String> _inFolder = <String, String>{};
+
+  /// Every folder the reader has made, in the order they made them.
+  ///
+  /// Kept apart from [_inFolder] so a folder can be empty. A folder that
+  /// vanished when you took the last document out of it would be a folder you
+  /// could not fill in the order you wanted to.
+  final List<String> _folders = <String>[];
+
+  /// The signatures used most lately, newest first, so the pad can offer
+  /// them again instead of asking for the same name to be drawn every time.
+  List<SavedSignature> _recentSignatures = <SavedSignature>[];
+
+  /// What the reader has renamed, by path. A shipped document cannot carry its
+  /// new name in a file of its own, so every rename is remembered here and the
+  /// index is written as well for the ones that have a file.
+  final Map<String, String> _titles = <String, String>{};
+
+  /// Documents taken off the desk and waiting in the bin.
+  final Set<String> _binned = <String>{};
+
+  /// Documents deleted for good. A brought in one is gone from the list as
+  /// well; a shipped one cannot be, since it is part of the app, so it is
+  /// hidden here instead and stays hidden.
+  final Set<String> _gone = <String>{};
+
+  /// A write of the desk's state that is waiting to happen.
+  ///
+  /// Writes are gathered rather than made on every change, because a reader
+  /// scrolling a page moves the position on every unit and a file written
+  /// at every unit would be the app spending its time on the wrong thing.
+  Timer? _pendingSave;
+
+  static const _saveAfter = Duration(milliseconds: 500);
+  final Map<String, DocumentStore> _stores = <String, DocumentStore>{};
+  final Set<String> _removed = <String>{};
+  Shelf _shelf = Shelf.all;
+  String _query = '';
+  bool _booted = false;
+  LibraryEntry? _lastRemoved;
+
+  /// Everything on the desk, removals included, except what is gone for good.
+  List<LibraryEntry> get allEntries => List<LibraryEntry>.unmodifiable(
+    _entries.where((e) => !_gone.contains(e.path)).toList(),
+  );
+
+  /// True when the desk can take a file in from the phone.
+  bool get canImport => _catalogue != null;
+
+  /// Everything still on the desk, in shelf order.
+  List<LibraryEntry> get entries => _entries
+      .where(
+        (e) =>
+            !_removed.contains(e.path) &&
+            !_binned.contains(e.path) &&
+            !_gone.contains(e.path),
+      )
+      .toList();
+
+  /// What is waiting in the bin, in desk order.
+  List<LibraryEntry> get binned => _entries
+      .where((e) => _binned.contains(e.path) && !_gone.contains(e.path))
+      .toList();
+
+  bool isBinned(LibraryEntry entry) => _binned.contains(entry.path);
+
+  bool isStarred(LibraryEntry entry) => _starred.contains(entry.path);
+
+  /// Stars [entry], or takes the star off it.
+  void toggleStar(LibraryEntry entry) {
+    if (!_starred.remove(entry.path)) _starred.add(entry.path);
+    _scheduleSave();
+    notifyListeners();
+  }
+
+  /// Puts a binned [entry] back on the desk.
+  void restore(LibraryEntry entry) {
+    if (!_binned.remove(entry.path)) return;
+    _scheduleSave();
+    notifyListeners();
+  }
+
+  /// Deletes [entry] for good.
+  ///
+  /// A brought in document loses its copy and its place in the index. A
+  /// shipped one cannot lose anything, being part of the app, so it is hidden
+  /// from every list from now on, which from the desk is the same thing.
+  void deleteForever(LibraryEntry entry) {
+    _binned.remove(entry.path);
+    _removed.remove(entry.path);
+    _starred.remove(entry.path);
+    _gone.add(entry.path);
+    unawaited(_revisions?.drop(entry.path));
+    _stores.remove(entry.path)
+      ?..removeListener(_onDocumentChanged)
+      ..dispose();
+    final catalogue = _catalogue;
+    if (entry.source == DocSource.file) {
+      _entries.remove(entry);
+      _gone.remove(entry.path);
+      if (catalogue != null) {
+        catalogue.save(_entries);
+        catalogue.forget(entry);
+      }
+    }
+    _scheduleSave();
+    notifyListeners();
+  }
+
+  /// The selected shelf.
+  Shelf get shelf => _shelf;
+  set shelf(Shelf value) {
+    if (value == _shelf) return;
+    _shelf = value;
+    notifyListeners();
+  }
+
+  /// The desk search query, matched against title and format.
+  String get query => _query;
+  set query(String value) {
+    if (value == _query) return;
+    _query = value;
+    notifyListeners();
+  }
+
+  /// The cards the desk actually draws.
+  List<LibraryEntry> get visible => visibleOf(entries);
+
+  /// Those of [pool] the shelf and the query let through.
+  List<LibraryEntry> visibleOf(Iterable<LibraryEntry> pool) {
+    final needle = _query.trim().toLowerCase();
+    return pool.where((e) {
+      if (!_onShelf(e, _shelf)) return false;
+      if (needle.isEmpty) return true;
+      return e.title.toLowerCase().contains(needle) ||
+          e.format.mark.toLowerCase().contains(needle) ||
+          e.format.extension.contains(needle);
+    }).toList();
+  }
+
+  /// How many cards a shelf would show, ignoring the query.
+  ///
+  /// The chips need this to render an empty shelf at reduced alpha rather than
+  /// letting a reader tap into nothing.
+  int countOn(Shelf shelf) => entries.where((e) => _onShelf(e, shelf)).length;
+
+  bool _onShelf(LibraryEntry entry, Shelf shelf) {
+    switch (shelf) {
+      case Shelf.all:
+        return true;
+      case Shelf.reading:
+        final store = _stores[entry.path];
+        return store != null && store.opened;
+      case Shelf.signed:
+        final store = _stores[entry.path];
+        return store != null && store.signed;
+    }
+  }
+
+  /// The store for [entry], created on first use.
+  ///
+  /// Stores are kept rather than rebuilt so a document remembers its place,
+  /// its dog ears and its search index for as long as the app is running.
+  DocumentStore storeFor(LibraryEntry entry) =>
+      _stores.putIfAbsent(entry.path, () {
+        final store = DocumentStore(entry);
+        final saved = _savedDocuments.remove(entry.path);
+        if (saved is Map<String, Object?>) store.restore(saved);
+        store.addListener(_onDocumentChanged);
+        return store;
+      });
+
+  /// A document changed, so the desk repaints and, in a moment, writes.
+  void _onDocumentChanged() {
+    notifyListeners();
+    _scheduleSave();
+  }
+
+  /// Writes the desk's state after a short quiet, unless the desk has nowhere
+  /// to write it, which is a desk built by a test.
+  void _scheduleSave() {
+    final catalogue = _catalogue;
+    if (catalogue == null) return;
+    _pendingSave?.cancel();
+    _pendingSave = Timer(_saveAfter, () {
+      _pendingSave = null;
+      catalogue.saveState(_stateJson());
+    });
+  }
+
+  /// Everything the desk remembers, as plain data.
+  Map<String, Object?> _stateJson() => <String, Object?>{
+    'adopted': <Object?>[for (final folder in _adopted) folder.toJson()],
+    if (_dealer case final dealer?)
+      'notices': <String, Object?>{
+        'seed': dealer.seed,
+        'dealt': dealer.dealt,
+        'asked': _askedLeave,
+      },
+    'folders': _folders,
+    'signatures': <Object?>[
+      for (final signature in _recentSignatures) signature.toJson(),
+    ],
+    'inFolder': _inFolder,
+    'titles': _titles,
+    'starred': _starred.toList(),
+    'binned': _binned.toList(),
+    'gone': _gone.toList(),
+    'documents': <String, Object?>{
+      ..._savedDocuments,
+      for (final entry in _stores.entries) entry.key: entry.value.toJson(),
+    },
+  };
+
+  /// Takes back what [_stateJson] wrote, for the documents now on the desk.
+  void _applyState(Map<String, Object?> state) {
+    final known = <String>{for (final entry in _entries) entry.path};
+    void fill(Set<String> into, Object? list) {
+      if (list is! List<Object?>) return;
+      into.addAll(list.whereType<String>().where(known.contains));
+    }
+
+    final notices = state['notices'];
+    if (notices is Map<String, Object?>) {
+      final seed = notices['seed'];
+      final dealt = notices['dealt'];
+      if (seed is int) {
+        _dealer = LineDealer(
+          kArrivalLines,
+          seed: seed,
+          dealt: dealt is int && dealt >= 0 ? dealt : 0,
+        );
+      }
+      _askedLeave = notices['asked'] == true;
+    }
+    final adopted = state['adopted'];
+    if (adopted is List<Object?>) {
+      for (final json in adopted) {
+        final folder = AdoptedFolder.fromJson(json);
+        if (folder != null && !_adopted.contains(folder)) _adopted.add(folder);
+      }
+    }
+
+    final signatures = state['signatures'];
+    if (signatures is List<Object?>) {
+      _recentSignatures = <SavedSignature>[
+        for (final json in signatures) ?SavedSignature.fromJson(json),
+      ].take(kRecentSignatureLimit).toList();
+      unawaited(_decodeRecentPictures());
+    }
+    final folders = state['folders'];
+    if (folders is List<Object?>) {
+      _folders.addAll(folders.whereType<String>());
+    }
+    final inFolder = state['inFolder'];
+    if (inFolder is Map<String, Object?>) {
+      for (final filed in inFolder.entries) {
+        final folder = filed.value;
+        if (folder is! String || !_folders.contains(folder)) continue;
+        if (!known.contains(filed.key)) continue;
+        _inFolder[filed.key] = folder;
+      }
+    }
+    final titles = state['titles'];
+    if (titles is Map<String, Object?>) {
+      for (final named in titles.entries) {
+        final title = named.value;
+        if (title is! String || title.isEmpty) continue;
+        if (!known.contains(named.key)) continue;
+        _titles[named.key] = title;
+        final at = _entries.indexWhere((e) => e.path == named.key);
+        if (at >= 0) _entries[at] = _entries[at].renamed(title);
+      }
+    }
+    fill(_starred, state['starred']);
+    // A document on the phone is not known until its folder is scanned, and
+    // a star on it should not be lost for being early.
+    final starred = state['starred'];
+    if (starred is List<Object?>) {
+      _starred.addAll(
+        starred.whereType<String>().where((p) => p.startsWith('content://')),
+      );
+    }
+    fill(_binned, state['binned']);
+    fill(_gone, state['gone']);
+    final documents = state['documents'];
+    if (documents is! Map<String, Object?>) return;
+    _savedDocuments
+      ..clear()
+      ..addAll(documents);
+    for (final entry in _entries) {
+      final saved = documents[entry.path];
+      if (saved is Map<String, Object?>) storeFor(entry).restore(saved);
+    }
+  }
+
+  /// The store for [entry] if one has been made, without making one.
+  DocumentStore? peek(LibraryEntry entry) => _stores[entry.path];
+
+  /// Reads every bundled document and parses it.
+  ///
+  /// The desk draws its first frame from the manifest alone, so this runs
+  /// after that frame rather than before it: the cards are already on the
+  /// ground, and the page counts, row counts and word counts land on them as
+  /// each file comes back. A file the bundle cannot hand over fails on its own
+  /// store and leaves the other five alone.
+  Future<void> hydrate() async {
+    for (final entry in List<LibraryEntry>.of(_entries)) {
+      await _hydrateOne(entry);
+    }
+  }
+
+  Future<void> _hydrateOne(LibraryEntry entry) async {
+    final store = storeFor(entry);
+    if (store.state != ParseState.loading) return;
+    // Two callers asking for the same document while it is being read share
+    // the one read rather than each starting their own.
+    final pending = _reading[entry.path];
+    if (pending != null) return pending;
+    final reading = () async {
+      try {
+        final saved = await _revisions?.currentBytes(entry.path);
+        store.revised = saved != null;
+        await store.loadInBackground(saved ?? await originalBytes(entry));
+      } on Object catch (error) {
+        store.fail(error);
+      }
+    }();
+    _reading[entry.path] = reading;
+    try {
+      await reading;
+    } finally {
+      _reading.remove(entry.path);
+    }
+  }
+
+  final Map<String, Future<void>> _reading = <String, Future<void>>{};
+
+  /// The bytes behind [entry] as the reader last saved it, or as it arrived.
+  Future<Uint8List> _read(LibraryEntry entry) async {
+    final revisions = _revisions;
+    if (revisions != null) {
+      final saved = await revisions.currentBytes(entry.path);
+      if (saved != null) return saved;
+    }
+    return originalBytes(entry);
+  }
+
+  /// The bytes behind [entry] as it arrived, from the bundle, quire's own
+  /// copy or the phone. A save never touches these.
+  Future<Uint8List> originalBytes(LibraryEntry entry) async {
+    switch (entry.source) {
+      case DocSource.asset:
+        final data = await rootBundle.load(entry.path);
+        return data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes);
+      case DocSource.file:
+        return File(entry.path).readAsBytes();
+      case DocSource.device:
+        return _device.read(entry.path);
+    }
+  }
+
+  /// True when this desk can keep edits.
+  bool get canEdit => _revisions != null;
+
+  /// [entry]'s saved revisions and which one is read.
+  Future<History> historyOf(LibraryEntry entry) async =>
+      await _revisions?.history(entry.path) ?? History.empty;
+
+  /// Saves [bytes] as [entry]'s newest revision and reads it from now on.
+  ///
+  /// The file it came from is left as it was: a shipped document is part of
+  /// the app, and a document on the phone belongs to whatever put it there.
+  Future<void> saveEdit(LibraryEntry entry, Uint8List bytes, {String note = ''}) async {
+    final revisions = _revisions;
+    if (revisions == null) throw StateError('this desk cannot keep edits');
+    await revisions.save(entry.path, bytes, note: note);
+    await _reload(entry, bytes);
+  }
+
+  /// Reads revision [number] of [entry] from now on, 0 being the original,
+  /// without making a revision of it.
+  Future<void> readRevision(LibraryEntry entry, int number) async {
+    final revisions = _revisions;
+    if (revisions == null) return;
+    await revisions.readFrom(entry.path, number);
+    await _reload(entry, await _read(entry));
+  }
+
+  /// Deletes revision [number] of [entry] for good.
+  Future<void> deleteRevision(LibraryEntry entry, int number) async {
+    final revisions = _revisions;
+    if (revisions == null) return;
+    final before = (await revisions.history(entry.path)).current;
+    await revisions.delete(entry.path, number);
+    if (before == number) await _reload(entry, await _read(entry));
+    notifyListeners();
+  }
+
+  /// Deletes every revision of [entry] but the one being read.
+  Future<void> forgetRevisions(LibraryEntry entry) async {
+    await _revisions?.forgetOthers(entry.path);
+    notifyListeners();
+  }
+
+  /// The bytes of revision [number] of [entry], 0 being the original.
+  Future<Uint8List> revisionBytes(LibraryEntry entry, int number) async {
+    final revisions = _revisions;
+    if (revisions == null || number == 0) return originalBytes(entry);
+    return revisions.bytesOf(entry.path, number, () => originalBytes(entry));
+  }
+
+  Future<void> _reload(LibraryEntry entry, Uint8List bytes) async {
+    final store = storeFor(entry);
+    store.revised = (await historyOf(entry)).edited;
+    await store.loadInBackground(bytes);
+    notifyListeners();
+  }
+
+  /// Reads [entry] now if nothing has yet, which a document on the phone
+  /// waits for: it is only read when it is opened, so a folder of hundreds
+  /// is not read to find out what is in it.
+  Future<void> readNow(LibraryEntry entry) => _hydrateOne(entry);
+
+  // The phone's folders.
+
+  /// Every folder on the phone the reader has handed over.
+  List<AdoptedFolder> get adopted => List<AdoptedFolder>.unmodifiable(_adopted);
+
+  /// True when [folder] could not be read the last time it was asked.
+  bool isMissing(AdoptedFolder folder) => _missing.contains(folder.tree);
+
+  /// The documents quire reads in the adopted folders, as last scanned.
+  List<LibraryEntry> get onDevice => _onDevice;
+
+  /// Where the phone's folders are read from, for the desk to browse.
+  DeviceStorage get device => _device;
+
+  /// Asks the reader for a folder on the phone and, given one, keeps it and
+  /// reads what is in it. Null when none was chosen.
+  Future<AdoptedFolder?> adoptFolder() async {
+    final folder = await _device.adopt();
+    if (folder == null) return null;
+    if (!_adopted.contains(folder)) _adopted.add(folder);
+    _missing.remove(folder.tree);
+    if (!_askedLeave) {
+      _askedLeave = true;
+      await _notices.askLeave();
+    }
+    _scheduleSave();
+    notifyListeners();
+    await scanDevice();
+    await watchForArrivals();
+    return folder;
+  }
+
+  /// Lets go of [folder]: the grant goes back to the phone and its documents
+  /// leave the desk. Nothing on the phone is touched.
+  Future<void> forgetFolder(AdoptedFolder folder) async {
+    _adopted.remove(folder);
+    _missing.remove(folder.tree);
+    _onDevice = <LibraryEntry>[
+      for (final entry in _onDevice)
+        if (!_underTree(entry, folder)) entry,
+    ];
+    _scheduleSave();
+    notifyListeners();
+    await _device.release(folder.tree);
+    await watchForArrivals();
+  }
+
+  /// Tells the phone which folders to watch for new documents and hands it
+  /// the next lines to say, taking back how many it has said.
+  Future<void> watchForArrivals() async {
+    final dealer = _dealer ??= LineDealer(kArrivalLines, seed: freshDealerSeed());
+    final before = dealer.dealt;
+    await _notices.watch(
+      <String>[for (final folder in _adopted) folder.tree],
+      dealer,
+    );
+    if (dealer.dealt != before) _scheduleSave();
+  }
+
+  bool _underTree(LibraryEntry entry, AdoptedFolder folder) =>
+      _treeOf[entry.path] == folder.tree;
+
+  final Map<String, String> _treeOf = <String, String>{};
+
+  /// Reads the adopted folders again. A folder that cannot be read is kept
+  /// and marked missing, so it is shown as gone rather than vanishing.
+  Future<void> scanDevice() async {
+    if (_adopted.isEmpty) return;
+    final found = <LibraryEntry>[];
+    final seen = <String>{};
+    for (final folder in List<AdoptedFolder>.of(_adopted)) {
+      try {
+        for (final item in await _device.documents(folder.tree)) {
+          if (!seen.add(item.uri)) continue;
+          _treeOf[item.uri] = folder.tree;
+          found.add(item.entry);
+        }
+        _missing.remove(folder.tree);
+      } on DeviceFolderGone {
+        _missing.add(folder.tree);
+      }
+    }
+    _onDevice = found;
+    notifyListeners();
+  }
+
+  /// Brings back the documents the reader opened in earlier runs, ahead of
+  /// the shipped ones, then reads everything.
+  ///
+  /// The shipped six are on the desk from the first frame; these arrive a
+  /// moment later, once the index has been read, which is a moment the desk
+  /// already knows how to spend: it is the same moment the page counts land.
+  ///
+  /// With [parse] false the documents are known but not yet read, which is
+  /// what lets a document handed in from another app open before six others
+  /// have been parsed; the caller reads them afterwards with [hydrate].
+  Future<void> boot({bool parse = true}) async {
+    final catalogue = _catalogue;
+    if (catalogue != null) {
+      try {
+        final imported = await catalogue.load();
+        if (imported.isNotEmpty) _entries.insertAll(0, imported);
+        _applyState(await catalogue.loadState());
+        notifyListeners();
+        unawaited(scanDevice().then((_) => watchForArrivals()));
+      } on Object catch (error) {
+        // A read that fails here used to take the rest of the boot with it,
+        // and the caller reads the documents in the line after this one. So
+        // one unreadable file on the phone left every card on the desk
+        // spinning for the whole run, with nothing said and nothing to do
+        // about it. The shipped documents are still there to be read.
+        failures.record(error, where: 'reading the desk');
+      } finally {
+        // Whatever the phone had to say about this desk, it has said. One
+        // that could not be read still holds what it holds. Told after the
+        // flag is up, so whatever wakes on it finds the desk read.
+        _booted = true;
+        notifyListeners();
+      }
+    }
+    if (parse) await hydrate();
+  }
+
+  /// True once the desk has read what it holds.
+  ///
+  /// The first frame is drawn from the shipped manifest alone, since reading
+  /// the phone takes longer than a frame, and what that read takes off the
+  /// desk was never on it. Whatever draws the desk watches this so a bin
+  /// filled in an earlier run is not emptied all over again in front of the
+  /// reader every time the app opens.
+  bool get booted => _booted;
+
+  /// Reads the desk again: what has been brought in since, and what has gone.
+  ///
+  /// Not [boot] a second time. Booting assumes an empty desk and puts every
+  /// document it finds on the front of it, so calling it twice gives you every
+  /// document twice. This reconciles instead, which is the only honest thing
+  /// to do to a desk somebody is looking at.
+  ///
+  /// It matters because the desk is not the only thing that writes here. A
+  /// document shared in while quire was in the background arrives in the
+  /// index, and a document whose file has been deleted from underneath us
+  /// leaves nothing behind but a card that cannot open.
+  Future<void> refresh() async {
+    final catalogue = _catalogue;
+    if (catalogue == null) {
+      await hydrate();
+      return;
+    }
+    final held = <String>{for (final entry in _entries) entry.path};
+    final found = await catalogue.load();
+
+    // What is new since the desk was last read, newest first, the way it
+    // arrives at an import.
+    final arrived = <LibraryEntry>[
+      for (final entry in found)
+        if (!held.contains(entry.path)) entry,
+    ];
+    if (arrived.isNotEmpty) _entries.insertAll(0, arrived);
+
+    // And what has gone. A shipped document is part of the app and cannot go;
+    // a brought in one is only ever as real as the file behind it.
+    final still = <String>{for (final entry in found) entry.path};
+    _entries.removeWhere(
+      (entry) => entry.source == DocSource.file && !still.contains(entry.path),
+    );
+
+    _applyState(await catalogue.loadState());
+    notifyListeners();
+    await scanDevice();
+    await hydrate();
+  }
+
+  /// Writes [entry]'s signed PDF to a file the phone can hand to another app,
+  /// or returns null when there is nothing to write or nowhere to write it.
+  ///
+  /// Throws [PdfWriteError] when the file cannot be added to.
+  Future<File?> exportSigned(LibraryEntry entry) async {
+    final catalogue = _catalogue;
+    final store = _stores[entry.path];
+    if (store == null) return null;
+    if (store.state == ParseState.loading) await _hydrateOne(entry);
+    if (store.signed && store.locked != null) {
+      throw const PdfWriteError(
+        'Open this document and enter its password, then share it signed.',
+      );
+    }
+    if (catalogue == null) return null;
+    final bytes = store.signedPdf(pictures: await store.signaturePictures());
+    if (bytes == null) return null;
+    final title = entry.title.replaceAll(RegExp(r'[^A-Za-z0-9 ._-]+'), '');
+    return catalogue.writeExport('$title signed.pdf', bytes);
+  }
+
+  /// Writes [entry]'s document out again under [password] and hands back the
+  /// file, or null when there is nowhere to write it.
+  ///
+  /// The original is left exactly as it is and the seal goes into a second
+  /// file, named for the document and what was done to it, because a reader
+  /// who cannot open the copy tomorrow still has the document they started
+  /// with, and a reader looking at two files in a share sheet can tell which
+  /// is which without opening either.
+  ///
+  /// Throws [PdfWriteError] when the document cannot be sealed as it stands,
+  /// with a sentence that can go straight in front of a reader.
+  Future<File?> exportSealed(LibraryEntry entry, String password) async {
+    final catalogue = _catalogue;
+    final store = storeFor(entry);
+    if (store.state == ParseState.loading) await _hydrateOne(entry);
+    if (catalogue == null) return null;
+    // The bytes the document arrived as, not the ones the reader is looking
+    // at: a signature placed in this session lives in the store and has not
+    // been written into a page yet, and sealing what is on screen would seal
+    // a file that does not exist.
+    final bytes = store.bytes;
+    if (bytes.isEmpty) return null;
+    final sealed = sealedPdf(bytes, password);
+    final title = entry.title.replaceAll(RegExp(r'[^A-Za-z0-9 ._-]+'), '');
+    return catalogue.writeExport('$title protected.pdf', sealed);
+  }
+
+  /// Puts a file called [name] holding [bytes] onto the desk and opens it for
+  /// reading.
+  ///
+  /// Returns the new entry, or null when there is nowhere to keep it or the
+  /// file is a kind quire does not read. The card goes on the desk before the
+  /// file has been parsed, at the top, because it is the newest thing there.
+  Future<LibraryEntry?> importFile(String name, Uint8List bytes) async {
+    final held = await _holding(name, bytes);
+    if (held != null) return held;
+    final catalogue = _catalogue;
+    if (catalogue == null) return null;
+    final entry = await catalogue.import(name, bytes);
+    if (entry == null) return null;
+    _entries.insert(0, entry);
+    notifyListeners();
+    await catalogue.save(_entries);
+    await _hydrateOne(entry);
+    return entry;
+  }
+
+  /// A document already on the desk that is [bytes] under [name], so opening
+  /// the same file from another app twice does not put two cards down.
+  ///
+  /// Matched by title and then byte for byte, and only among files of the
+  /// same length, so nothing is read that could not be the same file.
+  Future<LibraryEntry?> _holding(String name, Uint8List bytes) async {
+    final title = LibraryEntry.titleFor(name);
+    for (final entry in _entries) {
+      if (entry.source != DocSource.file || entry.bytes != bytes.length) {
+        continue;
+      }
+      if (_titles[entry.path] == null && entry.title != title) continue;
+      try {
+        final there = await File(entry.path).readAsBytes();
+        if (_sameBytes(there, bytes)) {
+          if (_binned.contains(entry.path)) restore(entry);
+          return entry;
+        }
+      } on Object {
+        continue;
+      }
+    }
+    return null;
+  }
+
+  static bool _sameBytes(Uint8List a, Uint8List b) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
+  }
+
+  /// The signatures used most lately, newest first.
+  List<SavedSignature> get recentSignatures =>
+      List<SavedSignature>.unmodifiable(_recentSignatures);
+
+  /// Puts [signature] at the front of the recent ones, keeping it once.
+  void useSignature(SavedSignature signature) {
+    _recentSignatures = rememberSignature(_recentSignatures, signature);
+    notifyListeners();
+    // At once rather than after the usual quiet: a signature is made at the
+    // end of a task, which is exactly when somebody leaves the app.
+    unawaited(saveNow());
+  }
+
+  /// Writes the desk's state now, if there is anywhere to write it, instead
+  /// of waiting out the quiet a change normally waits for.
+  Future<void> saveNow() async {
+    final catalogue = _catalogue;
+    _pendingSave?.cancel();
+    _pendingSave = null;
+    if (catalogue == null) return;
+    await catalogue.saveState(_stateJson());
+  }
+
+  /// Takes [signature] out of the recent ones.
+  void forgetSignature(SavedSignature signature) {
+    final before = _recentSignatures.length;
+    _recentSignatures = <SavedSignature>[
+      for (final kept in _recentSignatures)
+        if (!kept.sameAs(signature)) kept,
+    ];
+    if (_recentSignatures.length == before) return;
+    notifyListeners();
+    _scheduleSave();
+  }
+
+  /// Decodes the pictures among the recent signatures read back from disk. A
+  /// picture that will not decode is dropped rather than offered and failed.
+  Future<void> _decodeRecentPictures() async {
+    final decoded = <SavedSignature, ui.Image?>{};
+    for (final signature in List<SavedSignature>.of(_recentSignatures)) {
+      final bytes = signature.encoded;
+      if (bytes == null || signature.picture != null) continue;
+      try {
+        decoded[signature] = await decodePicture(bytes);
+      } on Object {
+        decoded[signature] = null;
+      }
+    }
+    if (decoded.isEmpty) return;
+    // Matched against the list as it is now, since a signature may have been
+    // used or forgotten while the pictures were decoding.
+    _recentSignatures = <SavedSignature>[
+      for (final signature in _recentSignatures)
+        if (!decoded.containsKey(signature))
+          signature
+        else if (decoded[signature] case final ui.Image image)
+          signature.withPicture(image),
+    ];
+    notifyListeners();
+  }
+
+  /// Every folder, in the order they were made.
+  List<String> get folders => List<String>.unmodifiable(_folders);
+
+  /// The folder [entry] is in, or null when it is on the open desk.
+  String? folderOf(LibraryEntry entry) => _inFolder[entry.path];
+
+  /// What is in [folder], in desk order.
+  List<LibraryEntry> inFolder(String folder) =>
+      entries.where((e) => _inFolder[e.path] == folder).toList();
+
+  /// How many documents are in [folder].
+  int countIn(String folder) => inFolder(folder).length;
+
+  /// Makes a folder called [name], or returns the one already called that.
+  ///
+  /// Names are what a reader files by, so two folders with the same name would
+  /// be a filing system that cannot answer where a thing is.
+  String makeFolder(String name) {
+    final clean = name.trim();
+    if (clean.isEmpty) return clean;
+    for (final folder in _folders) {
+      if (folder.toLowerCase() == clean.toLowerCase()) return folder;
+    }
+    _folders.add(clean);
+    _scheduleSave();
+    notifyListeners();
+    return clean;
+  }
+
+  /// Puts [entry] in [folder], or back on the open desk when it is null.
+  void moveTo(LibraryEntry entry, String? folder) {
+    if (folder == null) {
+      if (_inFolder.remove(entry.path) == null) return;
+    } else {
+      final made = makeFolder(folder);
+      if (made.isEmpty || _inFolder[entry.path] == made) return;
+      _inFolder[entry.path] = made;
+    }
+    _scheduleSave();
+    notifyListeners();
+  }
+
+  /// Calls [folder] [name] instead, keeping everything that is in it.
+  ///
+  /// Returns the name it now has, or null when there is no such folder, the
+  /// name is blank, or another folder already has it: two folders answering
+  /// to one name is a filing system that cannot say where a thing is.
+  String? renameFolder(String folder, String name) {
+    final clean = name.trim();
+    final at = _folders.indexOf(folder);
+    if (at < 0 || clean.isEmpty) return null;
+    if (clean == folder) return folder;
+    for (final other in _folders) {
+      if (other != folder && other.toLowerCase() == clean.toLowerCase()) {
+        return null;
+      }
+    }
+    _folders[at] = clean;
+    for (final key in _inFolder.keys.toList()) {
+      if (_inFolder[key] == folder) _inFolder[key] = clean;
+    }
+    _scheduleSave();
+    notifyListeners();
+    return clean;
+  }
+
+  /// Takes a folder away. What was in it goes back on the open desk rather
+  /// than anywhere near the bin: a folder is a place to put documents, and
+  /// removing the place must never remove the documents.
+  void removeFolder(String folder) {
+    if (!_folders.remove(folder)) return;
+    _inFolder.removeWhere((_, held) => held == folder);
+    _scheduleSave();
+    notifyListeners();
+  }
+
+  /// Gives [entry] a new title.
+  ///
+  /// The path does not move, because the path is what the reading position,
+  /// the stars, the dog ears and every placed signature are filed under. A
+  /// rename changes what the document is called and nothing about what the
+  /// desk knows about it.
+  void rename(LibraryEntry entry, String title) {
+    final clean = title.trim();
+    if (clean.isEmpty || clean == entry.title) return;
+    final at = _entries.indexWhere((e) => e.path == entry.path);
+    if (at < 0) return;
+    _entries[at] = _entries[at].renamed(clean);
+    _titles[entry.path] = clean;
+    _catalogue?.save(_entries);
+    _scheduleSave();
+    notifyListeners();
+  }
+
+  /// Puts a second copy of [entry] on the desk, with its own file behind it.
+  ///
+  /// A real copy rather than a second card pointing at one file, because two
+  /// cards over one file would be two readings of one document fighting over
+  /// the same reading position, and a signature placed on one would appear on
+  /// the other.
+  Future<LibraryEntry?> duplicate(LibraryEntry entry) async {
+    final catalogue = _catalogue;
+    if (catalogue == null) return null;
+    final Uint8List bytes;
+    try {
+      bytes = await _read(entry);
+    } on Object {
+      return null;
+    }
+    final copy = await catalogue.import(entry.fileName, bytes);
+    if (copy == null) return null;
+    final named = copy.renamed(_freeTitle(entry.title));
+    _entries.insert(0, named);
+    _titles[named.path] = named.title;
+    notifyListeners();
+    await catalogue.save(_entries);
+    await _hydrateOne(named);
+    return named;
+  }
+
+  /// `Field Guide To Paper copy`, then `copy 2`, and so on for as long as the
+  /// desk already holds one.
+  String _freeTitle(String title) {
+    final taken = <String>{for (final entry in _entries) entry.title};
+    var wanted = '$title copy';
+    var n = 2;
+    while (taken.contains(wanted)) {
+      wanted = '$title copy $n';
+      n++;
+    }
+    return wanted;
+  }
+
+  /// Takes [entry] off the desk.
+  ///
+  /// The desk only records that the document has gone. What it looked like
+  /// while it was there is the list's business: the pixels a row comes apart
+  /// into belong to whatever drew the row, and a model that held an image
+  /// would be a model that could not be tested without a rasteriser.
+  void remove(LibraryEntry entry) {
+    // One offer at a time: removing a second document settles the first,
+    // rather than leaving it off the desk and out of the bin both.
+    commitRemoval();
+    if (!_removed.add(entry.path)) return;
+    _lastRemoved = entry;
+    notifyListeners();
+  }
+
+  /// The entry the undo pill is offering to bring back, or null.
+  LibraryEntry? get lastRemoved => _lastRemoved;
+
+  /// Puts the last removed entry back.
+  void undoRemove() {
+    final entry = _lastRemoved;
+    if (entry == null) return;
+    _removed.remove(entry.path);
+    _lastRemoved = null;
+    notifyListeners();
+  }
+
+  /// Forgets the last removal, which is what happens when the pill runs out.
+  ///
+  /// Whatever is still holding that document's pixels watches this: once the
+  /// offer is withdrawn there is nothing left to gather back together.
+  void commitRemoval() {
+    final entry = _lastRemoved;
+    if (entry == null) return;
+    _lastRemoved = null;
+    // Once the offer to undo has run out the document goes to the bin, where
+    // it waits to be put back or deleted for good. Nothing is lost by
+    // letting the pill drain, which is what lets the pill be short.
+    _removed.remove(entry.path);
+    _binned.add(entry.path);
+    _scheduleSave();
+    notifyListeners();
+  }
+
+  /// The colophon's first number.
+  int get documentCount => entries.length;
+
+  /// The words in [shown]: real extracted words from every one of them that
+  /// has been parsed. A document nobody has opened contributes nothing,
+  /// because counting it would mean parsing all six to draw the first frame.
+  ///
+  /// It counts what it is given rather than the whole library, because the
+  /// colophon sits under a list and not under the desk: a tab or a search
+  /// that leaves two documents on screen has to be a colophon of two.
+  int wordsIn(Iterable<LibraryEntry> shown) {
+    var total = 0;
+    for (final entry in shown) {
+      total += _stores[entry.path]?.wordCount ?? 0;
+    }
+    return total;
+  }
+
+  /// [wordsIn] at the reading speed the app assumes.
+  int minutesIn(Iterable<LibraryEntry> shown) => readingMinutes(wordsIn(shown));
+
+  /// The colophon's second number for the whole desk.
+  int get wordCount => wordsIn(entries);
+
+  /// The colophon's third number for the whole desk.
+  int get minutes => readingMinutes(wordCount);
+
+  @override
+  void dispose() {
+    // A removal nobody undid is a removal, even if the app is going.
+    commitRemoval();
+    _pendingSave?.cancel();
+    _pendingSave = null;
+    for (final store in _stores.values) {
+      store.removeListener(_onDocumentChanged);
+      store.dispose();
+    }
+    super.dispose();
+  }
+}
