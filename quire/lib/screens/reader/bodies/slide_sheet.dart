@@ -131,6 +131,8 @@ class SlideSheet extends StatelessWidget {
       clipBehavior: clip ? Clip.hardEdge : Clip.none,
       children: <Widget>[
         if (showBackground) ColoredBox(color: ground),
+        if (showBackground && slide.backgroundGradient != null)
+          DecoratedBox(decoration: BoxDecoration(gradient: slideGradient(slide.backgroundGradient!))),
         if (showBackground && picture != null)
           Image.memory(picture, fit: BoxFit.cover, gaplessPlayback: true),
         for (final shape in slide.shapes)
@@ -260,7 +262,10 @@ class _Contents extends StatelessWidget {
     // A shadow under what the shape holds, for a picture or words with no
     // fill or outline of their own to cast it: the same shapes, darkened
     // and set off, drawn first. Nothing is blurred, by the app's rule.
-    final castsOwn = shape.shadow && shape.blocks.isNotEmpty && (single || (fill == null && line == null && picture == null));
+    final gradient = shape.gradient;
+    final castsOwn = shape.shadow &&
+        shape.blocks.isNotEmpty &&
+        (single || (fill == null && gradient == null && line == null && picture == null));
     if (castsOwn) {
       content = Stack(
         clipBehavior: Clip.none,
@@ -280,11 +285,14 @@ class _Contents extends StatelessWidget {
       );
     }
 
-    final plain = shape.geometry == 'rect' && shape.dash == null && (!shape.shadow || castsOwn || (fill == null && line == null && picture == null));
+    final plain = shape.geometry == 'rect' &&
+        shape.dash == null &&
+        (!shape.shadow || castsOwn || (fill == null && gradient == null && line == null && picture == null));
     if (plain) {
       return DecoratedBox(
         decoration: BoxDecoration(
           color: fill == null ? null : Color(fill),
+          gradient: gradient == null ? null : slideGradient(gradient),
           image: picture == null
               ? null
               : DecorationImage(
@@ -326,11 +334,12 @@ class _Contents extends StatelessWidget {
       painter: _OutlinePainter(
         outline: outline,
         fill: fill == null ? null : Color(fill),
+        gradient: gradient,
         line: line == null ? null : Color(line),
         width: math.max(0.5, shape.lineWidth * scale),
         dash: shape.dash,
         shadow: shape.shadow && !castsOwn,
-        solid: fill != null || picture != null,
+        solid: fill != null || gradient != null || picture != null,
         scale: scale,
         flipH: shape.flipH,
         flipV: shape.flipV,
@@ -338,6 +347,21 @@ class _Contents extends StatelessWidget {
       child: inside,
     );
   }
+}
+
+/// [gradient] as Flutter draws one: along its angle, or out from the middle.
+Gradient slideGradient(SlideGradient gradient) {
+  final stops = gradient.stops.length == 1 ? <(double, int)>[gradient.stops.single, (1, gradient.stops.single.$2)] : gradient.stops;
+  final colors = <Color>[for (final (_, colour) in stops) Color(colour)];
+  final places = <double>[for (final (place, _) in stops) place];
+  if (gradient.radial) return RadialGradient(colors: colors, stops: places, radius: 0.75);
+  final turn = gradient.angle * math.pi / 180;
+  return LinearGradient(
+    begin: Alignment(-math.cos(turn), -math.sin(turn)),
+    end: Alignment(math.cos(turn), math.sin(turn)),
+    colors: colors,
+    stops: places,
+  );
 }
 
 /// A preset outline: how to draw it in a box, and whether it is a line
@@ -671,7 +695,10 @@ class _OutlinePainter extends CustomPainter {
     required this.flipH,
     required this.flipV,
     this.solid = false,
+    this.gradient,
   });
+
+  final SlideGradient? gradient;
 
   final SlideOutline outline;
 
@@ -706,7 +733,10 @@ class _OutlinePainter extends CustomPainter {
         );
       }
     }
-    if (fill != null && !outline.open) {
+    final gradient = this.gradient;
+    if (gradient != null && !outline.open) {
+      canvas.drawPath(path, Paint()..shader = slideGradient(gradient).createShader(Offset.zero & size));
+    } else if (fill != null && !outline.open) {
       canvas.drawPath(path, Paint()..color = fill!);
     }
     if (stroke != null) {
@@ -731,7 +761,8 @@ class _OutlinePainter extends CustomPainter {
       old.scale != scale ||
       old.flipH != flipH ||
       old.flipV != flipV ||
-      old.solid != solid;
+      old.solid != solid ||
+      old.gradient != gradient;
 }
 
 /// One block of a shape.

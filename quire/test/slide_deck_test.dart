@@ -522,6 +522,27 @@ Uint8List _shrunk(Uint8List bytes) {
   return ZipEncoder().encodeBytes(out);
 }
 
+/// The sample deck with slide 2 on a dark blue to black ground and slide
+/// 4's caption filled from red to gold.
+Uint8List _graded(Uint8List bytes) {
+  const ground = '<p:bg><p:bgPr><a:gradFill><a:gsLst><a:gs pos="0"><a:srgbClr val="1F3864"/></a:gs>'
+      '<a:gs pos="100000"><a:srgbClr val="000000"/></a:gs></a:gsLst><a:lin ang="5400000" scaled="0"/></a:gradFill><a:effectLst/></p:bgPr></p:bg>';
+  const fill = '<a:gradFill><a:gsLst><a:gs pos="0"><a:srgbClr val="C00000"/></a:gs><a:gs pos="100000"><a:srgbClr val="FFC000"/></a:gs></a:gsLst>'
+      '<a:lin ang="0" scaled="0"/></a:gradFill>';
+  final archive = ZipDecoder().decodeBytes(bytes);
+  final out = Archive();
+  for (final f in archive.files) {
+    var text = f.name.endsWith('.xml') ? utf8.decode(f.content) : null;
+    if (f.name == 'ppt/slides/slide2.xml') text = text!.replaceFirst('<p:cSld>', '<p:cSld>$ground');
+    if (f.name == 'ppt/slides/slide4.xml') {
+      final at = text!.indexOf('<a:noFill/>', text.indexOf('name="Caption"'));
+      text = text.replaceRange(at, at + '<a:noFill/>'.length, fill);
+    }
+    out.addFile(text == null ? ArchiveFile.bytes(f.name, f.content) : ArchiveFile.string(f.name, text));
+  }
+  return ZipEncoder().encodeBytes(out);
+}
+
 void main() {
   late Uint8List bytes;
 
@@ -1438,6 +1459,27 @@ void main() {
       final bigger = Delta.fromJson(text.ops).compose(Delta()..retain(words, <String, dynamic>{'size': '22'}));
       deck.setText(slide, body.id, text.write(deck.slideDoc(slide), bigger.toJson()));
       expect(_parts(deck.write())['ppt/slides/slide2.xml'], contains('sz="4000"'));
+    });
+  });
+
+  group('after the round two critic, gradients', () {
+    test('a gradient ground and a gradient fill are read', () {
+      final deck = PptxDeck(_graded(bytes));
+      final ground = deck.slide(deck.slides[1]).backgroundGradient!;
+      expect(ground.stops, <(double, int)>[(0.0, 0xFF1F3864), (1.0, 0xFF000000)]);
+      expect(ground.angle, closeTo(90, 1e-9));
+      final caption = deck.objects(deck.slides[3]).firstWhere((o) => o.name == 'Caption');
+      expect(deck.shape(deck.slides[3], caption.id)!.gradient!.stops.last.$2, 0xFFFFC000);
+    });
+
+    testWidgets('a gradient ground is drawn', (tester) async {
+      final deck = PptxDeck(_graded((await tester.runAsync(() => documentBytes(kPressDayBriefing)))!));
+      await tester.pumpWidget(MaterialApp(home: SlideSheet(slide: deck.slide(deck.slides[1]), assets: deck.assets, width: 400)));
+      final grounds = tester.widgetList<DecoratedBox>(find.byType(DecoratedBox)).where((b) => (b.decoration as BoxDecoration?)?.gradient != null);
+      expect(grounds, isNotEmpty);
+      final gradient = (grounds.first.decoration as BoxDecoration).gradient! as LinearGradient;
+      expect(gradient.colors.first, const Color(0xFF1F3864));
+      expect((gradient.begin as Alignment).y, closeTo(-1, 1e-9));
     });
   });
 }

@@ -293,6 +293,7 @@ class SlideShape {
     this.own,
     this.textable = false,
     this.wrap = true,
+    this.gradient,
     this.chart,
     this.brightness = 0,
     this.contrast = 0,
@@ -318,6 +319,9 @@ class SlideShape {
   /// False for a box whose words run on one line past its edges, as
   /// PowerPoint's wrap="none" boxes do.
   final bool wrap;
+
+  /// A fill that runs from colour to colour, drawn in place of [fill].
+  final SlideGradient? gradient;
   final List<DocBlock> blocks;
   final SlideRole role;
 
@@ -404,6 +408,7 @@ class SlideShape {
     own: own,
     textable: textable,
     wrap: wrap,
+    gradient: gradient,
     chart: chart,
     brightness: brightness,
     contrast: contrast,
@@ -427,6 +432,16 @@ class SlideShape {
 /// One slide: its own canvas, the shapes on it, and what the speaker was going
 /// to say.
 ///
+/// A fill that runs from colour to colour: [stops] as (place from 0 to 1,
+/// 0xAARRGGBB), along [angle] degrees clockwise from left to right, or out
+/// from the middle when [radial].
+class SlideGradient {
+  const SlideGradient(this.stops, {this.angle = 0, this.radial = false});
+  final List<(double, int)> stops;
+  final double angle;
+  final bool radial;
+}
+
 /// A slide is laid out rather than flowed, which is why it is one block
 /// carrying boxes instead of a run of paragraphs. [width] and [height] are the
 /// deck's slide size in points, and every shape's box is inside them, so a
@@ -439,9 +454,13 @@ class SlideBlock extends DocBlock {
     required this.shapes,
     this.background,
     this.backgroundAsset,
+    this.backgroundGradient,
     this.notes = const <DocBlock>[],
     this.layoutName,
   });
+
+  /// The slide's ground where it runs from colour to colour.
+  final SlideGradient? backgroundGradient;
 
   /// The slide canvas in logical points.
   final double width;
@@ -468,6 +487,7 @@ class SlideBlock extends DocBlock {
     shapes: shapes,
     background: background,
     backgroundAsset: backgroundAsset,
+    backgroundGradient: backgroundGradient,
     notes: notes,
     layoutName: layoutName,
   );

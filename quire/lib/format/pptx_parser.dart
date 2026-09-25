@@ -212,6 +212,7 @@ class _Frame {
 
   int? background;
   String? backgroundAsset;
+  SlideGradient? backgroundGradient;
 
   /// The theme colours this part resolves scheme names against, already run
   /// through the master's colour map.
@@ -577,6 +578,7 @@ class PptxParser {
     if (properties != null) {
       frame.background = _solidFill(properties, frame.colours);
       frame.backgroundAsset = _pictureFill(properties, frame.path);
+      frame.backgroundGradient = _gradientIn(properties, frame.colours);
       return;
     }
     // A background stated as a reference into the theme's fill list. Only its
@@ -689,6 +691,31 @@ class PptxParser {
   // Colour.
 
   /// The colour of a `solidFill` directly inside [parent].
+  /// A frame whose ground is stated, or null for one that says nothing.
+  static _Frame? _groundOf(_Frame? frame) =>
+      frame != null && (frame.background != null || frame.backgroundAsset != null || frame.backgroundGradient != null)
+      ? frame
+      : null;
+
+  /// The gradient [parent] fills with, or null for another fill.
+  SlideGradient? _gradientIn(XmlElement parent, Map<String, int> colours) {
+    final fill = _kid(parent, 'gradFill');
+    final list = fill == null ? null : _kid(fill, 'gsLst');
+    if (fill == null || list == null) return null;
+    final stops = <(double, int)>[
+      for (final stop in _kids(list, 'gs'))
+        if (_colourIn(stop, colours) case final colour?)
+          (((double.tryParse(_at(stop, 'pos') ?? '') ?? 0) / 100000).clamp(0.0, 1.0), colour),
+    ]..sort((a, b) => a.$1.compareTo(b.$1));
+    if (stops.isEmpty) return null;
+    final linear = _kid(fill, 'lin');
+    return SlideGradient(
+      stops,
+      angle: (double.tryParse((linear == null ? null : _at(linear, 'ang')) ?? '') ?? 0) / 60000,
+      radial: _kid(fill, 'path') != null,
+    );
+  }
+
   int? _solidFill(XmlElement parent, Map<String, int> colours) {
     final fill = _kid(parent, 'solidFill');
     return fill == null ? null : _colourIn(fill, colours);
@@ -823,6 +850,7 @@ class PptxParser {
     final shapes = <SlideShape>[];
     int? background;
     String? backgroundAsset;
+    SlideGradient? backgroundGradient;
 
     if (root != null) {
       final common = _kid(root, 'cSld');
@@ -831,6 +859,7 @@ class PptxParser {
         _readBackground(common, own);
         background = own.background;
         backgroundAsset = own.backgroundAsset;
+        backgroundGradient = own.backgroundGradient;
         final tree = _kid(common, 'spTree');
         if (tree != null) {
           shapes.addAll(_shapesIn(tree, path, colours, layout, master));
@@ -840,8 +869,12 @@ class PptxParser {
 
     // A slide that says nothing about its ground takes the layout's, then the
     // master's. A deck's whole look usually lives one of those two steps up.
-    background ??= layout?.background ?? master?.background;
-    backgroundAsset ??= layout?.backgroundAsset ?? master?.backgroundAsset;
+    if (background == null && backgroundAsset == null && backgroundGradient == null) {
+      final from = _groundOf(layout) ?? master;
+      background = from?.background;
+      backgroundAsset = from?.backgroundAsset;
+      backgroundGradient = from?.backgroundGradient;
+    }
 
     final block = SlideBlock(
       width: _slideWidth,
@@ -855,6 +888,7 @@ class PptxParser {
       ],
       background: background,
       backgroundAsset: backgroundAsset,
+      backgroundGradient: backgroundGradient,
       notes: notesPath.isEmpty
           ? const <DocBlock>[]
           : _notes(notesPath, colours),
@@ -1109,6 +1143,7 @@ class PptxParser {
     }
 
     final fillAsset = _ln(el) == 'pic' ? null : _pictureFill(el, part);
+    final gradient = properties == null ? null : _gradientIn(properties, colours);
     final fill = (properties == null ? null : _solidFill(properties, colours)) ??
         (fillAsset == null && !_statesFill(properties)
             ? _styleColour(style, 'fillRef', colours)
@@ -1125,7 +1160,7 @@ class PptxParser {
     // keeps for its own reasons. Drawing it costs a layer and shows nothing.
     // An empty placeholder is kept, drawing nothing, so an editor can show
     // where its words would go.
-    if (blocks.isEmpty && fill == null && fillAsset == null && line == null && ph == null && drawn == null) {
+    if (blocks.isEmpty && fill == null && gradient == null && fillAsset == null && line == null && ph == null && drawn == null) {
       return null;
     }
 
@@ -1143,6 +1178,7 @@ class PptxParser {
       blocks: blocks,
       role: role,
       fill: fill,
+      gradient: gradient,
       fillAsset: fillAsset,
       line: line,
       lineWidth: _lineWidthOf(properties) > 0
@@ -1704,8 +1740,9 @@ class PptxParser {
       width: _slideWidth,
       height: _slideHeight,
       shapes: <SlideShape>[...?master?.furniture, ...?layout?.furniture, ...hints],
-      background: layout?.background ?? master?.background,
-      backgroundAsset: layout?.backgroundAsset ?? master?.backgroundAsset,
+      background: (_groundOf(layout) ?? master)?.background,
+      backgroundAsset: (_groundOf(layout) ?? master)?.backgroundAsset,
+      backgroundGradient: (_groundOf(layout) ?? master)?.backgroundGradient,
       layoutName: _nameOf(path),
     );
   }
