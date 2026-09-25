@@ -9,6 +9,7 @@ import '../../../theme/colors.dart';
 import '../../../theme/easings.dart';
 import '../../../theme/metrics.dart';
 import '../../../theme/typography.dart';
+import '../../../widgets/system_text_scale.dart';
 import '../../../widgets/marked_text.dart';
 import '../../../widgets/paragraph_marks.dart';
 import '../back_layer.dart';
@@ -1273,9 +1274,14 @@ class _ProseSheetState extends State<ProseSheet> {
     // words, and the right way to make those bigger is to set them bigger and
     // let the lines fall where they fall. A line you have to scroll sideways
     // to finish is not a line anybody reads twice.
+    //
+    // The reader's own size multiplies the phone's, rather than replacing it:
+    // somebody who set their phone's text large should not have to set it
+    // large again here.
+    final system = SystemTextScale.of(context).scale(1);
     return MediaQuery(
       data: MediaQuery.of(context).copyWith(
-        textScaler: TextScaler.linear(widget.store.textScale),
+        textScaler: TextScaler.linear(system * widget.store.textScale),
       ),
       child: _column(context),
     );

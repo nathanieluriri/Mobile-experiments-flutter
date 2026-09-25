@@ -24,6 +24,7 @@ import 'theme/typography.dart';
 import 'widgets/damaged_surface.dart';
 import 'widgets/dissolve/dissolve_scope.dart';
 import 'widgets/quire_spinner.dart';
+import 'widgets/system_text_scale.dart';
 
 /// Gives a failure somewhere to go, before anything can raise one.
 ///
@@ -699,8 +700,20 @@ class _Fitted extends StatelessWidget {
                   padding: padding,
                   viewPadding: padding,
                   devicePixelRatio: query.devicePixelRatio * scale,
+                  // The chrome is laid out in a fixed frame, and past this it
+                  // clips its own words. The clamp is a floor on the ambition
+                  // rather than the ambition: chrome that reflows is the real
+                  // answer. A document's text is not held to it; see
+                  // [SystemTextScale].
+                  textScaler: query.textScaler.clamp(
+                    minScaleFactor: 1,
+                    maxScaleFactor: kMaxChromeTextScale,
+                  ),
                 ),
-                child: child,
+                child: SystemTextScale(
+                  scaler: query.textScaler,
+                  child: child,
+                ),
               ),
             ),
           ),
