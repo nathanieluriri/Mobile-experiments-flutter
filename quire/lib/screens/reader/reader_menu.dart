@@ -10,6 +10,10 @@ import '../../widgets/goo_menu.dart';
 /// is about the thing on the screen, so it holds only what needs the document
 /// to be open in front of you.
 enum ReaderAction {
+  edit(label: 'Edit', icon: LucideIcons.pencil),
+  markUp(label: 'Mark up', icon: LucideIcons.highlighter),
+  editCell(label: 'Edit this cell', icon: LucideIcons.pencil),
+  revisions(label: 'Revisions', icon: LucideIcons.history),
   sign(label: 'Sign this page', icon: LucideIcons.penLine),
   shareSigned(label: 'Share the signed copy', icon: LucideIcons.share2),
   seal(label: 'Protect with a password', icon: LucideIcons.fileLock2),

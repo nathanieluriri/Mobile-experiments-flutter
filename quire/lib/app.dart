@@ -18,6 +18,7 @@ import 'services/document_store.dart';
 import 'services/failure_log.dart';
 import 'services/incoming_documents.dart';
 import 'services/library_catalogue.dart';
+import 'services/revisions.dart';
 import 'theme/colors.dart';
 import 'theme/metrics.dart';
 import 'theme/typography.dart';
@@ -169,7 +170,11 @@ class _AppState extends State<App> with WidgetsBindingObserver {
     // platform pushes reaches this first. See [didPushRouteInformation].
     WidgetsBinding.instance.addObserver(this);
     if (widget.routes.containsKey(kDeskRoute)) return;
-    final library = LibraryStore(catalogue: LibraryCatalogue());
+    final catalogue = LibraryCatalogue();
+    final library = LibraryStore(
+      catalogue: catalogue,
+      revisions: RevisionStore(catalogue.revisionsHome),
+    );
     _library = library;
     // The desk's first frame is drawn from the manifest alone, so the files
     // are read after it rather than before it. The cards are already on the

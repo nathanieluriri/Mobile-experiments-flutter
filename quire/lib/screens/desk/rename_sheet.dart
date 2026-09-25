@@ -28,6 +28,7 @@ class RenameSheet extends StatefulWidget {
     this.heading = 'Rename',
     this.note = 'The document keeps its place, its stars and its signatures.',
     this.action = 'Save the name',
+    this.capitalization = TextCapitalization.words,
   });
 
   /// What it is called now, which is what the field opens holding, selected,
@@ -38,6 +39,7 @@ class RenameSheet extends StatefulWidget {
   final String heading;
   final String note;
   final String action;
+  final TextCapitalization capitalization;
 
   @override
   State<RenameSheet> createState() => _RenameSheetState();
@@ -107,7 +109,7 @@ class _RenameSheetState extends State<RenameSheet> {
                 cursorRadius: const Radius.circular(1),
                 selectionColor: AppColors.foundWash,
                 textInputAction: TextInputAction.done,
-                textCapitalization: TextCapitalization.words,
+                textCapitalization: widget.capitalization,
                 onSubmitted: (_) => _commit(),
                 maxLines: 1,
               ),

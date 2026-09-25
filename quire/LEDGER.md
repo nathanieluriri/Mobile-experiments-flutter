@@ -32,6 +32,25 @@ network and no data collected": neither of these reaches the network.
 - Android only for now. On iOS the row is not offered: the Swift side has not
   been written, because iOS has never been compiled here.
 
+## Edits
+
+- An edit never writes to the document it came from. Each save is a revision
+  in the app's own storage (`revisions/`, beside the imported library),
+  numbered and never renumbered, with the original always kept. A document in
+  a folder on the phone is never written to.
+- At most 20 revisions or 100 MB a document, oldest dropped first, never the
+  one being read. Deleting a revision, or forgetting the others, asks once and
+  says it cannot be undone. Deleting a document for good deletes its
+  revisions.
+- A spreadsheet formula quire writes carries no value: quire does not work
+  formulas out. The workbook is marked to be calculated when next opened
+  elsewhere, and quire shows the formula as written until then.
+- PDF edits are annotations with their own appearance, added in an
+  incremental update. The page's content stream is not rewritten, and a
+  sealed file stays sealed under its own key.
+- Revisions sit in the same storage as the library, so the backup rules
+  below cover them.
+
 ## Backup
 
 - `android:allowBackup="false"`, `android:fullBackupContent="false"`, and

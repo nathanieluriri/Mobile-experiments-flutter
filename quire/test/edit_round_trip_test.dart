@@ -204,6 +204,7 @@ void main() {
       expect(workbook, contains('fullCalcOnLoad="1"'));
       final cell = cellAt(out, sheet, 'E9');
       expect(cell?.formula, 'SUM(B2:B4)');
+      expect(cell?.formatted, '=SUM(B2:B4)');
     });
 
     test('a cell far outside the sheet is made where it belongs', () async {

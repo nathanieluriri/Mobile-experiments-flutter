@@ -23,6 +23,7 @@ import 'library_catalogue.dart';
 import 'picture.dart';
 import 'recent_signatures.dart';
 import 'reading_time.dart';
+import 'revisions.dart';
 import 'render_plan.dart';
 
 /// Where a document is in its journey from bytes to something readable.
@@ -416,6 +417,10 @@ class DocumentStore extends ChangeNotifier {
   /// Whether [loadInBackground] leaves the main isolate. Off under test, so
   /// the suite checks a parser without spinning an isolate for it.
   static bool parseInBackground = true;
+
+  /// True when what is being read is a revision the reader saved rather than
+  /// the file as it arrived, so nothing opens the file itself in its place.
+  bool revised = false;
 
   void _apply(ParsedDocument parsed) {
     _loaded = parsed.loaded;
@@ -913,6 +918,7 @@ class LibraryStore extends ChangeNotifier {
     this._catalogue,
     this._device = const DeviceStorage(),
     this._notices = const ArrivalNotices(),
+    this._revisions,
   }) : _entries = List<LibraryEntry>.of(entries) {
     // A desk with nowhere to read from, which is a desk a test built, holds
     // everything it will ever hold from its first frame.
@@ -931,6 +937,10 @@ class LibraryStore extends ChangeNotifier {
 
   /// The notices that a document has arrived in one of them.
   final ArrivalNotices _notices;
+
+  /// Every edit saved, kept beside each document rather than over it, or
+  /// null for a desk that cannot save edits.
+  final RevisionStore? _revisions;
 
   /// What the notices say, dealt without repeats. Its seed is made on the
   /// first run that needs one and kept.
@@ -1052,6 +1062,7 @@ class LibraryStore extends ChangeNotifier {
     _removed.remove(entry.path);
     _starred.remove(entry.path);
     _gone.add(entry.path);
+    unawaited(_revisions?.drop(entry.path));
     _stores.remove(entry.path)
       ?..removeListener(_onDocumentChanged)
       ..dispose();
@@ -1280,7 +1291,9 @@ class LibraryStore extends ChangeNotifier {
     if (pending != null) return pending;
     final reading = () async {
       try {
-        await store.loadInBackground(await _read(entry));
+        final saved = await _revisions?.currentBytes(entry.path);
+        store.revised = saved != null;
+        await store.loadInBackground(saved ?? await originalBytes(entry));
       } on Object catch (error) {
         store.fail(error);
       }
@@ -1295,8 +1308,19 @@ class LibraryStore extends ChangeNotifier {
 
   final Map<String, Future<void>> _reading = <String, Future<void>>{};
 
-  /// The bytes behind [entry], from the bundle or from the phone.
+  /// The bytes behind [entry] as the reader last saved it, or as it arrived.
   Future<Uint8List> _read(LibraryEntry entry) async {
+    final revisions = _revisions;
+    if (revisions != null) {
+      final saved = await revisions.currentBytes(entry.path);
+      if (saved != null) return saved;
+    }
+    return originalBytes(entry);
+  }
+
+  /// The bytes behind [entry] as it arrived, from the bundle, quire's own
+  /// copy or the phone. A save never touches these.
+  Future<Uint8List> originalBytes(LibraryEntry entry) async {
     switch (entry.source) {
       case DocSource.asset:
         final data = await rootBundle.load(entry.path);
@@ -1306,6 +1330,68 @@ class LibraryStore extends ChangeNotifier {
       case DocSource.device:
         return _device.read(entry.path);
     }
+  }
+
+  /// True when this desk can keep edits.
+  bool get canEdit => _revisions != null;
+
+  /// [entry]'s saved revisions and which one is read.
+  Future<History> historyOf(LibraryEntry entry) async =>
+      await _revisions?.history(entry.path) ?? History.empty;
+
+  /// Saves [bytes] as [entry]'s newest revision and reads it from now on.
+  ///
+  /// The file it came from is left as it was: a shipped document is part of
+  /// the app, and a document on the phone belongs to whatever put it there.
+  Future<void> saveEdit(LibraryEntry entry, Uint8List bytes, {String note = ''}) async {
+    final revisions = _revisions;
+    if (revisions == null) throw StateError('this desk cannot keep edits');
+    await revisions.save(entry.path, bytes, note: note);
+    await _reload(entry, bytes);
+  }
+
+  /// Makes revision [number] of [entry] the newest again, 0 being the
+  /// original.
+  Future<void> restoreRevision(LibraryEntry entry, int number) async {
+    final revisions = _revisions;
+    if (revisions == null) return;
+    await revisions.restore(
+      entry.path,
+      number,
+      () => originalBytes(entry),
+      note: number == 0 ? 'The original' : 'Revision $number again',
+    );
+    await _reload(entry, await _read(entry));
+  }
+
+  /// Deletes revision [number] of [entry] for good.
+  Future<void> deleteRevision(LibraryEntry entry, int number) async {
+    final revisions = _revisions;
+    if (revisions == null) return;
+    final before = (await revisions.history(entry.path)).current;
+    await revisions.delete(entry.path, number);
+    if (before == number) await _reload(entry, await _read(entry));
+    notifyListeners();
+  }
+
+  /// Deletes every revision of [entry] but the one being read.
+  Future<void> forgetRevisions(LibraryEntry entry) async {
+    await _revisions?.forgetOthers(entry.path);
+    notifyListeners();
+  }
+
+  /// The bytes of revision [number] of [entry], 0 being the original.
+  Future<Uint8List> revisionBytes(LibraryEntry entry, int number) async {
+    final revisions = _revisions;
+    if (revisions == null || number == 0) return originalBytes(entry);
+    return revisions.bytesOf(entry.path, number, () => originalBytes(entry));
+  }
+
+  Future<void> _reload(LibraryEntry entry, Uint8List bytes) async {
+    final store = storeFor(entry);
+    store.revised = (await historyOf(entry)).edited;
+    await store.loadInBackground(bytes);
+    notifyListeners();
   }
 
   /// Reads [entry] now if nothing has yet, which a document on the phone

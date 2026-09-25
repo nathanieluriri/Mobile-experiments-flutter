@@ -789,6 +789,18 @@ class _SheetViewState extends State<SheetView> with TickerProviderStateMixin {
 }
 
 /// What a cell bar prints.
+/// What a cell holds as it would be typed: a formula with its `=`, a number
+/// to every digit it has, or its text.
+String cellInput(TableBlock table, SheetCell at) {
+  final cell = cellAt(table, at.row, at.column);
+  if (cell == null) return '';
+  final formula = cell.formula;
+  if (formula != null && formula.isNotEmpty) return '=$formula';
+  final raw = cell.raw;
+  if (raw is num && !raw.isNaN && cell.numeric) return storedNumber(raw);
+  return cell.text;
+}
+
 class _BarText {
   const _BarText(
     this.reference,

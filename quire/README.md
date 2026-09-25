@@ -43,6 +43,16 @@ puts the slide alone on the screen with the deck's own titles to jump by.
 **A PDF can be sealed with a password,** in the file itself, so it asks for the
 password in any other reader too.
 
+**Every format can be edited, and nothing is lost by it.** The words of a Word
+document or a deck, a paragraph at a time, with each paragraph's look kept.
+Markdown and CSV as the text they are, with the page they make a tap away. A
+workbook's cells, one at a time, formulas included. A PDF takes words, ink,
+highlights, strikes and pictures, written as annotations after what is already
+in the file, so any other reader shows them. Every save is a new revision kept
+beside the document, never over it: the file it arrived as, a shipped sample
+or one on the phone, is never touched, and Revisions reads any earlier one
+again.
+
 **It reads your folders where they are.** Hand quire a folder on the phone,
 Downloads to start with, and everything in it that quire reads is on the desk
 under ALL, found by the search and opened in place. No permission is asked
@@ -77,7 +87,10 @@ apps that can open a document.
 ## Layout
 
 - `lib/pdf/` the page engine: parser, content interpreter, typesetter, and the
-  incremental writer that puts a signature into an existing file
+  incremental writer that puts a signature or annotations into an existing
+  file
+- `lib/edit/` the patchers that change Word, PowerPoint, spreadsheet and text
+  files in place, copying every part they do not change byte for byte
 - `lib/format/` the Word, spreadsheet, PowerPoint, CSV and Markdown parsers
 - `lib/model/` the one document model they all produce, and the search over it
 - `lib/screens/` the desk and the reader

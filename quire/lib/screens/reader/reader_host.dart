@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io' show File;
+import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:flutter/widgets.dart';
@@ -10,14 +11,21 @@ import '../../painting/signature_painter.dart';
 import '../../painting/overflow_dots_painter.dart';
 import '../../model/document.dart' show TableBlock;
 import '../../pdf/pdf_search.dart';
-import '../../pdf/writer.dart' show PdfWriteError;
-import '../../data/library.dart' show DocSource;
+import '../../pdf/writer.dart' show PdfAnnotator, PdfWriteError;
+import '../../data/library.dart' show DocFormat, DocSource;
+import '../../edit/xlsx_patch.dart';
+import '../../format/document_loader.dart';
 import '../../services/document_store.dart';
 import '../../services/native_pdf.dart';
 import '../../theme/colors.dart';
 import '../../theme/feedback.dart';
 import '../../theme/easings.dart';
 import '../../theme/metrics.dart';
+import '../edit/cell_sheet.dart';
+import '../edit/markup_screen.dart';
+import '../edit/paragraph_editor.dart';
+import '../edit/revisions_sheet.dart';
+import '../edit/text_editor.dart';
 import '../sign/placement_layer.dart';
 import '../sign/sign_screen.dart';
 import 'bodies/deck_body.dart';
@@ -77,6 +85,9 @@ class ReaderHost extends StatefulWidget {
   @override
   State<ReaderHost> createState() => _ReaderHostState();
 }
+
+/// What the band says once a change has been kept.
+const kEditSaved = 'Saved. Revisions has every earlier version.';
 
 /// Whether the line about tapping a slide has been said.
 ///
@@ -236,8 +247,27 @@ class _ReaderHostState extends State<ReaderHost> with TickerProviderStateMixin {
   bool get _protected =>
       widget.store.locked != null || (widget.store.pdf?.encrypted ?? false);
 
+  /// True when this document can be changed and the change kept: the desk
+  /// keeps revisions, and the document is open, read and not waiting on a
+  /// password.
+  bool get _editable {
+    final store = widget.store;
+    return (widget.library?.canEdit ?? false) &&
+        store.state == ParseState.ready &&
+        store.locked == null &&
+        store.bytes.isNotEmpty;
+  }
+
   /// What this document can have done to it from inside itself.
   List<ReaderAction> get _actions => <ReaderAction>[
+    if (_editable && widget.store.isPdf) ReaderAction.markUp,
+    if (_editable && widget.store.isGrid &&
+        widget.store.entry.format == DocFormat.xlsx)
+      ReaderAction.editCell,
+    if (_editable && !widget.store.isPdf &&
+        widget.store.entry.format != DocFormat.xlsx)
+      ReaderAction.edit,
+    if (widget.library?.canEdit ?? false) ReaderAction.revisions,
     if (widget.store.isDeck) ReaderAction.present,
     if (widget.store.isPdf) ReaderAction.sign,
     if (widget.store.isPdf && widget.store.signed) ReaderAction.shareSigned,
@@ -255,6 +285,14 @@ class _ReaderHostState extends State<ReaderHost> with TickerProviderStateMixin {
   void _act(ReaderAction action) {
     _closeMenu();
     switch (action) {
+      case ReaderAction.edit:
+        _edit();
+      case ReaderAction.markUp:
+        _markUp();
+      case ReaderAction.editCell:
+        _editCell();
+      case ReaderAction.revisions:
+        _revisions();
       case ReaderAction.present:
         _present(widget.store.position);
       case ReaderAction.sign:
@@ -280,6 +318,162 @@ class _ReaderHostState extends State<ReaderHost> with TickerProviderStateMixin {
       case ReaderAction.lock:
         _lock();
     }
+  }
+
+  // Editing.
+
+  /// Keeps [bytes] as the document's newest revision, once they have been
+  /// read back and found to be a document. Returns why not, or null.
+  Future<String?> _keep(Uint8List bytes, String note) async {
+    final library = widget.library;
+    if (library == null) return 'This desk cannot keep changes.';
+    final entry = widget.store.entry;
+    final LoadedDocument check;
+    try {
+      check = DocumentLoader.load(bytes, entry.fileName);
+    } on Object {
+      return 'The changed file would not open again, so it was not saved.';
+    }
+    if (check.failed) {
+      return 'The changed file would not open again, so it was not saved.';
+    }
+    try {
+      await library.saveEdit(entry, bytes, note: note);
+    } on Object {
+      return 'The change could not be written to this phone.';
+    }
+    return null;
+  }
+
+  Future<void> _openEditor(
+    Widget Function(BuildContext context, SaveEdit save, VoidCallback back)
+    build,
+  ) async {
+    final saved = await Navigator.of(context).push<bool>(
+      PageRouteBuilder<bool>(
+        transitionDuration: kPadArrival,
+        reverseTransitionDuration: kPadArrival,
+        pageBuilder: (context, animation, secondary) => build(
+          context,
+          (bytes, note) async {
+            final problem = await _keep(bytes, note);
+            if (problem == null && context.mounted) {
+              Navigator.of(context).pop(true);
+            }
+            return problem;
+          },
+          () => Navigator.of(context).pop(false),
+        ),
+        transitionsBuilder: (context, animation, secondary, child) =>
+            SlideTransition(
+              position: Tween<Offset>(
+                begin: const Offset(0, 1),
+                end: Offset.zero,
+              ).animate(CurvedAnimation(parent: animation, curve: easeOutCubic)),
+              child: child,
+            ),
+      ),
+    );
+    if (saved == true && mounted) _say(kEditSaved);
+  }
+
+  /// The words of a Word document or a deck, or the text of Markdown or a
+  /// CSV.
+  void _edit() {
+    final store = widget.store;
+    final bytes = store.bytes;
+    switch (store.entry.format) {
+      case DocFormat.docx:
+      case DocFormat.pptx:
+        _openEditor(
+          (context, save, back) => ParagraphEditor(
+            title: store.entry.title,
+            bytes: bytes,
+            deck: store.entry.format == DocFormat.pptx,
+            onSave: save,
+            onBack: back,
+          ),
+        );
+      case DocFormat.md:
+      case DocFormat.csv:
+        _openEditor(
+          (context, save, back) => TextEditor(
+            entry: store.entry,
+            bytes: bytes,
+            onSave: save,
+            onBack: back,
+          ),
+        );
+      case DocFormat.pdf:
+      case DocFormat.xlsx:
+        break;
+    }
+  }
+
+  /// Words, ink, highlights, strikes and pictures on a PDF's pages.
+  void _markUp() {
+    final pages = _pages;
+    final file = widget.store.pdf;
+    if (pages == null || file == null) return;
+    _openEditor(
+      (context, save, back) => MarkupScreen(
+        title: widget.store.entry.title,
+        pages: pages,
+        openAt: widget.store.position,
+        onBack: back,
+        onSave: (edits) async {
+          final Uint8List bytes;
+          try {
+            bytes = PdfAnnotator.annotated(file, edits);
+          } on PdfWriteError catch (error) {
+            return error.message;
+          } on Object {
+            return 'The marks could not be written into this file.';
+          }
+          return save(bytes, edits.length == 1 ? 'One mark' : '${edits.length} marks');
+        },
+      ),
+    );
+  }
+
+  /// The ringed cell of a workbook, or its first cell when none is.
+  Future<void> _editCell() async {
+    final store = widget.store;
+    final document = store.document;
+    if (document == null) return;
+    final controller = SheetController.of(store);
+    final index = controller.sheet.clamp(0, document.sections.length - 1);
+    final section = document.sections[index];
+    final table = section.blocks.whereType<TableBlock>().firstOrNull;
+    if (table == null) return;
+    final at = controller.selected ?? const SheetCell(0, 0);
+    final reference = '${columnLetter(at.column)}${at.row + 1}';
+    final input = await showDeskSheet<String>(
+      context,
+      (context) => CellSheet(
+        reference: '${section.title}!$reference',
+        input: cellInput(table, at),
+      ),
+    );
+    if (input == null || !mounted || input == cellInput(table, at)) return;
+    final Uint8List bytes;
+    try {
+      bytes = (XlsxPatch(store.bytes)..setCell(section.title, reference, input))
+          .write();
+    } on Object {
+      _say('That cell could not be changed in this file.');
+      return;
+    }
+    final problem = await _keep(bytes, '${section.title}!$reference changed');
+    if (!mounted) return;
+    _say(problem ?? kEditSaved);
+  }
+
+  Future<void> _revisions() async {
+    final library = widget.library;
+    if (library == null) return;
+    final said = await showRevisions(context, library, widget.store.entry);
+    if (said != null && mounted) _say(said);
   }
 
   /// Says how a deck is presented, once, on the first one that is opened.
@@ -561,6 +755,19 @@ class _ReaderHostState extends State<ReaderHost> with TickerProviderStateMixin {
     // engine on the next frame rather than inside the notification that
     // announced it, because opening one writes the page count straight back to
     // the store that is still handing out that notification.
+    final pages = _pages;
+    if (pages != null &&
+        widget.store.pdf != null &&
+        !identical(pages.file, widget.store.pdf)) {
+      // A save put a new file under the reader. The engine was reading the
+      // old one.
+      _pages = null;
+      _find?.dispose();
+      _find = null;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        pages.dispose();
+      });
+    }
     if (_pages == null && widget.store.pdf != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) setState(_openPages);
@@ -593,7 +800,7 @@ class _ReaderHostState extends State<ReaderHost> with TickerProviderStateMixin {
   Future<void> _drawByPhone(PdfPages pages) async {
     final store = widget.store;
     final entry = store.entry;
-    final inPlace = entry.source != DocSource.asset;
+    final inPlace = entry.source != DocSource.asset && !store.revised;
     final native = await NativePdf.open(
       path: inPlace ? entry.path : null,
       bytes: inPlace ? null : store.bytes,

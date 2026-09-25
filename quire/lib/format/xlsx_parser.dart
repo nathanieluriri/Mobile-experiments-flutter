@@ -760,6 +760,10 @@ class XlsxParser {
       formatted = raw as String;
     } else if (raw is num) {
       formatted = formatCell(raw, code, date1904: _date1904);
+    } else if (raw == null && formula != null) {
+      // A formula nothing has worked out yet, which is what quire writes. It
+      // is shown as written rather than as a blank that looks like a zero.
+      formatted = '=$formula';
     } else {
       formatted = raw?.toString() ?? '';
     }

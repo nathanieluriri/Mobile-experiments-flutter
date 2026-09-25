@@ -114,3 +114,12 @@ When another app offers a file, the chooser shows quire's logo with a mark for t
 
 - [x] A native splash: quire's mark on quire's ground with its name under it, drawn as vectors, with a layer list behind it for phones older than Android 12 and a night copy so a dark phone does not fall past it.
 - [x] A deck ships with the app, so a reader can see what a slide looks like before opening one of their own.
+
+## Editing (built; what it does not do yet)
+
+- [x] Word and PowerPoint words a paragraph at a time, Markdown and CSV as text with a preview, a workbook's cells one at a time, and words, ink, highlights, strikes and pictures on a PDF. Every save is a revision; the original is never touched.
+- [ ] Add or remove a paragraph, a slide or a row. Only what is already there can be changed.
+- [ ] Move or resize a mark on a PDF once it is down; for now it is undone and put down again.
+- [ ] Change or take off an annotation that was already in the PDF.
+- [ ] Words in a Word paragraph keep the first run's look only: a paragraph with bold in the middle loses the bold when it is edited.
+- [ ] Try the edit screens on a real phone with a real keyboard: they have only been driven by the test suite.

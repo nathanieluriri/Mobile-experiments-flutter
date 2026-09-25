@@ -43,6 +43,14 @@ class LibraryCatalogue {
     return _root = root;
   }
 
+  /// Where each document's saved edits are kept.
+  Future<Directory> revisionsHome() async {
+    final root = await _home();
+    final dir = Directory('${root.parent.path}${Platform.pathSeparator}revisions');
+    if (!await dir.exists()) await dir.create(recursive: true);
+    return dir;
+  }
+
   File _fileIn(Directory root, String name) =>
       File('${root.path}${Platform.pathSeparator}$name');
 
