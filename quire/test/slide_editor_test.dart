@@ -43,6 +43,31 @@ Uint8List grouped(Uint8List bytes) {
   return ZipEncoder().encodeBytes(out);
 }
 
+/// The sample deck with a 24 pt dot and an 80 by 20 pt one-line label put
+/// on its last slide, under its title.
+Uint8List smallShapes(Uint8List bytes) {
+  final archive = ZipDecoder().decodeBytes(bytes);
+  final out = Archive();
+  for (final f in archive.files) {
+    if (f.name == 'ppt/slides/slide6.xml') {
+      final xml = utf8.decode(f.content).replaceFirst(
+        '</p:spTree>',
+        '<p:sp><p:nvSpPr><p:cNvPr id="20" name="Dot"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr>'
+            '<a:xfrm><a:off x="762000" y="5080000"/><a:ext cx="304800" cy="304800"/></a:xfrm>'
+            '<a:prstGeom prst="ellipse"><a:avLst/></a:prstGeom><a:solidFill><a:srgbClr val="FFC000"/></a:solidFill></p:spPr></p:sp>'
+            '<p:sp><p:nvSpPr><p:cNvPr id="21" name="Label"/><p:cNvSpPr txBox="1"/><p:nvPr/></p:nvSpPr><p:spPr>'
+            '<a:xfrm><a:off x="2540000" y="5334000"/><a:ext cx="1016000" cy="254000"/></a:xfrm>'
+            '<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr><p:txBody><a:bodyPr wrap="none"/><a:lstStyle/>'
+            '<a:p><a:r><a:rPr lang="en-GB" sz="1200"/><a:t>Label</a:t></a:r></a:p></p:txBody></p:sp></p:spTree>',
+      );
+      out.addFile(ArchiveFile.string(f.name, xml));
+    } else {
+      out.addFile(ArchiveFile.bytes(f.name, f.content));
+    }
+  }
+  return ZipEncoder().encodeBytes(out);
+}
+
 void main() {
   late Uint8List original;
   Uint8List? saved;
@@ -666,6 +691,124 @@ void main() {
       await settle(tester);
       expect(find.text('Order'), findsOneWidget);
       expect(find.text('Format options'), findsNothing);
+    });
+  });
+
+  group('after the integration critic', () {
+    void sameBoxMovedDown(SlideBox before, SlideBox after, double by) {
+      expect(after.width, closeTo(before.width, 0.01));
+      expect(after.height, closeTo(before.height, 0.01));
+      expect(after.top, closeTo(before.top + by, 1));
+    }
+
+    testWidgets('a picked title dragged from its middle moves again, and keeps its size', (tester) async {
+      final state = await open(tester);
+      await openSlide(tester, state, 1);
+      final first = objectNamed(state, 'Title 1').box;
+      await tester.timedDragFrom(global(tester, state, middleOf(first)), const Offset(0, 30), const Duration(milliseconds: 300));
+      await settle(tester);
+      final second = objectNamed(state, 'Title 1').box;
+      sameBoxMovedDown(first, second, 30 / state.scale);
+      expect(state.selected, objectNamed(state, 'Title 1').id);
+      await tester.timedDragFrom(global(tester, state, middleOf(second)), const Offset(0, 30), const Duration(milliseconds: 300));
+      await settle(tester);
+      sameBoxMovedDown(second, objectNamed(state, 'Title 1').box, 30 / state.scale);
+    });
+
+    testWidgets('a title tapped and then dragged moves', (tester) async {
+      final state = await open(tester);
+      await openSlide(tester, state, 1);
+      final title = objectNamed(state, 'Title 1');
+      await tester.tapAt(global(tester, state, middleOf(title.box)));
+      await settle(tester);
+      expect(state.selected, title.id);
+      expect(state.typing, isNull);
+      await tester.timedDragFrom(global(tester, state, middleOf(title.box)), const Offset(0, 30), const Duration(milliseconds: 300));
+      await settle(tester);
+      sameBoxMovedDown(title.box, objectNamed(state, 'Title 1').box, 30 / state.scale);
+    });
+
+    testWidgets('a small shape and a one-line label move from their middles, picked or not', (tester) async {
+      final state = await open(tester, shape: smallShapes);
+      await openSlide(tester, state, 5);
+      for (final name in <String>['Dot', 'Label']) {
+        final before = objectNamed(state, name);
+        await tester.tapAt(global(tester, state, middleOf(before.box)));
+        await settle(tester);
+        expect(state.selected, before.id, reason: name);
+        await tester.timedDragFrom(global(tester, state, middleOf(before.box)), const Offset(0, -20), const Duration(milliseconds: 300));
+        await settle(tester);
+        sameBoxMovedDown(before.box, objectNamed(state, name).box, -20 / state.scale);
+      }
+      // A handle still sizes it, from the handle itself.
+      final dot = objectNamed(state, 'Dot');
+      await tester.tapAt(global(tester, state, middleOf(dot.box)));
+      await settle(tester);
+      expect(state.selected, dot.id);
+      final handles = state.grips;
+      await tester.timedDragFrom(
+        tester.getTopLeft(find.byKey(const ValueKey<String>('slide-canvas'))) + handles[Grip.se]!,
+        const Offset(20, 20),
+        const Duration(milliseconds: 300),
+      );
+      await settle(tester);
+      final sized = objectNamed(state, 'Dot').box;
+      expect(sized.left, closeTo(dot.box.left, 0.5));
+      expect(sized.width, closeTo(dot.box.width + 20 / state.scale, 1));
+    });
+
+    testWidgets('a held shape is carried by the finger', (tester) async {
+      final state = await open(tester);
+      await openSlide(tester, state, 1);
+      final body = objectNamed(state, 'Content 2');
+      final gesture = await tester.startGesture(global(tester, state, middleOf(body.box)));
+      await tester.pump(const Duration(milliseconds: 700));
+      for (var i = 0; i < 4; i++) {
+        await gesture.moveBy(const Offset(0, 10));
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      await gesture.up();
+      await settle(tester);
+      expect(state.selected, body.id);
+      sameBoxMovedDown(body.box, objectNamed(state, 'Content 2').box, 40 / state.scale);
+    });
+
+    testWidgets('two fingers zoom the slide and move nothing, and the zoom holds while typing', (tester) async {
+      final state = await open(tester);
+      await openSlide(tester, state, 1);
+      final deck = state.deck!;
+      final body = objectNamed(state, 'Content 2');
+      final before = state.scale;
+      final middle = global(tester, state, middleOf(body.box));
+      final one = await tester.startGesture(middle - const Offset(30, 0), pointer: 1);
+      final two = await tester.startGesture(middle + const Offset(30, 0), pointer: 2);
+      for (var i = 0; i < 10; i++) {
+        await one.moveBy(const Offset(-6, 0));
+        await two.moveBy(const Offset(6, 0));
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      await one.up();
+      await two.up();
+      await settle(tester);
+      expect(deck.changed, isFalse);
+      expect(objectNamed(state, 'Content 2').box, body.box);
+      expect(state.scale, greaterThan(before * 1.8));
+      // The point under the fingers stays under them.
+      expect((global(tester, state, middleOf(body.box)) - middle).distance, lessThan(2));
+      final at = global(tester, state, Offset(middleOf(body.box).dx, body.box.top + 20));
+      await tester.tapAt(at);
+      await settle(tester);
+      await tester.tapAt(at);
+      await settle(tester);
+      expect(state.typing, isNotNull);
+      var largest = 0.0;
+      for (final e in find.descendant(of: find.byType(QuillEditor), matching: find.byType(RichText)).evaluate()) {
+        (e.widget as RichText).text.visitChildren((span) {
+          largest = math.max(largest, span.style?.fontSize ?? 0);
+          return true;
+        });
+      }
+      expect(largest, greaterThanOrEqualTo(12));
     });
   });
 }

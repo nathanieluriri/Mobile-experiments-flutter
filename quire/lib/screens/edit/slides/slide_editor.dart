@@ -30,6 +30,17 @@ import 'slide_sheets.dart';
 /// How far from a handle's middle a finger still takes it, in pixels.
 const double kGripReach = 22.0;
 
+/// How near a handle a finger inside the frame must be to take it rather
+/// than move the selection, in pixels.
+const double kGripHold = 12.0;
+
+/// The smallest a picked object's frame is drawn, in pixels, so a small
+/// object keeps a middle to be dragged by clear of its handles.
+const double kLeastSlideFrame = 44.0;
+
+/// The most a pinch brings the slide in, over the slide seen whole.
+const double kMostSlideZoom = 4.0;
+
 /// How far above a selection its turning handle stands, in pixels.
 const double kTurnReach = 28.0;
 
@@ -164,8 +175,27 @@ class SlideEditorState extends State<SlideEditor> {
   /// How far the slide is carried up, while typing, to keep the caret in
   /// sight as the words grow, in pixels.
   double _follow = 0;
+
+  /// The same, across, for words typed in a box wider than the canvas.
+  double _followX = 0;
   Offset _origin = Offset.zero;
   double _scale = 1;
+
+  /// How far a pinch has brought the slide in, over the slide seen whole,
+  /// where the slide's corner is then, and on which slide.
+  double _zoom = 1;
+  Offset? _zoomAt;
+  String? _zoomSlide;
+
+  /// The fingers on the canvas, and whether more than one has been down
+  /// since the first of them was, which makes the touch a pinch and
+  /// nothing else.
+  final Map<int, Offset> _fingers = <int, Offset>{};
+  bool _pinched = false;
+  ({double span, Offset focal, double zoom, double scale, Offset origin})? _pinchFrom;
+
+  /// Where the finger last was while it slides the zoomed view about.
+  Offset? _panned;
 
   @visibleForTesting
   PptxDeck? get deck => _deck;
@@ -188,6 +218,18 @@ class SlideEditorState extends State<SlideEditor> {
   /// Where the point [slide] on the slide is on the canvas.
   @visibleForTesting
   Offset onCanvas(Offset slide) => _origin + slide * _scale;
+
+  /// Pixels to a point on the canvas.
+  @visibleForTesting
+  double get scale => _scale;
+
+  /// The handles of what is picked, on the canvas.
+  @visibleForTesting
+  Map<Grip, Offset> get grips {
+    final deck = _deck;
+    final frame = deck == null ? null : _frame(deck, _slide);
+    return frame == null ? const <Grip, Offset>{} : _grips(frame);
+  }
 
   /// The canvas, for a test to find points on.
   @visibleForTesting
@@ -964,84 +1006,159 @@ class SlideEditorState extends State<SlideEditor> {
         final typing = _typing;
         final wide = (box.maxWidth - 2 * pad) / sw;
         final typed = typing;
+        if (_zoomSlide != slide) {
+          _zoomSlide = slide;
+          _zoom = 1;
+          _zoomAt = null;
+        }
         // While words are typed the slide comes in close on their box, as
-        // Slides does, so the words are a size a thumb can place a caret in.
+        // Slides does, so the words are a size a thumb can place a caret in,
+        // and closer still if a pinch has brought it closer.
         final scale = typed == null
-            ? math.min(wide, (box.maxHeight - 2 * pad) / sh)
-            : ((box.maxWidth - 2 * pad) / math.max(typed.box.width, 1)).clamp(wide, wide * 3);
+            ? math.min(wide, (box.maxHeight - 2 * pad) / sh) * _zoom
+            : math.max(((box.maxWidth - 2 * pad) / math.max(typed.box.width, 1)).clamp(wide, wide * 3), wide * _zoom);
         final w = sw * scale, h = sh * scale;
         var top = _sheetOpen ? pad : (box.maxHeight - h) / 2;
         var left = (box.maxWidth - w) / 2;
+        final at = _zoomAt;
         if (typed != null) {
-          left = w + 2 * pad <= box.maxWidth ? left : (pad - typed.box.left * scale).clamp(box.maxWidth - w - pad, pad);
+          if (w + 2 * pad > box.maxWidth) {
+            left = (pad - typed.box.left * scale).clamp(box.maxWidth - w - pad, pad) + _followX;
+          }
           if (h + 2 * pad > box.maxHeight) {
             top = (pad + 24 - typed.box.top * scale).clamp(box.maxHeight - h - pad, pad);
           }
           top += _follow;
-          WidgetsBinding.instance.addPostFrameCallback((_) => _keepCaret(box.maxHeight));
+          WidgetsBinding.instance.addPostFrameCallback((_) => _keepCaret(box.maxWidth, box.maxHeight));
+        } else if (_zoom > 1 && at != null) {
+          if (w + 2 * pad > box.maxWidth) left = at.dx.clamp(box.maxWidth - w - pad, pad);
+          if (h + 2 * pad > box.maxHeight) top = at.dy.clamp(box.maxHeight - h - pad, pad);
         }
         _origin = Offset(left, top);
         _scale = scale;
         final block = _shown(deck, slide);
-        return ClipRect(
-          key: _canvasKey,
-          child: Stack(
-            children: <Widget>[
-              Positioned(
-                left: left - 1,
-                top: top - 1,
-                width: w + 2,
-                height: h + 2,
-                child: IgnorePointer(
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(border: Border.all(color: kSlideDeskEdge)),
-                    child: Padding(
-                      padding: const EdgeInsets.all(1),
-                      // Words that run past the slide's edge stay in sight
-                      // on the desk round it, as they do in Slides.
-                      child: SlideSheet(slide: block, assets: deck.assets, width: w, clip: false),
+        return Listener(
+          onPointerDown: _fingerDown,
+          onPointerMove: _fingerMove,
+          onPointerUp: _fingerUp,
+          onPointerCancel: _fingerUp,
+          child: ClipRect(
+            key: _canvasKey,
+            child: Stack(
+              children: <Widget>[
+                Positioned(
+                  left: left - 1,
+                  top: top - 1,
+                  width: w + 2,
+                  height: h + 2,
+                  child: IgnorePointer(
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(border: Border.all(color: kSlideDeskEdge)),
+                      child: Padding(
+                        padding: const EdgeInsets.all(1),
+                        // Words that run past the slide's edge stay in sight
+                        // on the desk round it, as they do in Slides.
+                        child: SlideSheet(slide: block, assets: deck.assets, width: w, clip: false),
+                      ),
                     ),
                   ),
                 ),
-              ),
-              Positioned.fill(
-                child: IgnorePointer(
-                  child: CustomPaint(
-                    painter: _Overlay(
-                      hints: _hints(deck, slide, block),
-                      frame: _frame(deck, slide),
-                      typingBox: typing?.box,
-                      typingTurn: typing?.rotation ?? 0,
-                      guides: _drag == null ? null : (_drag!.guideX, _drag!.guideY),
-                      origin: _origin,
-                      scale: scale,
-                      size: Size(w, h),
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: CustomPaint(
+                      painter: _Overlay(
+                        hints: _hints(deck, slide, block),
+                        frame: _frame(deck, slide),
+                        typingBox: typing?.box,
+                        typingTurn: typing?.rotation ?? 0,
+                        guides: _drag == null ? null : (_drag!.guideX, _drag!.guideY),
+                        origin: _origin,
+                        scale: scale,
+                        size: Size(w, h),
+                      ),
                     ),
                   ),
                 ),
-              ),
-              Positioned.fill(
-                child: GestureDetector(
-                  key: const ValueKey<String>('slide-canvas'),
-                  behavior: HitTestBehavior.opaque,
-                  // A drag is aimed from where the finger went down, which is
-                  // what decides whether it took a handle.
-                  dragStartBehavior: DragStartBehavior.down,
-                  onTapUp: (d) => _tapUp(deck, d.localPosition),
-                  onLongPressStart: (d) => _longPress(deck, d.localPosition),
-                  onPanStart: (d) => _panStart(deck, d.localPosition),
-                  onPanUpdate: (d) => _panUpdate(deck, d.localPosition),
-                  onPanEnd: (_) => _panEnd(deck),
-                  onPanCancel: () => _panEnd(deck),
+                Positioned.fill(
+                  child: GestureDetector(
+                    key: const ValueKey<String>('slide-canvas'),
+                    behavior: HitTestBehavior.opaque,
+                    // A drag is aimed from where the finger went down, which is
+                    // what decides whether it took a handle.
+                    dragStartBehavior: DragStartBehavior.down,
+                    onTapUp: (d) => _tapUp(deck, d.localPosition),
+                    onLongPressStart: (d) => _longPress(deck, d.localPosition),
+                    onLongPressMoveUpdate: (d) => _panUpdate(deck, d.localPosition),
+                    onLongPressEnd: (_) => _panEnd(deck),
+                    onPanStart: (d) => _panStart(deck, d.localPosition),
+                    onPanUpdate: (d) => _panUpdate(deck, d.localPosition),
+                    onPanEnd: (_) => _panEnd(deck),
+                    onPanCancel: () => _panEnd(deck),
+                  ),
                 ),
-              ),
-              if (typing != null) _textEditor(deck, slide, typing, scale),
-              if (_pill && typing == null && _drag == null) _pillFor(deck, slide),
-            ],
+                if (typing != null) _textEditor(deck, slide, typing, scale),
+                if (_pill && typing == null && _drag == null) _pillFor(deck, slide),
+              ],
+            ),
           ),
         );
       },
     );
+  }
+
+  // Pinching.
+
+  void _fingerDown(PointerDownEvent e) {
+    if (_fingers.isEmpty) _pinched = false;
+    _fingers[e.pointer] = e.localPosition;
+    if (_fingers.length < 2) return;
+    // A second finger makes the touch a pinch: whatever the first began is
+    // let go of unfinished, and nothing on the slide changes.
+    setState(() {
+      _pinched = true;
+      _drag = null;
+      _panned = null;
+    });
+    _pinchStart();
+  }
+
+  void _fingerMove(PointerMoveEvent e) {
+    if (!_fingers.containsKey(e.pointer)) return;
+    _fingers[e.pointer] = e.localPosition;
+    if (_fingers.length >= 2 && _pinchFrom != null) _pinch();
+  }
+
+  void _fingerUp(PointerEvent e) {
+    _fingers.remove(e.pointer);
+    if (_fingers.length >= 2) {
+      _pinchStart();
+    } else {
+      _pinchFrom = null;
+    }
+  }
+
+  (Offset, double) _spread() {
+    final points = _fingers.values.take(2).toList();
+    return ((points[0] + points[1]) / 2, (points[0] - points[1]).distance);
+  }
+
+  void _pinchStart() {
+    final (focal, span) = _spread();
+    _pinchFrom = (span: span, focal: focal, zoom: _zoom, scale: _scale, origin: _origin);
+  }
+
+  /// Brings the slide in or out about the fingers' middle, keeping the
+  /// point of the slide that was under it there.
+  void _pinch() {
+    final from = _pinchFrom!;
+    final (focal, span) = _spread();
+    final zoom = (from.zoom * span / math.max(from.span, 1)).clamp(1.0, kMostSlideZoom);
+    final under = (from.focal - from.origin) / from.scale;
+    final scale = from.scale * zoom / from.zoom;
+    setState(() {
+      _zoom = zoom;
+      _zoomAt = zoom > 1 ? focal - under * scale : null;
+    });
   }
 
   /// The slide as it is drawn now: the shape being moved where the finger
@@ -1158,8 +1275,12 @@ class SlideEditorState extends State<SlideEditor> {
     final drag = _drag;
     final dragging = drag != null && drag.id == id;
     final shape = deck.shape(slide, id);
+    final box = dragging ? drag.box : object.box;
+    final least = kLeastSlideFrame / _scale;
+    final w = math.max(box.width, least), h = math.max(box.height, least);
     return _Frame(
-      box: dragging ? drag.box : object.box,
+      box: box,
+      drawn: SlideBox(box.left + (box.width - w) / 2, box.top + (box.height - h) / 2, w, h),
       rotation: dragging ? drag.rotation : object.rotation,
       line: _isLine(object, shape),
       flipH: dragging ? drag.flipH : object.flipH,
@@ -1171,9 +1292,10 @@ class SlideEditorState extends State<SlideEditor> {
   /// The handles of the selection, on the canvas.
   Map<Grip, Offset> _grips(_Frame frame) {
     final b = frame.box;
+    final d = frame.drawn;
     final centre = Offset(b.left + b.width / 2, b.top + b.height / 2);
     final theta = frame.rotation * math.pi / 180;
-    Offset at(double x, double y) => onCanvas(centre + _turn(Offset(x * b.width / 2, y * b.height / 2), theta));
+    Offset at(double x, double y) => onCanvas(centre + _turn(Offset(x * d.width / 2, y * d.height / 2), theta));
     if (frame.line) {
       final start = Offset(frame.flipH ? b.right : b.left, frame.flipV ? b.bottom : b.top);
       final end = Offset(frame.flipH ? b.left : b.right, frame.flipV ? b.top : b.bottom);
@@ -1202,24 +1324,43 @@ class SlideEditorState extends State<SlideEditor> {
     return Offset(p.dx * c - p.dy * s, p.dx * s + p.dy * c);
   }
 
+  /// What a drag from [canvas] does to the selection: a handle it is on or,
+  /// from outside the frame, within reach of, [Grip.move] from anywhere
+  /// else inside the frame or on the object, and null off the selection.
   Grip? _gripAt(PptxDeck deck, Offset canvas) {
     final frame = _frame(deck, _slide);
     if (frame == null) return null;
     final grips = _grips(frame);
     Grip? best;
-    var bestDistance = kGripReach;
+    var bestDistance = double.infinity;
     // The turning handle and the corners first: on a small shape the edge
     // handles sit almost on top of them.
     for (final grip in <Grip>[Grip.turn, Grip.start, Grip.end, Grip.nw, Grip.ne, Grip.sw, Grip.se, Grip.n, Grip.s, Grip.w, Grip.e]) {
       final at = grips[grip];
       if (at == null) continue;
       final d = (at - canvas).distance;
-      if (d < bestDistance - 4 || (best == null && d <= kGripReach)) {
+      if (best == null || d < bestDistance - 4) {
         best = grip;
         bestDistance = d;
       }
     }
-    return best;
+    final b = frame.box;
+    if (frame.line) {
+      // A short line keeps a middle to be moved by between its ends.
+      final a = onCanvas(Offset(frame.flipH ? b.right : b.left, frame.flipV ? b.bottom : b.top));
+      final z = onCanvas(Offset(frame.flipH ? b.left : b.right, frame.flipV ? b.top : b.bottom));
+      if (bestDistance <= math.min(kGripHold, (z - a).distance / 4)) return best;
+      if (_toSegment(canvas, a, z) <= 14) return Grip.move;
+      return bestDistance <= kGripReach ? best : null;
+    }
+    if (bestDistance <= kGripHold) return best;
+    final centre = Offset(b.left + b.width / 2, b.top + b.height / 2);
+    final local = _turn(_toSlide(canvas) - centre, -frame.rotation * math.pi / 180) * _scale;
+    final d = frame.drawn;
+    final inFrame = local.dx.abs() <= d.width * _scale / 2 && local.dy.abs() <= d.height * _scale / 2;
+    final onObject = local.dx.abs() <= b.width * _scale / 2 + 6 && local.dy.abs() <= b.height * _scale / 2 + 6;
+    if (inFrame || onObject) return Grip.move;
+    return bestDistance <= kGripReach ? best : null;
   }
 
   /// The object under [canvas], topmost first.
@@ -1251,6 +1392,7 @@ class SlideEditorState extends State<SlideEditor> {
   }
 
   void _tapUp(PptxDeck deck, Offset at) {
+    if (_pinched) return;
     if (_typing != null) _endTyping();
     final slide = _slide;
     final hit = _hit(deck, at);
@@ -1290,23 +1432,31 @@ class SlideEditorState extends State<SlideEditor> {
     });
   }
 
+  /// Picks up what is held, which the finger then carries if it moves.
   void _longPress(PptxDeck deck, Offset at) {
+    if (_pinched) return;
     if (_typing != null) _endTyping();
-    final hit = _hit(deck, at);
+    final hit = _gripAt(deck, at) == null ? _hit(deck, at) : _selected;
     setState(() {
       _selected = hit;
       _pill = hit != null || _clip != null;
     });
+    if (hit != null) _panStart(deck, at);
   }
 
   void _panStart(PptxDeck deck, Offset at) {
-    if (_typing != null) return;
+    if (_typing != null || _pinched) return;
     final slide = _slide;
     var grip = _gripAt(deck, at);
     var id = _selected;
     if (grip == null) {
       final hit = _hit(deck, at);
-      if (hit == null) return;
+      if (hit == null) {
+        // Brought in close, a drag on the bare slide or the desk slides
+        // the view about, as a pinched page does.
+        if (_zoom > 1) _panned = at;
+        return;
+      }
       id = hit;
       grip = Grip.move;
     }
@@ -1329,10 +1479,21 @@ class SlideEditorState extends State<SlideEditor> {
   }
 
   void _panUpdate(PptxDeck deck, Offset at) {
+    final panned = _panned;
+    if (panned != null && !_pinched) {
+      setState(() {
+        _zoomAt = _origin + (at - panned);
+        _panned = at;
+      });
+      return;
+    }
     final drag = _drag;
     if (drag == null) return;
     final p = _toSlide(at);
     final from = drag.from;
+    // A handle goes as far as the finger does from where it went down, so
+    // it does not leap to a finger that took it from beside it.
+    final shift = p - drag.start;
     switch (drag.grip) {
       case Grip.move:
         var d = p - drag.start;
@@ -1347,7 +1508,8 @@ class SlideEditorState extends State<SlideEditor> {
         drag.box = SlideBox(from.left + d.dx, from.top + d.dy, from.width, from.height);
       case Grip.turn:
         final centre = Offset(from.left + from.width / 2, from.top + from.height / 2);
-        var angle = math.atan2(p.dy - centre.dy, p.dx - centre.dx) * 180 / math.pi + 90;
+        double bearing(Offset q) => math.atan2(q.dy - centre.dy, q.dx - centre.dx) * 180 / math.pi;
+        var angle = drag.fromRotation + bearing(p) - bearing(drag.start);
         angle = ((angle % 360) + 360) % 360;
         final nearest = (angle / 45).round() * 45.0;
         if ((angle - nearest).abs() < 4) angle = nearest % 360;
@@ -1356,8 +1518,8 @@ class SlideEditorState extends State<SlideEditor> {
       case Grip.end:
         final a = Offset(drag.flipH ? from.right : from.left, drag.flipV ? from.bottom : from.top);
         final z = Offset(drag.flipH ? from.left : from.right, drag.flipV ? from.top : from.bottom);
-        final start = drag.grip == Grip.start ? p : a;
-        final end = drag.grip == Grip.end ? p : z;
+        final start = drag.grip == Grip.start ? a + shift : a;
+        final end = drag.grip == Grip.end ? z + shift : z;
         drag.box = SlideBox(
           math.min(start.dx, end.dx),
           math.min(start.dy, end.dy),
@@ -1367,7 +1529,10 @@ class SlideEditorState extends State<SlideEditor> {
         drag.flipH = end.dx < start.dx;
         drag.flipV = end.dy < start.dy;
       default:
-        drag.box = _resized(drag, p);
+        final (gx, gy) = _direction(drag.grip);
+        final centre = Offset(from.left + from.width / 2, from.top + from.height / 2);
+        final handle = centre + _turn(Offset(gx * from.width / 2, gy * from.height / 2), drag.fromRotation * math.pi / 180);
+        drag.box = _resized(drag, handle + shift);
     }
     drag.moved = true;
     setState(() {});
@@ -1407,6 +1572,7 @@ class SlideEditorState extends State<SlideEditor> {
   }
 
   void _panEnd(PptxDeck deck) {
+    _panned = null;
     final drag = _drag;
     if (drag == null) return;
     _drag = null;
@@ -1805,6 +1971,7 @@ class SlideEditorState extends State<SlideEditor> {
     controller.addListener(_typed);
     setState(() {
       _follow = 0;
+      _followX = 0;
       _typing = _Typing(
         id,
         source,
@@ -1842,7 +2009,7 @@ class SlideEditorState extends State<SlideEditor> {
 
   /// Carries the slide up or down so the caret stands inside the canvas,
   /// clear of the bar under it, as the words it is typing grow.
-  void _keepCaret(double height) {
+  void _keepCaret(double width, double height) {
     final typing = _typing;
     if (!mounted || typing == null) return;
     final render = _editorKey.currentState?.renderEditor;
@@ -1851,14 +2018,22 @@ class SlideEditorState extends State<SlideEditor> {
     final selection = typing.controller.selection;
     if (!selection.isValid) return;
     final caret = render.getLocalRectForCaret(selection.extent);
-    final top = canvas.globalToLocal(render.localToGlobal(caret.topLeft)).dy;
+    final top = canvas.globalToLocal(render.localToGlobal(caret.topLeft));
     final bottom = canvas.globalToLocal(render.localToGlobal(caret.bottomLeft)).dy;
     const margin = 16.0;
     var by = 0.0;
     if (bottom > height - margin) by = height - margin - bottom;
-    if (top + by < margin) by = margin - top;
-    if (by.abs() < 1) return;
-    setState(() => _follow += by);
+    if (top.dy + by < margin) by = margin - top.dy;
+    var across = 0.0;
+    if (typing.box.width * _scale > width - 2 * margin) {
+      if (top.dx > width - 2 * margin) across = width - 2 * margin - top.dx;
+      if (top.dx + across < 2 * margin) across = 2 * margin - top.dx;
+    }
+    if (by.abs() < 1 && across.abs() < 1) return;
+    setState(() {
+      _follow += by;
+      _followX += across;
+    });
   }
 
   void _endTyping() {
@@ -1886,6 +2061,7 @@ class SlideEditorState extends State<SlideEditor> {
     }
     _focus.unfocus();
     _follow = 0;
+    _followX = 0;
     WidgetsBinding.instance.addPostFrameCallback((_) => controller.dispose());
     if (mounted) setState(() {});
   }
@@ -2217,6 +2393,7 @@ class SlidePrompt {
 class _Frame {
   const _Frame({
     required this.box,
+    required this.drawn,
     required this.rotation,
     required this.line,
     required this.flipH,
@@ -2224,6 +2401,10 @@ class _Frame {
     required this.turnable,
   });
   final SlideBox box;
+
+  /// [box] grown about its middle to [kLeastSlideFrame] on screen where it
+  /// is smaller: where the frame and its handles are drawn.
+  final SlideBox drawn;
   final double rotation;
   final bool line;
   final bool flipH;
@@ -2359,7 +2540,7 @@ class _Overlay extends CustomPainter {
       handle(origin + end * scale, round: true);
       return;
     }
-    _turned(canvas, b, frame.rotation, (rect) {
+    _turned(canvas, frame.drawn, frame.rotation, (rect) {
       canvas.drawRect(rect, stroke);
       for (final p in <Offset>[
         rect.topLeft,
