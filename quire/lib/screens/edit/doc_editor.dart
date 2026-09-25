@@ -259,6 +259,7 @@ class DocEditorState extends State<DocEditor> {
 
   @override
   void dispose() {
+    _closeAlignment();
     _controller
       ..removeListener(_changed)
       ..dispose();
@@ -501,28 +502,70 @@ class DocEditorState extends State<DocEditor> {
     }
   }
 
-  Future<void> _alignment() async {
-    final choice = await _sheet<String>(
-      (context) => DeskSheet(
-        title: 'Alignment',
+  final LayerLink _alignLink = LayerLink();
+  OverlayEntry? _alignPop;
+
+  /// The four alignments in a small pop-up over the button, as Docs has
+  /// them, which leaves the keyboard where it was.
+  void _alignment() {
+    if (_alignPop != null) {
+      _closeAlignment();
+      return;
+    }
+    final typing = _focus.hasFocus;
+    final current = _align;
+    final entry = OverlayEntry(
+      builder: (context) => Stack(
         children: <Widget>[
-          for (final (value, label, icon) in const <(String, String, IconData)>[
-            ('left', 'Align left', LucideIcons.textAlignStart),
-            ('center', 'Align centre', LucideIcons.textAlignCenter),
-            ('right', 'Align right', LucideIcons.textAlignEnd),
-            ('justify', 'Justify', LucideIcons.textAlignJustify),
-          ])
-            DeskSheetRow(
-              label: label,
-              icon: icon,
-              trailing: value == _align ? const Icon(LucideIcons.check, size: 18, color: AppColors.accentBright) : null,
-              onTap: () => Navigator.of(context).pop(value),
+          Positioned.fill(
+            child: GestureDetector(behavior: HitTestBehavior.translucent, onTap: _closeAlignment),
+          ),
+          CompositedTransformFollower(
+            link: _alignLink,
+            targetAnchor: Alignment.topCenter,
+            followerAnchor: Alignment.bottomCenter,
+            offset: const Offset(0, -6),
+            child: Container(
+              key: const ValueKey<String>('alignment-pop'),
+              padding: const EdgeInsets.all(4),
+              decoration: BoxDecoration(
+                color: AppColors.surfaceHigh,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: AppColors.hairline),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  for (final (value, label, icon) in const <(String, String, IconData)>[
+                    ('left', 'Align left', LucideIcons.textAlignStart),
+                    ('center', 'Align centre', LucideIcons.textAlignCenter),
+                    ('right', 'Align right', LucideIcons.textAlignEnd),
+                    ('justify', 'Justify', LucideIcons.textAlignJustify),
+                  ])
+                    _BarButton(
+                      icon: icon,
+                      label: label,
+                      on: value == current,
+                      onTap: () {
+                        _closeAlignment();
+                        _set(_alignAttribute(value));
+                        if (typing && !_focus.hasFocus) _focus.requestFocus();
+                      },
+                    ),
+                ],
+              ),
             ),
+          ),
         ],
       ),
     );
-    if (choice == null || !mounted) return;
-    _set(_alignAttribute(choice));
+    _alignPop = entry;
+    Overlay.of(context).insert(entry);
+  }
+
+  void _closeAlignment() {
+    _alignPop?.remove();
+    _alignPop = null;
   }
 
   static Attribute _alignAttribute(String? align) => switch (align) {
@@ -1149,15 +1192,18 @@ class DocEditorState extends State<DocEditor> {
                 onTap: () => unawaited(_colour(highlight: true)),
               ),
               const _BarGap(),
-              _BarButton(
-                icon: switch (_align) {
-                  'center' => LucideIcons.textAlignCenter,
-                  'right' => LucideIcons.textAlignEnd,
-                  'justify' => LucideIcons.textAlignJustify,
-                  _ => LucideIcons.textAlignStart,
-                },
-                label: 'Alignment',
-                onTap: () => unawaited(_alignment()),
+              CompositedTransformTarget(
+                link: _alignLink,
+                child: _BarButton(
+                  icon: switch (_align) {
+                    'center' => LucideIcons.textAlignCenter,
+                    'right' => LucideIcons.textAlignEnd,
+                    'justify' => LucideIcons.textAlignJustify,
+                    _ => LucideIcons.textAlignStart,
+                  },
+                  label: 'Alignment',
+                  onTap: _alignment,
+                ),
               ),
               _BarButton(
                 icon: LucideIcons.list,

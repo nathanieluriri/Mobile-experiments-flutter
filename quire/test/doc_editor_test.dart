@@ -184,7 +184,7 @@ void main() {
     await tester.ensureVisible(find.bySemanticsLabel('Alignment'));
     await tester.tap(find.bySemanticsLabel('Alignment'));
     await settle(tester);
-    await tester.tap(find.text('Align centre'));
+    await tester.tap(find.bySemanticsLabel('Align centre'));
     await settle(tester);
     await save(tester);
     final lines = _lines(saved!);
@@ -479,6 +479,29 @@ void main() {
       expect(state.controller.document.toPlainText(), before);
       final line = state.controller.document.queryChild(start).node!;
       expect(line.style.attributes[Attribute.list.key], isNull);
+    });
+
+    testWidgets('alignment is a pop-up of four over its button, and the keyboard stays up', (tester) async {
+      final state = await open(tester);
+      final at = offsetOf(state, 'A margin is a straight line');
+      await tester.tapAt(tester.getCenter(find.byType(QuillEditor)));
+      await settle(tester);
+      state.controller.updateSelection(TextSelection.collapsed(offset: at + 3), ChangeSource.local);
+      await settle(tester);
+      expect(tester.testTextInput.isVisible, isTrue);
+      await tester.ensureVisible(find.bySemanticsLabel('Alignment'));
+      await tester.tap(find.bySemanticsLabel('Alignment'));
+      await settle(tester);
+      final pop = tester.getRect(find.byKey(const ValueKey<String>('alignment-pop')));
+      final button = tester.getRect(find.bySemanticsLabel('Alignment'));
+      expect(pop.bottom, lessThanOrEqualTo(button.top));
+      expect(find.descendant(of: find.byKey(const ValueKey<String>('alignment-pop')), matching: find.byType(Icon)), findsNWidgets(4));
+      await tester.tap(find.bySemanticsLabel('Align centre'));
+      await settle(tester);
+      expect(find.byKey(const ValueKey<String>('alignment-pop')), findsNothing);
+      expect(tester.testTextInput.isVisible, isTrue);
+      final line = state.controller.document.queryChild(at).node! as Line;
+      expect(line.style.attributes[Attribute.align.key], Attribute.centerAlignment);
     });
 
     testWidgets('Enter on an empty item in the middle of a list ends the list there', (tester) async {
