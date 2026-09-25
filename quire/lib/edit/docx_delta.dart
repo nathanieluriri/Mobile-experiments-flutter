@@ -423,6 +423,10 @@ class DocxDelta {
   String _majorFont = 'Calibri Light';
   String _minorFont = 'Calibri';
   final Map<String, Map<int, String>> _numFormats = <String, Map<int, String>>{};
+
+  /// For a numbering missing deeper levels, the numbering made to hold its
+  /// items nested deeper, by its number and list kind.
+  final Map<String, String> _deeper = <String, String>{};
   final Map<String, String> _links = <String, String>{};
 
   late final String _text;
@@ -1080,7 +1084,21 @@ class DocxDelta {
     }
     final align = _alignOf(pPr, styleId);
     if (align != null) out['align'] = align;
+    if (_rightToLeft(pPr, styleId)) out['direction'] = 'rtl';
     return out;
+  }
+
+  /// True for a paragraph set right to left, by itself or by its style.
+  bool _rightToLeft(XmlElement? pPr, String? styleId) {
+    var bidi = pPr?.getElement('w:bidi');
+    var id = styleId;
+    var guard = 0;
+    while (bidi == null && id != null && guard++ < 12) {
+      final style = _styles[id];
+      bidi = style?.pPr?.getElement('w:bidi');
+      id = style?.basedOn;
+    }
+    return _on(bidi);
   }
 
   /// The numbering a paragraph takes, directly or from its style, and its
@@ -1095,6 +1113,10 @@ class DocxDelta {
             '0') ??
         0;
     if (numId == null || numId == '0' || !_numFormats.containsKey(numId)) return (null, 0);
+    // A level that shows no number, as LibreOffice's outline numbering of
+    // its headings is, puts nothing in a list.
+    final formats = _numFormats[numId]!;
+    if ((formats[ilvl] ?? formats[0]) == 'none') return (null, 0);
     return (numId, ilvl);
   }
 
@@ -1575,11 +1597,14 @@ class DocxDelta {
     return b.toString();
   }
 
+  /// The list [p] is in, by its own numbering or its style's; a heading's
+  /// outline numbering is no list to join.
   _ListRef? _listOf(XmlElement p) {
-    final numPr = p.getElement('w:pPr')?.getElement('w:numPr');
-    final numId = numPr?.getElement('w:numId')?.getAttribute('w:val');
-    if (numId == null || numId == '0' || !_numFormats.containsKey(numId)) return null;
-    final level = int.tryParse(numPr?.getElement('w:ilvl')?.getAttribute('w:val') ?? '0') ?? 0;
+    final pPr = p.getElement('w:pPr');
+    final styleId = pPr?.getElement('w:pStyle')?.getAttribute('w:val') ?? _defaultParagraphStyle;
+    if (pPr?.getElement('w:numPr') == null && _headingOf(styleId) != null) return null;
+    final (numId, level) = _numberingOf(pPr, styleId);
+    if (numId == null) return null;
     return (kind: _kindOf(numId, level), numId: numId);
   }
 
@@ -1650,7 +1675,7 @@ class DocxDelta {
     return insert is Map && insert.containsKey(kBlockEmbed);
   }
 
-  static const _blockKeys = <String>{'header', 'list', 'indent', 'align', 'blockquote'};
+  static const _blockKeys = <String>{'header', 'list', 'indent', 'align', 'blockquote', 'direction'};
 
   static Map<String, Object?> _blockOnly(Map<String, Object?>? attributes) => <String, Object?>{
         if (attributes != null)
@@ -2324,11 +2349,16 @@ class DocxDelta {
       }
     } else if (kind != list || level != indent) {
       final (wasNum, wasLevel) = source == null ? (null, 0) : _numberingOf(source.pPr, source.styleId);
-      final id = (kind == list ? numId : null) ??
+      var id = (kind == list ? numId : null) ??
           (wasNum != null && _kindOf(wasNum, wasLevel) == list ? wasNum : null) ??
           (before?.kind == list ? before!.numId : null) ??
           (after?.kind == list ? after!.numId : null) ??
           _newNumbering(list);
+      // A numbering with no such level, as Word's List Bullet style has
+      // only its first, nests in a numbering of its own that has them all.
+      if (!(_numFormats[id]?.containsKey(indent) ?? false)) {
+        id = _deeper['$id:$list'] ??= _newNumbering(list);
+      }
       pPr.getElement('w:numPr')?.remove();
       _insertOrdered(pPr, _numPr(indent, id), _pPrOrder);
       // The level's own indent, as Word and Docs move an item to it.
@@ -2353,6 +2383,14 @@ class DocxDelta {
             _setChild(pPr, 'ind', {'left': '${indent * 720}'}, _pPrOrder);
           }
         }
+      }
+    }
+    final rtl = attributes['direction'] == 'rtl';
+    if (rtl != _rightToLeft(pPr, styleId)) {
+      if (rtl == _rightToLeft(null, styleId)) {
+        pPr.getElement('w:bidi')?.remove();
+      } else {
+        _setChild(pPr, 'bidi', rtl ? const <String, String>{} : const <String, String>{'val': '0'}, _pPrOrder);
       }
     }
     final align = attributes['align'] as String?;

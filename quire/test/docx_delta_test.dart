@@ -672,6 +672,98 @@ void main() {
   group('after the round three critic', () {
     String inner(XmlElement p) => p.toXmlString();
 
+    // Word's and python-docx's List Bullet and List Number: numbering
+    // given by the style, one level deep.
+    const listStyles = '<w:style w:type="paragraph" w:styleId="ListBullet"><w:name w:val="List Bullet"/>'
+        '<w:pPr><w:numPr><w:numId w:val="1"/></w:numPr><w:ind w:left="360" w:hanging="360"/></w:pPr></w:style>'
+        '<w:style w:type="paragraph" w:styleId="ListNumber"><w:name w:val="List Number"/>'
+        '<w:pPr><w:numPr><w:numId w:val="2"/></w:numPr><w:ind w:left="360" w:hanging="360"/></w:pPr></w:style>';
+    const listNumbering = '<w:abstractNum w:abstractNumId="8"><w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="bullet"/><w:lvlText w:val="\u2022"/></w:lvl></w:abstractNum>'
+        '<w:abstractNum w:abstractNumId="9"><w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="decimal"/><w:lvlText w:val="%1."/></w:lvl></w:abstractNum>'
+        '<w:num w:numId="1"><w:abstractNumId w:val="8"/></w:num><w:num w:numId="2"><w:abstractNumId w:val="9"/></w:num>';
+
+    test('an item of a one-level style list indented goes to a level that exists', () {
+      final file = Opened(docx(
+        '<w:p><w:pPr><w:pStyle w:val="ListBullet"/></w:pPr><w:r><w:t>First point.</w:t></w:r></w:p>'
+        '<w:p><w:pPr><w:pStyle w:val="ListBullet"/></w:pPr><w:r><w:t>Staff turnover.</w:t></w:r></w:p>',
+        styles: listStyles,
+        numbering: listNumbering,
+      ));
+      file.doc.format(file.at('Staff'), 0, const IndentAttribute(level: 1));
+      final saved = file.save();
+      final item = paragraphWith(saved, 'Staff turnover.');
+      final numId = item.getElement('w:pPr')!.getElement('w:numPr')!.getElement('w:numId')!.getAttribute('w:val');
+      expect(item.getElement('w:pPr')!.getElement('w:numPr')!.getElement('w:ilvl')!.getAttribute('w:val'), '1');
+      final numbering = XmlDocument.parse(documentXml(saved, 'word/numbering.xml'));
+      final abstractId = numbering.descendantElements
+          .firstWhere((e) => e.name.local == 'num' && e.getAttribute('w:numId') == numId)
+          .getElement('w:abstractNumId')!
+          .getAttribute('w:val');
+      final abstract = numbering.descendantElements.firstWhere((e) => e.name.local == 'abstractNum' && e.getAttribute('w:abstractNumId') == abstractId);
+      final level = abstract.childElements.firstWhere((e) => e.name.local == 'lvl' && e.getAttribute('w:ilvl') == '1');
+      expect(level.getElement('w:numFmt')!.getAttribute('w:val'), 'bullet');
+    });
+
+    test('a paragraph numbered between two style-numbered steps joins their list', () {
+      final file = Opened(docx(
+        '<w:p><w:pPr><w:pStyle w:val="ListNumber"/></w:pPr><w:r><w:t>Step one.</w:t></w:r></w:p>'
+        '<w:p><w:pPr><w:pStyle w:val="ListNumber"/></w:pPr><w:r><w:t>Step two.</w:t></w:r></w:p>'
+        '<w:p><w:r><w:t>Note: check the stock.</w:t></w:r></w:p>'
+        '<w:p><w:pPr><w:pStyle w:val="ListNumber"/></w:pPr><w:r><w:t>Step three.</w:t></w:r></w:p>',
+        styles: listStyles,
+        numbering: listNumbering,
+      ));
+      file.doc.format(file.at('Note:'), 0, Attribute.ol);
+      final note = paragraphWith(file.save(), 'Note:');
+      expect(note.getElement('w:pPr')!.getElement('w:numPr')!.getElement('w:numId')!.getAttribute('w:val'), '2');
+    });
+
+    const hebrew = '<w:p><w:pPr><w:bidi/></w:pPr><w:r><w:rPr><w:rtl/></w:rPr><w:t>\u05E9\u05DC\u05D5\u05DD \u05E2\u05D5\u05DC\u05DD.</w:t></w:r></w:p>'
+        '<w:p><w:r><w:t>An English line.</w:t></w:r></w:p>';
+
+    test('a right-to-left paragraph reads as one, and stays one when edited', () {
+      final file = Opened(docx(hebrew));
+      final line = file.delta.ops.firstWhere((o) => o['insert'] == '\n');
+      expect(line['attributes'], <String, Object?>{'direction': 'rtl'});
+      file.type('English', 'plain ');
+      file.type('\u05E2\u05D5\u05DC\u05DD', '\u05D0 ');
+      final saved = file.save();
+      expect(inner(paragraphWith(saved, '\u05E9\u05DC\u05D5\u05DD')), contains('<w:bidi/>'));
+      expect(inner(paragraphWith(saved, 'plain English')), isNot(contains('bidi')));
+    });
+
+    testWidgets('a right-to-left paragraph is laid out right to left', (tester) async {
+      await pumpScreen(
+        tester,
+        MaterialApp(
+          debugShowCheckedModeBanner: false,
+          home: DocEditor(title: 'Scripts', bytes: docx(hebrew), onBack: () {}, onSave: (out, note) async => null),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final rtl = find.byWidgetPredicate((w) => w is RichText && w.text.toPlainText().contains('\u05E9\u05DC\u05D5\u05DD'));
+      expect(rtl, findsOneWidget);
+      expect(tester.widget<RichText>(rtl).textDirection, TextDirection.rtl);
+      final ltr = find.byWidgetPredicate((w) => w is RichText && w.text.toPlainText().contains('An English line.'));
+      expect(tester.widget<RichText>(ltr).textDirection, TextDirection.ltr);
+    });
+
+    test('a heading numbered by its style at a level that shows no number is no list', () {
+      final file = Opened(docx(
+        '<w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>Project Kickoff</w:t></w:r></w:p>'
+        '<w:p><w:r><w:t>Body text.</w:t></w:r></w:p>',
+        styles: '<w:style w:type="paragraph" w:styleId="Heading1" w:customStyle="0"><w:name w:val="heading 1"/>'
+            '<w:pPr><w:numPr><w:numId w:val="1"/></w:numPr><w:outlineLvl w:val="0"/></w:pPr><w:rPr><w:b/></w:rPr></w:style>',
+        numbering: '<w:abstractNum w:abstractNumId="1"><w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="none"/><w:lvlText w:val=""/></w:lvl></w:abstractNum>'
+            '<w:num w:numId="1"><w:abstractNumId w:val="1"/></w:num>',
+      ));
+      final heading = file.delta.ops.firstWhere((o) => o['insert'] == '\n');
+      expect(heading['attributes'], <String, Object?>{'header': 1});
+      file.type('Kickoff', 'Big ');
+      final made = paragraphWith(file.save(), 'Project Big Kickoff');
+      expect(inner(made), isNot(contains('numPr')));
+    });
+
     const chapter = '<w:p><w:pPr><w:pStyle w:val="Heading1"/><w:pageBreakBefore/><w:spacing w:before="480"/></w:pPr>'
         '<w:r><w:t>Chapter Two</w:t></w:r></w:p>'
         '<w:p><w:pPr><w:ind w:firstLine="720"/></w:pPr><w:bookmarkStart w:id="0" w:name="night"/>'
