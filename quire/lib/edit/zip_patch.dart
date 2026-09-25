@@ -33,9 +33,13 @@ class _Entry {
 /// out are the bytes that went in. Only a replaced part is compressed afresh.
 ///
 /// A part named in [replace] that the package does not hold is added at the
-/// end.
-Uint8List patchZip(Uint8List original, Map<String, List<int>> replace) {
-  if (replace.isEmpty) return original;
+/// end, and a part named in [remove] is left out.
+Uint8List patchZip(
+  Uint8List original,
+  Map<String, List<int>> replace, {
+  Set<String> remove = const <String>{},
+}) {
+  if (replace.isEmpty && remove.isEmpty) return original;
   final data = ByteData.sublistView(original);
 
   // The end of central directory record, searched for from the end, past a
@@ -100,6 +104,7 @@ Uint8List patchZip(Uint8List original, Map<String, List<int>> replace) {
   final newOffsets = <_Entry, int>{};
   final written = <_Entry, (int crc, int compressed, int size)>{};
   for (final entry in byOffset) {
+    if (remove.contains(entry.name)) continue;
     newOffsets[entry] = out.length;
     final content = replace[entry.name];
     if (content == null) {
@@ -126,7 +131,7 @@ Uint8List patchZip(Uint8List original, Map<String, List<int>> replace) {
   final added = <(Uint8List name, int offset, int crc, int compressed, int size)>[];
   final held = {for (final entry in entries) entry.name};
   for (final part in replace.entries) {
-    if (held.contains(part.key)) continue;
+    if (held.contains(part.key) || remove.contains(part.key)) continue;
     final name = Uint8List.fromList(utf8.encode(part.key));
     final compressed = ZLibCodec(raw: true, level: 6).encode(part.value);
     final crc = getCrc32(part.value);
@@ -144,7 +149,11 @@ Uint8List patchZip(Uint8List original, Map<String, List<int>> replace) {
   }
 
   final newCdOffset = out.length;
-  for (final entry in entries) {
+  final kept = <_Entry>[
+    for (final entry in entries)
+      if (!remove.contains(entry.name)) entry,
+  ];
+  for (final entry in kept) {
     final record = Uint8List.fromList(entry.record);
     final fields = ByteData.sublistView(record);
     fields.setUint32(42, newOffsets[entry]!, Endian.little);
@@ -152,7 +161,7 @@ Uint8List patchZip(Uint8List original, Map<String, List<int>> replace) {
     if (fresh != null) {
       final (crc, compressed, size) = fresh;
       fields
-        ..setUint16(8, fields.getUint16(8, Endian.little) & 0x0800)
+        ..setUint16(8, fields.getUint16(8, Endian.little) & 0x0800, Endian.little)
         ..setUint16(10, 8, Endian.little)
         ..setUint32(16, crc, Endian.little)
         ..setUint32(20, compressed, Endian.little)
@@ -166,7 +175,7 @@ Uint8List patchZip(Uint8List original, Map<String, List<int>> replace) {
       ..setUint32(0, 0x02014b50, Endian.little)
       ..setUint16(4, 20, Endian.little)
       ..setUint16(6, 20, Endian.little)
-      ..setUint16(8, 0x0800, Endian.little)
+      ..setUint16(8, 0x0800)
       ..setUint16(10, 8, Endian.little)
       ..setUint16(12, 0, Endian.little)
       ..setUint16(14, 0x21, Endian.little)
@@ -183,7 +192,7 @@ Uint8List patchZip(Uint8List original, Map<String, List<int>> replace) {
 
   final end = Uint8List.fromList(original.sublist(eocd));
   final tail = ByteData.sublistView(end);
-  final total = entries.length + added.length;
+  final total = kept.length + added.length;
   tail
     ..setUint16(8, total, Endian.little)
     ..setUint16(10, total, Endian.little)

@@ -45,6 +45,39 @@ Map<String, List<int>> _rawEntries(Uint8List zip) {
   return out;
 }
 
+/// Each entry's general purpose flags, CRC and sizes as its local header
+/// states them and as its central directory record does, by name.
+Map<String, (List<int>, List<int>)> _headerPairs(Uint8List zip) {
+  final data = ByteData.sublistView(zip);
+  var eocd = zip.length - 22;
+  while (data.getUint32(eocd, Endian.little) != 0x06054b50) {
+    eocd--;
+  }
+  final count = data.getUint16(eocd + 10, Endian.little);
+  var at = data.getUint32(eocd + 16, Endian.little);
+  final out = <String, (List<int>, List<int>)>{};
+  for (var i = 0; i < count; i++) {
+    final nameLength = data.getUint16(at + 28, Endian.little);
+    final name = utf8.decode(zip.sublist(at + 46, at + 46 + nameLength));
+    final local = data.getUint32(at + 42, Endian.little);
+    final central = <int>[
+      data.getUint16(at + 8, Endian.little),
+      data.getUint32(at + 16, Endian.little),
+      data.getUint32(at + 20, Endian.little),
+      data.getUint32(at + 24, Endian.little),
+    ];
+    final fromLocal = <int>[
+      data.getUint16(local + 6, Endian.little),
+      data.getUint32(local + 14, Endian.little),
+      data.getUint32(local + 18, Endian.little),
+      data.getUint32(local + 22, Endian.little),
+    ];
+    out[name] = (fromLocal, central);
+    at += 46 + nameLength + data.getUint16(at + 30, Endian.little) + data.getUint16(at + 32, Endian.little);
+  }
+  return out;
+}
+
 void main() {
   group('a save with no edits is the file that was read', () {
     for (final name in [kHouseStyle, kPressRunCosts, kPressDayBriefing]) {
@@ -96,6 +129,38 @@ void main() {
       final parts = _parts(out);
       expect(utf8.decode(parts['quire/note.txt']!), 'kept');
       expect(parts.length, _parts(bytes).length + 1);
+    });
+
+    test('writes a patched entry\'s central record to agree with its local header', () {
+      final archive = Archive()
+        ..addFile(ArchiveFile.string('a.xml', '<a/>'))
+        ..addFile(ArchiveFile.string('b.xml', '<b/>'));
+      final bytes = ZipEncoder().encodeBytes(archive);
+      final data = ByteData.sublistView(bytes);
+      // Mark every name UTF-8, as LibreOffice and Java write their entries.
+      for (var i = 0; i + 4 <= bytes.length; i++) {
+        final sig = data.getUint32(i, Endian.little);
+        if (sig == 0x04034b50) data.setUint16(i + 6, data.getUint16(i + 6, Endian.little) | 0x0800, Endian.little);
+        if (sig == 0x02014b50) data.setUint16(i + 8, data.getUint16(i + 8, Endian.little) | 0x0800, Endian.little);
+      }
+      final out = patchZip(bytes, {'a.xml': utf8.encode('<changed/>')});
+      final pairs = _headerPairs(out);
+      expect(pairs.keys, containsAll(<String>['a.xml', 'b.xml']));
+      for (final MapEntry(key: name, value: (local, central)) in pairs.entries) {
+        expect(central, local, reason: name);
+      }
+      expect(pairs['a.xml']!.$1.first & 0x0800, 0x0800);
+    });
+
+    test('leaves out a part it is asked to remove', () async {
+      final bytes = await documentBytes(kPressDayBriefing);
+      final out = patchZip(bytes, const {}, remove: {'ppt/slides/slide6.xml'});
+      final parts = _parts(out);
+      expect(parts.containsKey('ppt/slides/slide6.xml'), isFalse);
+      expect(parts.length, _parts(bytes).length - 1);
+      for (final MapEntry(key: name, value: (local, central)) in _headerPairs(out).entries) {
+        expect(central, local, reason: name);
+      }
     });
 
     test('refuses what is not a zip rather than guessing', () {
