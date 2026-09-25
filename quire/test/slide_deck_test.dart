@@ -15,6 +15,7 @@ import 'package:quire/model/document.dart';
 import 'package:quire/screens/reader/bodies/slide_sheet.dart';
 import 'package:xml/xml.dart';
 
+import 'support/evidence.dart';
 import 'support/fixtures.dart';
 
 Map<String, String> _parts(Uint8List bytes) => <String, String>{
@@ -143,7 +144,10 @@ Uint8List _charted(Uint8List bytes) {
       '<c:ser><c:idx val="1"/><c:order val="1"/><c:tx><c:strRef><c:strCache><c:ptCount val="1"/><c:pt idx="0"><c:v>Tuesday</c:v></c:pt></c:strCache></c:strRef></c:tx>'
       '<c:spPr><a:solidFill><a:srgbClr val="C0504D"/></a:solidFill></c:spPr>'
       '<c:val><c:numRef><c:numCache><c:ptCount val="3"/><c:pt idx="0"><c:v>1100</c:v></c:pt><c:pt idx="2"><c:v>950</c:v></c:pt></c:numCache></c:numRef></c:val></c:ser>'
-      '</c:barChart></c:plotArea><c:legend><c:legendPos val="b"/></c:legend></c:chart></c:chartSpace>';
+      '<c:axId val="11"/><c:axId val="12"/></c:barChart>'
+      '<c:catAx><c:axId val="11"/><c:scaling><c:orientation val="minMax"/></c:scaling><c:delete val="0"/><c:axPos val="b"/><c:crossAx val="12"/></c:catAx>'
+      '<c:valAx><c:axId val="12"/><c:scaling><c:orientation val="minMax"/></c:scaling><c:delete val="0"/><c:axPos val="l"/><c:crossAx val="11"/></c:valAx>'
+      '</c:plotArea><c:legend><c:legendPos val="b"/></c:legend></c:chart></c:chartSpace>';
   const frame = '<p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="30" name="Chart 30"/><p:cNvGraphicFramePr/><p:nvPr/></p:nvGraphicFramePr>'
       '<p:xfrm><a:off x="914400" y="1828800"/><a:ext cx="6096000" cy="3048000"/></p:xfrm><a:graphic>'
       '<a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/chart">'
@@ -223,6 +227,214 @@ Uint8List _styledTable(Uint8List bytes) {
   for (final f in archive.files) {
     if (f.name == 'ppt/slides/slide6.xml') {
       out.addFile(ArchiveFile.string(f.name, utf8.decode(f.content).replaceFirst('</p:spTree>', '$frame</p:spTree>')));
+    } else {
+      out.addFile(ArchiveFile.bytes(f.name, f.content));
+    }
+  }
+  return ZipEncoder().encodeBytes(out);
+}
+
+/// [bytes] with a shape on slide 6 whose click jumps back to slide 2.
+Uint8List _backLinked(Uint8List bytes) {
+  const shape = '<p:sp><p:nvSpPr><p:cNvPr id="40" name="Back"><a:hlinkClick r:id="rId9" action="ppaction://hlinksldjump"/></p:cNvPr>'
+      '<p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="457200" y="4572000"/><a:ext cx="914400" cy="457200"/></a:xfrm>'
+      '<a:prstGeom prst="leftArrow"><a:avLst/></a:prstGeom></p:spPr></p:sp>';
+  final archive = ZipDecoder().decodeBytes(bytes);
+  final out = Archive();
+  for (final f in archive.files) {
+    var text = f.name.endsWith('.xml') || f.name.endsWith('.rels') ? utf8.decode(f.content) : null;
+    if (f.name == 'ppt/slides/slide6.xml') text = text!.replaceFirst('</p:spTree>', '$shape</p:spTree>');
+    if (f.name == 'ppt/slides/_rels/slide6.xml.rels') {
+      text = text!.replaceFirst(
+        '</Relationships>',
+        '<Relationship Id="rId9" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slide2.xml"/></Relationships>',
+      );
+    }
+    out.addFile(text == null ? ArchiveFile.bytes(f.name, f.content) : ArchiveFile.string(f.name, text));
+  }
+  return ZipEncoder().encodeBytes(out);
+}
+
+/// The sample deck with a SmartArt on its last slide, laid out as
+/// PowerPoint writes one: its data part names its drawing through the
+/// slide's own relationship.
+Uint8List _smartArt(Uint8List bytes) {
+  const dgm = 'http://schemas.openxmlformats.org/drawingml/2006/diagram';
+  const frame = '<p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="50" name="Diagram 50"/><p:cNvGraphicFramePr/><p:nvPr/></p:nvGraphicFramePr>'
+      '<p:xfrm><a:off x="914400" y="1828800"/><a:ext cx="6096000" cy="2286000"/></p:xfrm><a:graphic>'
+      '<a:graphicData uri="$dgm"><dgm:relIds xmlns:dgm="$dgm" r:dm="rId20" r:lo="rId21" r:qs="rId22" r:cs="rId23"/></a:graphicData></a:graphic></p:graphicFrame>';
+  const rel = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
+  const parts = <String, String>{
+    'ppt/diagrams/data1.xml': '<dgm:dataModel xmlns:dgm="$dgm" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><dgm:ptLst/>'
+        '<dgm:extLst><a:ext uri="http://schemas.microsoft.com/office/drawing/2008/diagram">'
+        '<dsp:dataModelExt xmlns:dsp="http://schemas.microsoft.com/office/drawing/2008/diagram" relId="rId24" minVer="$dgm"/>'
+        '</a:ext></dgm:extLst></dgm:dataModel>',
+    'ppt/diagrams/layout1.xml': '<dgm:layoutDef xmlns:dgm="$dgm"/>',
+    'ppt/diagrams/quickStyle1.xml': '<dgm:styleDef xmlns:dgm="$dgm"/>',
+    'ppt/diagrams/colors1.xml': '<dgm:colorsDef xmlns:dgm="$dgm"/>',
+    'ppt/diagrams/drawing1.xml': '<dsp:drawing xmlns:dsp="http://schemas.microsoft.com/office/drawing/2008/diagram"><dsp:spTree/></dsp:drawing>',
+  };
+  const types = <String, String>{
+    'data1': 'application/vnd.openxmlformats-officedocument.drawingml.diagramData+xml',
+    'layout1': 'application/vnd.openxmlformats-officedocument.drawingml.diagramLayout+xml',
+    'quickStyle1': 'application/vnd.openxmlformats-officedocument.drawingml.diagramStyle+xml',
+    'colors1': 'application/vnd.openxmlformats-officedocument.drawingml.diagramColors+xml',
+    'drawing1': 'application/vnd.ms-office.drawingml.diagramDrawing+xml',
+  };
+  final archive = ZipDecoder().decodeBytes(bytes);
+  final out = Archive();
+  for (final f in archive.files) {
+    var text = f.name.endsWith('.xml') || f.name.endsWith('.rels') ? utf8.decode(f.content) : null;
+    if (f.name == 'ppt/slides/slide6.xml') text = text!.replaceFirst('</p:spTree>', '$frame</p:spTree>');
+    if (f.name == 'ppt/slides/_rels/slide6.xml.rels') {
+      text = text!.replaceFirst(
+        '</Relationships>',
+        '<Relationship Id="rId20" Type="$rel/diagramData" Target="../diagrams/data1.xml"/>'
+            '<Relationship Id="rId21" Type="$rel/diagramLayout" Target="../diagrams/layout1.xml"/>'
+            '<Relationship Id="rId22" Type="$rel/diagramQuickStyle" Target="../diagrams/quickStyle1.xml"/>'
+            '<Relationship Id="rId23" Type="$rel/diagramColors" Target="../diagrams/colors1.xml"/>'
+            '<Relationship Id="rId24" Type="http://schemas.microsoft.com/office/2007/relationships/diagramDrawing" Target="../diagrams/drawing1.xml"/>'
+            '</Relationships>',
+      );
+    }
+    if (f.name == '[Content_Types].xml') {
+      text = text!.replaceFirst('</Types>', '${types.entries.map((e) => '<Override PartName="/ppt/diagrams/${e.key}.xml" ContentType="${e.value}"/>').join()}</Types>');
+    }
+    out.addFile(text == null ? ArchiveFile.bytes(f.name, f.content) : ArchiveFile.string(f.name, text));
+  }
+  for (final e in parts.entries) {
+    out.addFile(ArchiveFile.string(e.key, e.value));
+  }
+  return ZipEncoder().encodeBytes(out);
+}
+
+/// The sample deck with slide 4's caption and a plain frame put in a group,
+/// id 9.
+Uint8List _grouped(Uint8List bytes) {
+  final archive = ZipDecoder().decodeBytes(bytes);
+  final out = Archive();
+  for (final f in archive.files) {
+    if (f.name == 'ppt/slides/slide4.xml') {
+      var xml = utf8.decode(f.content);
+      final start = xml.indexOf('<p:sp><p:nvSpPr><p:cNvPr id="5" name="Caption"/>');
+      final end = xml.indexOf('</p:sp>', start) + '</p:sp>'.length;
+      final caption = xml.substring(start, end);
+      xml = xml.replaceRange(
+        start,
+        end,
+        '<p:grpSp><p:nvGrpSpPr><p:cNvPr id="9" name="Group 9"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>'
+        '<p:grpSpPr><a:xfrm><a:off x="6949440" y="2194560"/><a:ext cx="4389120" cy="2743200"/>'
+        '<a:chOff x="6949440" y="2194560"/><a:chExt cx="4389120" cy="2743200"/></a:xfrm></p:grpSpPr>'
+        '$caption<p:sp><p:nvSpPr><p:cNvPr id="12" name="Frame"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>'
+        '<p:spPr><a:xfrm><a:off x="6949440" y="2194560"/><a:ext cx="914400" cy="914400"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr></p:sp>'
+        '</p:grpSp>',
+      );
+      out.addFile(ArchiveFile.string(f.name, xml));
+    } else {
+      out.addFile(ArchiveFile.bytes(f.name, f.content));
+    }
+  }
+  return ZipEncoder().encodeBytes(out);
+}
+
+/// The sample deck with slide 4's caption fading in on a click, and then
+/// its picture flying in.
+Uint8List _animated(Uint8List bytes) {
+  String effect(int node, String spid, String preset) => '<p:par><p:cTn id="$node" fill="hold"><p:stCondLst><p:cond delay="indefinite"/></p:stCondLst><p:childTnLst>'
+      '<p:par><p:cTn id="${node + 1}" fill="hold"><p:stCondLst><p:cond delay="0"/></p:stCondLst><p:childTnLst>'
+      '<p:par><p:cTn id="${node + 2}" presetID="$preset" presetClass="entr" presetSubtype="0" fill="hold" grpId="0" nodeType="clickEffect">'
+      '<p:stCondLst><p:cond delay="0"/></p:stCondLst><p:childTnLst>'
+      '<p:set><p:cBhvr><p:cTn id="${node + 3}" dur="1" fill="hold"><p:stCondLst><p:cond delay="0"/></p:stCondLst></p:cTn>'
+      '<p:tgtEl><p:spTgt spid="$spid"/></p:tgtEl><p:attrNameLst><p:attrName>style.visibility</p:attrName></p:attrNameLst></p:cBhvr>'
+      '<p:to><p:strVal val="visible"/></p:to></p:set>'
+      '</p:childTnLst></p:cTn></p:par></p:childTnLst></p:cTn></p:par></p:childTnLst></p:cTn></p:par>';
+  final timing = '<p:timing><p:tnLst><p:par><p:cTn id="1" dur="indefinite" restart="never" nodeType="tmRoot"><p:childTnLst>'
+      '<p:seq concurrent="1" nextAc="seek"><p:cTn id="2" dur="indefinite" nodeType="mainSeq"><p:childTnLst>'
+      '${effect(3, '5', '10')}${effect(7, '4', '2')}'
+      '</p:childTnLst></p:cTn><p:prevCondLst><p:cond evt="onPrev" delay="0"><p:tgtEl><p:sldTgt/></p:tgtEl></p:cond></p:prevCondLst>'
+      '<p:nextCondLst><p:cond evt="onNext" delay="0"><p:tgtEl><p:sldTgt/></p:tgtEl></p:cond></p:nextCondLst></p:seq>'
+      '</p:childTnLst></p:cTn></p:par></p:tnLst><p:bldLst><p:bldP spid="5" grpId="0"/></p:bldLst></p:timing>';
+  final archive = ZipDecoder().decodeBytes(bytes);
+  final out = Archive();
+  for (final f in archive.files) {
+    if (f.name == 'ppt/slides/slide4.xml') {
+      out.addFile(ArchiveFile.string(f.name, utf8.decode(f.content).replaceFirst('</p:clrMapOvr>', '</p:clrMapOvr>$timing')));
+    } else {
+      out.addFile(ArchiveFile.bytes(f.name, f.content));
+    }
+  }
+  return ZipEncoder().encodeBytes(out);
+}
+
+/// The sample deck with two boxes on its last slide and a connector glued
+/// from the right of the first, id 20, to the left of the second, id 21.
+Uint8List _glued(Uint8List bytes) {
+  String box(int id, int x) => '<p:sp><p:nvSpPr><p:cNvPr id="$id" name="Box $id"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>'
+      '<p:spPr><a:xfrm><a:off x="$x" y="2540000"/><a:ext cx="1270000" cy="1270000"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr></p:sp>';
+  final shapes = '${box(20, 1270000)}${box(21, 5080000)}'
+      '<p:cxnSp><p:nvCxnSpPr><p:cNvPr id="22" name="Connector 22"/><p:cNvCxnSpPr><a:stCxn id="20" idx="3"/><a:endCxn id="21" idx="1"/></p:cNvCxnSpPr><p:nvPr/></p:nvCxnSpPr>'
+      '<p:spPr><a:xfrm><a:off x="2540000" y="3175000"/><a:ext cx="2540000" cy="0"/></a:xfrm><a:prstGeom prst="straightConnector1"><a:avLst/></a:prstGeom>'
+      '<a:ln w="12700"><a:solidFill><a:srgbClr val="000000"/></a:solidFill></a:ln></p:spPr></p:cxnSp>';
+  final archive = ZipDecoder().decodeBytes(bytes);
+  final out = Archive();
+  for (final f in archive.files) {
+    if (f.name == 'ppt/slides/slide6.xml') {
+      out.addFile(ArchiveFile.string(f.name, utf8.decode(f.content).replaceFirst('</p:spTree>', '$shapes</p:spTree>')));
+    } else {
+      out.addFile(ArchiveFile.bytes(f.name, f.content));
+    }
+  }
+  return ZipEncoder().encodeBytes(out);
+}
+
+/// The sample deck with a designed master: a rounded, filled and outlined
+/// title band in capitals with wide spacing in the heading face, and body
+/// bullets in red Wingdings at 80%.
+Uint8List _designed(Uint8List bytes) {
+  final archive = ZipDecoder().decodeBytes(bytes);
+  final out = Archive();
+  for (final f in archive.files) {
+    if (f.name == 'ppt/slideMasters/slideMaster1.xml') {
+      var xml = utf8.decode(f.content);
+      final title = xml.indexOf('<a:xfrm>', xml.indexOf('name="Title Placeholder 1"'));
+      final end = xml.indexOf('</a:xfrm>', title) + '</a:xfrm>'.length;
+      xml = xml.replaceRange(
+        end,
+        end,
+        '<a:prstGeom prst="roundRect"><a:avLst/></a:prstGeom><a:solidFill><a:schemeClr val="accent2"><a:lumMod val="20000"/><a:lumOff val="80000"/></a:schemeClr></a:solidFill>'
+        '<a:ln w="38100"><a:solidFill><a:schemeClr val="accent2"/></a:solidFill></a:ln>',
+      );
+      xml = xml.replaceFirst(
+        '<a:defRPr sz="4000" b="1"><a:solidFill><a:schemeClr val="tx1"/></a:solidFill></a:defRPr>',
+        '<a:defRPr sz="4000" b="1" cap="all" spc="300"><a:solidFill><a:schemeClr val="tx1"/></a:solidFill><a:latin typeface="+mj-lt"/></a:defRPr>',
+      );
+      xml = xml.replaceFirst(
+        '<a:lvl1pPr marL="285750" indent="-285750"><a:buChar char="\u2022"/>',
+        '<a:lvl1pPr marL="285750" indent="-285750"><a:buClr><a:srgbClr val="FF0000"/></a:buClr><a:buSzPct val="80000"/><a:buFont typeface="Wingdings"/><a:buChar char="\u00A7"/>',
+      );
+      out.addFile(ArchiveFile.string(f.name, xml));
+    } else {
+      out.addFile(ArchiveFile.bytes(f.name, f.content));
+    }
+  }
+  return ZipEncoder().encodeBytes(out);
+}
+
+/// The sample deck with slide 4's picture made the layout's content
+/// placeholder, placed where the layout puts it.
+Uint8List _pictureHolder(Uint8List bytes) {
+  final archive = ZipDecoder().decodeBytes(bytes);
+  final out = Archive();
+  for (final f in archive.files) {
+    if (f.name == 'ppt/slides/slide4.xml') {
+      var xml = utf8.decode(f.content);
+      final at = xml.indexOf('name="Proof sheet"');
+      final nvPr = xml.indexOf('<p:nvPr/>', at);
+      xml = xml.replaceRange(nvPr, nvPr + '<p:nvPr/>'.length, '<p:nvPr><p:ph type="pic" idx="1"/></p:nvPr>');
+      final xfrm = xml.indexOf('<a:xfrm>', nvPr);
+      final done = xml.indexOf('</a:xfrm>', xfrm) + '</a:xfrm>'.length;
+      xml = xml.replaceRange(xfrm, done, '');
+      out.addFile(ArchiveFile.string(f.name, xml));
     } else {
       out.addFile(ArchiveFile.bytes(f.name, f.content));
     }
@@ -692,6 +904,233 @@ void main() {
   });
 
   group('after the round one file critic', () {
+    XmlElement shapeIn(Uint8List out, String slide, int id) => XmlDocument.parse(_parts(out)['ppt/slides/${slide.split('/').last}']!)
+        .descendantElements
+        .firstWhere((e) => e.name.local == 'sp' && e.descendantElements.any((c) => c.name.local == 'cNvPr' && c.getAttribute('id') == '$id'));
+
+    test('a pasted title keeps the band, outline, anchor, capitals, spacing and face it took from its master', () {
+      final deck = PptxDeck(_designed(bytes));
+      final from = deck.slides[1];
+      final title = deck.objects(from).firstWhere((o) => o.placeholder == 'title');
+      final made = deck.paste(deck.slides[5], deck.copy(from, <int>{title.id})).single;
+      final out = deck.write();
+      writeEvidence('D/files', 'a_pasted_title_keeps_the_band_outline_anchor_cap.pptx', out);
+      _expectWhole(out);
+      final sp = shapeIn(out, deck.slides[5], made).toXmlString();
+      expect(sp, isNot(contains('<p:ph')));
+      expect(sp, contains('<a:prstGeom prst="roundRect">'));
+      expect(sp, contains('<a:lumOff val="80000"/>'));
+      expect(sp, contains('<a:ln w="38100">'));
+      expect(sp, contains('anchor="b"'));
+      final level = RegExp(r'<a:lvl1pPr[^>]*>.*?</a:lvl1pPr>').firstMatch(sp)!.group(0)!;
+      expect(level, contains('cap="all"'));
+      expect(level, contains('spc="300"'));
+      expect(level, contains('<a:latin typeface="+mj-lt"/>'));
+      expect(level, contains('<a:buNone/>'));
+    });
+
+    test('pasted bullets keep their face, colour and size', () {
+      final deck = PptxDeck(_designed(bytes));
+      final from = deck.slides[1];
+      final body = deck.objects(from).firstWhere((o) => o.placeholder == 'body');
+      final made = deck.paste(deck.slides[5], deck.copy(from, <int>{body.id})).single;
+      final sp = shapeIn(deck.write(), deck.slides[5], made).toXmlString();
+      final first = RegExp(r'<a:lvl1pPr[^>]*>.*?</a:lvl1pPr>').firstMatch(sp)!.group(0)!;
+      expect(first, contains('<a:buClr><a:srgbClr val="FF0000"/></a:buClr><a:buSzPct val="80000"/><a:buFont typeface="Wingdings"/><a:buChar char="\u00A7"/>'));
+      final second = RegExp(r'<a:lvl2pPr[^>]*>.*?</a:lvl2pPr>').firstMatch(sp)!.group(0)!;
+      expect(second, contains('<a:buChar char="\u2013"/>'));
+      expect(second, contains('sz="1700"'));
+    });
+
+    test('a layout change keeps what has no place on the new layout where and as it was', () {
+      final deck = PptxDeck(bytes);
+      final slide = deck.slides[1];
+      final body = deck.objects(slide).firstWhere((o) => o.placeholder == 'body');
+      final was = deck.shape(slide, body.id)!;
+      final statement = deck.layouts.firstWhere((l) => l.name == 'Statement');
+      deck.setLayout(slide, statement.path);
+      final out = deck.write();
+      writeEvidence('D/files', 'a_layout_change_keeps_what_has_no_place_on_the_n.pptx', out);
+      _expectWhole(out);
+      final again = PptxDeck(out);
+      final kept = again.object(again.slides[1], body.id)!;
+      expect(kept.placeholder, isNull);
+      expect(kept.box, was.box);
+      final items = again.shape(again.slides[1], body.id)!.blocks.whereType<ListItemBlock>().toList();
+      expect(items, hasLength(was.blocks.whereType<ListItemBlock>().length));
+      expect(items.first.marker, '\u2022');
+      expect(items[2].level, 1);
+      expect(items.first.spans.first.fontSize, was.blocks.whereType<ListItemBlock>().first.spans.first.fontSize);
+      expect(again.objects(again.slides[1]).firstWhere((o) => o.placeholder == 'title').id, 2);
+    });
+
+    test('a layout change drops an empty placeholder with no place, and a picture keeps its place', () {
+      final deck = PptxDeck(_pictureHolder(bytes));
+      final slide = deck.slides[3];
+      expect(deck.object(slide, 4), isNotNull);
+      final made = deck.addSlide(deck.layouts.firstWhere((l) => l.type == 'obj').path, 6);
+      final statement = deck.layouts.firstWhere((l) => l.name == 'Statement');
+      deck.setLayout(made, statement.path);
+      final objects = deck.objects(made);
+      expect(objects.map((o) => o.placeholder), <String?>['title']);
+      deck.setLayout(slide, statement.path);
+      final again = _reopen(deck);
+      final picture = again.object(again.slides[3], 4);
+      expect(picture, isNotNull);
+      expect(picture!.isPicture, isTrue);
+    });
+
+    test('a line glued to a shape comes along when the shape moves, and lets go when moved itself', () {
+      final deck = PptxDeck(_glued(bytes));
+      final slide = deck.slides[5];
+      final second = deck.object(slide, 21)!;
+      deck.place(slide, 21, SlideBox(second.box.left + 100, second.box.top - 50, second.box.width, second.box.height));
+      var line = deck.object(slide, 22)!;
+      expect(line.box.left, closeTo(200, 0.01));
+      expect(line.box.width, closeTo(300, 0.01));
+      expect(line.box.height, closeTo(50, 0.01));
+      expect(line.flipV, isTrue);
+      final first = deck.object(slide, 20)!;
+      deck.place(slide, 20, SlideBox(first.box.left, first.box.top, first.box.width * 2, first.box.height));
+      line = deck.object(slide, 22)!;
+      expect(line.box.left, closeTo(300, 0.01));
+      var xml = _parts(deck.write())['ppt/slides/slide6.xml']!;
+      expect(xml, contains('<a:stCxn id="20" idx="3"/>'));
+      writeEvidence('D/files', 'glued_follow.pptx', deck.write());
+      deck.place(slide, 22, SlideBox(line.box.left, line.box.top + 20, line.box.width, line.box.height));
+      xml = _parts(deck.write())['ppt/slides/slide6.xml']!;
+      expect(xml, isNot(contains('stCxn')));
+      expect(xml, isNot(contains('endCxn')));
+    });
+
+    test('a line glued to a deleted shape lets go of it', () {
+      final deck = PptxDeck(_glued(bytes));
+      deck.delete(deck.slides[5], <int>{20});
+      final xml = _parts(deck.write())['ppt/slides/slide6.xml']!;
+      expect(xml, isNot(contains('stCxn')));
+      expect(xml, contains('<a:endCxn id="21" idx="1"/>'));
+    });
+
+    test('a deleted shape takes its animation with it', () {
+      final deck = PptxDeck(_animated(bytes));
+      final slide = deck.slides[3];
+      deck.delete(slide, <int>{5});
+      writeEvidence('D/files', 'animation_delete.pptx', deck.write());
+      var xml = _parts(deck.write())['ppt/slides/slide4.xml']!;
+      expect(xml, isNot(contains('spid="5"')));
+      expect(xml, contains('<p:spTgt spid="4"/>'));
+      expect(xml, isNot(contains('bldLst')));
+      expect(RegExp('presetClass').allMatches(xml), hasLength(1));
+      deck.delete(slide, <int>{4});
+      xml = _parts(deck.write())['ppt/slides/slide4.xml']!;
+      expect(xml, isNot(contains('p:timing')));
+    });
+
+    test('a group\'s border, fill and shadow go on the shapes in it', () {
+      final deck = PptxDeck(_grouped(bytes));
+      final slide = deck.slides[3];
+      deck.setLineColour(slide, 9, 0xFFCC0000);
+      deck.setLineWeight(slide, 9, 3);
+      deck.setLineDash(slide, 9, 'dash');
+      deck.setFill(slide, 9, 0xFF2266CC);
+      deck.setShadowed(slide, 9, true);
+      writeEvidence('D/files', 'group_format.pptx', deck.write());
+      final xml = XmlDocument.parse(_parts(deck.write())['ppt/slides/slide4.xml']!);
+      final group = xml.descendantElements.firstWhere((e) => e.name.local == 'grpSp');
+      final own = group.childElements.firstWhere((e) => e.name.local == 'grpSpPr');
+      expect(own.childElements.map((e) => e.name.local), <String>['xfrm']);
+      final shapes = group.childElements.where((e) => e.name.local == 'sp').toList();
+      expect(shapes, hasLength(2));
+      for (final sp in shapes) {
+        final properties = sp.childElements.firstWhere((e) => e.name.local == 'spPr').toXmlString();
+        expect(properties, contains('<a:ln w="38100"><a:solidFill><a:srgbClr val="CC0000"/></a:solidFill><a:prstDash val="dash"/></a:ln>'));
+        expect(properties, contains('<a:srgbClr val="2266CC"/>'));
+        expect(properties, contains('outerShdw'));
+      }
+    });
+
+    test('a chart takes no fill or border and makes no step', () {
+      final deck = PptxDeck(_charted(bytes));
+      final slide = deck.slides[5];
+      deck.setFill(slide, 30, 0xFF2266CC);
+      deck.setLineColour(slide, 30, 0xFFCC0000);
+      expect(deck.steps, 0);
+    });
+
+    test('a pasted SmartArt brings the drawing it is laid out as', () {
+      final deck = PptxDeck(_smartArt(bytes));
+      final to = deck.slides[1];
+      deck.paste(to, deck.copy(deck.slides[5], <int>{50}));
+      final out = deck.write();
+      writeEvidence('D/files', 'a_pasted_smartart_brings_the_drawing_it_is_laid_.pptx', out);
+      _expectWhole(out);
+      final parts = _parts(out);
+      final rels = XmlDocument.parse(parts['ppt/slides/_rels/slide2.xml.rels']!).rootElement.childElements.toList();
+      String targetOf(String kind) => rels.firstWhere((r) => r.getAttribute('Type')!.endsWith('/$kind')).getAttribute('Target')!;
+      final data = 'ppt/diagrams/${targetOf('diagramData').split('/').last}';
+      expect(data, isNot('ppt/diagrams/data1.xml'));
+      final relId = RegExp(r'relId="([^"]+)"').firstMatch(parts[data]!)!.group(1);
+      final drawing = rels.firstWhere((r) => r.getAttribute('Id') == relId);
+      expect(drawing.getAttribute('Type'), endsWith('/diagramDrawing'));
+      final drawn = 'ppt/diagrams/${drawing.getAttribute('Target')!.split('/').last}';
+      expect(drawn, isNot('ppt/diagrams/drawing1.xml'));
+      expect(parts[drawn], contains('dsp:drawing'));
+    });
+
+    /// The slide parts [part]'s relationships link to.
+    Set<String> slideLinks(Uint8List out, String part) {
+      final name = part.split('/').last;
+      final rels = _parts(out)['ppt/slides/_rels/$name.rels']!;
+      return <String>{
+        for (final rel in XmlDocument.parse(rels).rootElement.childElements)
+          if (rel.getAttribute('Type')!.endsWith('/slide')) 'ppt/slides/${rel.getAttribute('Target')!.split('/').last}',
+      };
+    }
+
+    test('slides cut and pasted together link to each other still', () {
+      final deck = PptxDeck(_backLinked(_linked(bytes)));
+      final two = deck.slides[1], six = deck.slides[5];
+      final clip = deck.copySlides(<String>[two, six]);
+      deck.deleteSlides(<String>{two, six}, label: 'Cut');
+      final made = deck.pasteSlides(clip, 0);
+      final out = deck.write();
+      writeEvidence('D/files', 'slides_cut_and_pasted_together_link_to_each_othe.pptx', out);
+      _expectWhole(out);
+      expect(slideLinks(out, made[0]), <String>{made[1]});
+      expect(slideLinks(out, made[1]), <String>{made[0]});
+      final again = PptxDeck(out);
+      expect(again.slides.take(2), made);
+    });
+
+    test('a shape pasted after the slide it jumps to is gone loses the jump', () {
+      final deck = PptxDeck(_backLinked(bytes));
+      final six = deck.slides[5];
+      final clip = deck.copy(six, <int>{40});
+      deck.delete(six, <int>{40});
+      deck.deleteSlides(<String>{deck.slides[1]});
+      final made = deck.paste(deck.slides[2], clip).single;
+      final out = deck.write();
+      writeEvidence('D/files', 'a_shape_pasted_after_the_slide_it_jumps_to_is_go.pptx', out);
+      _expectWhole(out);
+      final pasted = PptxDeck(out);
+      final slide = pasted.slides[2];
+      expect(pasted.object(slide, made), isNotNull);
+      expect(_parts(out)['ppt/slides/${slide.split('/').last}'], isNot(contains('hlinkClick')));
+      expect(slideLinks(out, slide), isEmpty);
+    });
+
+    test('a slide pasted after the slide it links to is gone loses the link', () {
+      final deck = PptxDeck(_backLinked(bytes));
+      final clip = deck.copySlides(<String>[deck.slides[5]]);
+      deck.deleteSlides(<String>{deck.slides[5], deck.slides[1]}, label: 'Cut');
+      final made = deck.pasteSlides(clip, 0).single;
+      final out = deck.write();
+      writeEvidence('D/files', 'a_slide_pasted_after_the_slide_it_links_to_is_go.pptx', out);
+      _expectWhole(out);
+      expect(slideLinks(out, made), isEmpty);
+      expect(_parts(out)['ppt/slides/${made.split('/').last}'], isNot(contains('hlinkClick')));
+    });
+
 
     /// Edits slide 2's body of [deck] through the editor's own controller
     /// and saves the typing; returns the slide's written XML.
@@ -702,6 +1141,7 @@ void main() {
       edit(c);
       deck.setText(slide, 3, text.write(deck.slideDoc(slide), c.document.toDelta().toJson()));
       final out = deck.write();
+      writeEvidence('D/files', 'a_slide_pasted_after_the_slide_it_links_to_is_go_2.pptx', out);
       _expectWhole(out);
       return _parts(out)['ppt/slides/slide2.xml']!;
     }
@@ -777,6 +1217,7 @@ void main() {
       final deck = PptxDeck(bytes);
       deck.deleteSlides(<String>{deck.slides[3]});
       final out = deck.write();
+      writeEvidence('D/files', 'a_deleted_slide_takes_the_parts_only_it_pointed_.pptx', out);
       _expectWhole(out);
       expect(_names(out), isNot(contains('ppt/media/image1.png')));
       final charted = PptxDeck(_charted(bytes));
@@ -784,6 +1225,7 @@ void main() {
       charted.deleteSlides(<String>{charted.slides[5]}, label: 'Cut');
       charted.pasteSlides(clip, 0);
       final pasted = charted.write();
+      writeEvidence('D/files', 'a_deleted_slide_takes_the_parts_only_it_pointed__2.pptx', pasted);
       _expectWhole(pasted);
       expect(_names(pasted).where((n) => n.startsWith('ppt/charts/')), hasLength(1));
       expect(_parts(pasted)['[Content_Types].xml'], isNot(contains('/ppt/charts/chart1.xml')));

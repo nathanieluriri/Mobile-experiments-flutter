@@ -194,6 +194,11 @@ class _Frame {
   final Map<String, _Slot> byKey = <String, _Slot>{};
   final Map<String, _Slot> byType = <String, _Slot>{};
 
+  /// Placeholders by index alone, which is how PowerPoint matches a slide's
+  /// placeholder to its layout's when their types differ, as a picture in a
+  /// content placeholder does after a layout change.
+  final Map<int, _Slot> byIndex = <int, _Slot>{};
+
   /// The master's own list styles, which is where most body text is really
   /// set. Keyed by 'title', 'body' and 'other'.
   final Map<String, Map<int, _Level>> textStyles = <String, Map<int, _Level>>{};
@@ -598,6 +603,7 @@ class PptxParser {
         if (list != null) slot.levels.addAll(_listStyle(list, frame.colours));
       }
       frame.byKey['${ph.type}:${ph.index}'] = slot;
+      if (ph.index > 0) frame.byIndex.putIfAbsent(ph.index, () => slot);
       frame.byType.putIfAbsent(ph.type, () => slot);
     }
   }
@@ -990,6 +996,7 @@ class PptxParser {
     _Slot? on(_Frame? frame) => frame == null
         ? null
         : frame.byKey[key] ??
+              (ph.index > 0 ? frame.byIndex[ph.index] : null) ??
               frame.byType[ph.type] ??
               frame.byType[_equivalent(ph.type)];
 

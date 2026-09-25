@@ -649,4 +649,23 @@ void main() {
       expect(angles.where((a) => (a - 30).abs() < 0.01), hasLength(1));
     });
   });
+
+  group('after the round one file critic', () {
+    testWidgets('More offers no Format for a table', (tester) async {
+      final state = await open(tester);
+      await openSlide(tester, state, 5);
+      final deck = state.deck!;
+      final slide = deck.slides[5];
+      final made = deck.addTable(slide, 2, 2, const SlideBox(100, 300, 300, 80));
+      await tester.tapAt(global(tester, state, const Offset(20, 520)));
+      await settle(tester);
+      await tester.tapAt(global(tester, state, const Offset(250, 310)));
+      await settle(tester);
+      expect(state.selected, made);
+      await tester.tap(find.bySemanticsLabel('More'));
+      await settle(tester);
+      expect(find.text('Order'), findsOneWidget);
+      expect(find.text('Format options'), findsNothing);
+    });
+  });
 }

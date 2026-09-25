@@ -72,7 +72,10 @@ class SlidesClip {
 /// One slide as Cut or Copy kept it: its part, its relationships and its
 /// notes.
 class KeptSlide {
-  const KeptSlide(this.xml, this.rels, this.notes, this.notesRels);
+  const KeptSlide(this.path, this.xml, this.rels, this.notes, this.notesRels);
+
+  /// The part it was kept from.
+  final String path;
   final String xml;
   final List<DeckRel> rels;
   final String? notes;
@@ -872,19 +875,129 @@ class PptxDeck {
       final el = _object(doc, id);
       if (el == null) return;
       _place(doc, el, was.box, box, rotation, flipH: flipH, flipV: flipV);
+      if (el.name.local == 'cxnSp') {
+        // A line moved on its own lets go of the shapes it was glued to.
+        _unglue(el, null);
+      } else if (box != was.box) {
+        _follow(doc, '$id', was.box, box);
+      }
       _put(slide, doc);
     });
+  }
+
+  static XmlElement? _glue(XmlElement line) {
+    final nv = _kid(line, 'nvCxnSpPr');
+    return nv == null ? null : _kid(nv, 'cNvCxnSpPr');
+  }
+
+  /// Takes the glue off [line]'s ends, or only the ends glued to [ids].
+  static void _unglue(XmlElement line, Set<String>? ids) {
+    final glue = _glue(line);
+    if (glue == null) return;
+    for (final end in glue.childElements.toList()) {
+      if ((end.name.local == 'stCxn' || end.name.local == 'endCxn') && (ids == null || ids.contains(_at(end, 'id')))) {
+        end.remove();
+      }
+    }
+  }
+
+  /// Brings the ends of the lines glued to the shape [id] along as it goes
+  /// from [from] to [to], each end keeping its place on the shape.
+  static void _follow(XmlDocument doc, String id, SlideBox from, SlideBox to) {
+    for (final line in _tree(doc).childElements.where((e) => e.name.local == 'cxnSp')) {
+      final glue = _glue(line);
+      if (glue == null) continue;
+      bool on(String local) => glue.childElements.any((e) => e.name.local == local && _at(e, 'id') == id);
+      final start = on('stCxn'), end = on('endCxn');
+      if (!start && !end) continue;
+      final properties = _kid(line, 'spPr');
+      final xfrm = properties == null ? null : _kid(properties, 'xfrm');
+      final off = xfrm == null ? null : _kid(xfrm, 'off');
+      final ext = xfrm == null ? null : _kid(xfrm, 'ext');
+      if (xfrm == null || off == null || ext == null || (_at(xfrm, 'rot') ?? '0') != '0') continue;
+      final x = (double.tryParse(_at(off, 'x') ?? '') ?? 0) / kEmuPerPoint;
+      final y = (double.tryParse(_at(off, 'y') ?? '') ?? 0) / kEmuPerPoint;
+      final w = (double.tryParse(_at(ext, 'cx') ?? '') ?? 0) / kEmuPerPoint;
+      final h = (double.tryParse(_at(ext, 'cy') ?? '') ?? 0) / kEmuPerPoint;
+      final flipH = _at(xfrm, 'flipH') == '1', flipV = _at(xfrm, 'flipV') == '1';
+      var a = (flipH ? x + w : x, flipV ? y + h : y);
+      var b = (flipH ? x : x + w, flipV ? y : y + h);
+      (double, double) carry((double, double) p) => (
+        to.left + (from.width == 0 ? 0.5 : (p.$1 - from.left) / from.width) * to.width,
+        to.top + (from.height == 0 ? 0.5 : (p.$2 - from.top) / from.height) * to.height,
+      );
+      if (start) a = carry(a);
+      if (end) b = carry(b);
+      _setAttr(off, 'x', '${_emu(math.min(a.$1, b.$1))}');
+      _setAttr(off, 'y', '${_emu(math.min(a.$2, b.$2))}');
+      _setAttr(ext, 'cx', '${_emu((a.$1 - b.$1).abs())}');
+      _setAttr(ext, 'cy', '${_emu((a.$2 - b.$2).abs())}');
+      _setAttr(xfrm, 'flipH', a.$1 > b.$1 ? '1' : null);
+      _setAttr(xfrm, 'flipV', a.$2 > b.$2 ? '1' : null);
+    }
   }
 
   void delete(String slide, Set<int> ids) {
     if (ids.isEmpty) return;
     _change('Delete', () {
       final doc = _doc(slide)!;
+      final gone = <String>{};
       for (final id in ids) {
-        _object(doc, id)?.remove();
+        final el = _object(doc, id);
+        if (el == null) continue;
+        for (final nv in <XmlElement>[el, ...el.descendantElements]) {
+          if (nv.name.local == 'cNvPr') gone.add(_at(nv, 'id') ?? '');
+        }
+        el.remove();
+      }
+      _dropAnimations(doc, gone);
+      for (final line in _tree(doc).descendantElements.where((e) => e.name.local == 'cxnSp')) {
+        _unglue(line, gone);
       }
       _put(slide, doc);
     });
+  }
+
+  /// Takes out of the slide's timing every effect on the shapes [ids], and
+  /// their build entries, and whatever is left empty by that.
+  static void _dropAnimations(XmlDocument doc, Set<String> ids) {
+    final timing = _kid(doc.rootElement, 'timing');
+    if (timing == null || ids.isEmpty) return;
+    for (final target in timing.descendantElements.where((e) => e.name.local == 'spTgt').toList()) {
+      if (!ids.contains(_at(target, 'spid'))) continue;
+      // The effect is the nearest par whose timing node names a preset,
+      // or failing that the nearest par.
+      XmlElement? effect;
+      for (var up = target.parentElement; up != null && up != timing; up = up.parentElement) {
+        if (up.name.local != 'par') continue;
+        effect ??= up;
+        final node = _kid(up, 'cTn');
+        if (node != null && _at(node, 'presetClass') != null) {
+          effect = up;
+          break;
+        }
+      }
+      effect?.remove();
+    }
+    // Groups and steps left with nothing in them go, and the timing with
+    // them when no effect is left.
+    var pruned = true;
+    while (pruned) {
+      pruned = false;
+      for (final list in timing.descendantElements.where((e) => e.name.local == 'childTnLst').toList()) {
+        if (list.childElements.isNotEmpty) continue;
+        final holder = list.parentElement?.parentElement;
+        if (holder == null || (holder.name.local != 'par' && holder.name.local != 'seq')) continue;
+        holder.remove();
+        pruned = true;
+      }
+    }
+    for (final build in timing.descendantElements.where((e) => e.name.local.startsWith('bld') && e.name.local != 'bldLst').toList()) {
+      if (ids.contains(_at(build, 'spid'))) build.remove();
+    }
+    final builds = _kid(timing, 'bldLst');
+    if (builds != null && builds.childElements.isEmpty) builds.remove();
+    if (!timing.descendantElements.any((e) => e.name.local == 'spTgt')) timing.remove();
   }
 
   SlideClip copy(String slide, Set<int> ids) {
@@ -905,7 +1018,7 @@ class PptxDeck {
         // itself.
         if (found.placeholder != null) {
           looks[id] = this.looks(slide, id);
-          _unplace(doc, copy, found.box, looks[id]);
+          _unplace(doc, copy, slide, found.box, looks[id]);
         }
       }
       elements.add(copy);
@@ -913,9 +1026,13 @@ class PptxDeck {
     return SlideClip(slide, elements, rels, boxes);
   }
 
-  /// Turns a placeholder into a plain shape that states its own box and the
-  /// look of each of its levels.
-  static void _unplace(XmlDocument doc, XmlElement el, SlideBox box, SlideTextLooks? looks) {
+  /// Turns a placeholder of [slide] into a plain shape that states its own
+  /// box and everything it took from its layout and master: its outline,
+  /// fill and effects, its text box's settings and each level's look, down
+  /// to the typeface, capitals, spacing and bullet. Where the file gives no
+  /// level to take, the look the reader drew is written instead.
+  void _unplace(XmlDocument doc, XmlElement el, String slide, SlideBox box, SlideTextLooks? looks) {
+    final baked = _bake(doc, el, slide);
     for (final nv in el.childElements.where((c) => c.name.local.startsWith('nv'))) {
       final properties = _kid(nv, 'nvPr');
       _kid(properties ?? nv, 'ph')?.remove();
@@ -925,18 +1042,275 @@ class PptxDeck {
     _place(doc, el, box, box, null);
     final body = _kid(el, 'txBody');
     if (body == null || looks == null) return;
+    final list = _listStyleOf(doc, body);
+    final own = <String>{for (final c in list.childElements) c.name.local};
+    for (var i = 0; i < looks.levels.length && i < 9; i++) {
+      final name = 'lvl${i + 1}pPr';
+      if (own.contains(name) || baked.contains(i + 1)) continue;
+      _insertLevel(list, levelProperties(doc, name, looks.levels[i]));
+    }
+  }
+
+  static XmlElement _listStyleOf(XmlDocument doc, XmlElement body) {
     var list = _kid(body, 'lstStyle');
     if (list == null) {
       list = _el(doc, kNsA, 'a', 'lstStyle');
       final bodyPr = _kid(body, 'bodyPr');
       body.children.insert(bodyPr == null ? 0 : body.children.indexOf(bodyPr) + 1, list);
     }
-    final own = <String, XmlElement>{for (final c in list.childElements) c.name.local: c};
-    for (var i = 0; i < looks.levels.length && i < 9; i++) {
-      final name = 'lvl${i + 1}pPr';
-      if (own.containsKey(name)) continue;
-      list.children.add(levelProperties(doc, name, looks.levels[i]));
+    return list;
+  }
+
+  /// Puts the level [level] into [list] in its place among the others.
+  static void _insertLevel(XmlElement list, XmlElement level) {
+    int rank(String local) => local == 'defPPr' ? 0 : int.tryParse(local.replaceAll(RegExp(r'\D'), '')) ?? 10;
+    final at = list.children.indexWhere((n) => n is XmlElement && rank(n.name.local) > rank(level.name.local));
+    if (at < 0) {
+      final ext = _kid(list, 'extLst');
+      list.children.insert(ext == null ? list.children.length : list.children.indexOf(ext), level);
+    } else {
+      list.children.insert(at, level);
     }
+  }
+
+  /// The placeholder mark of [el], or null.
+  static XmlElement? _ph(XmlElement el) {
+    final nv = el.childElements.where((c) => c.name.local.startsWith('nv')).firstOrNull;
+    final properties = nv == null ? null : _kid(nv, 'nvPr');
+    return properties == null ? null : _kid(properties, 'ph');
+  }
+
+  static String _phType(XmlElement ph) => _at(ph, 'type') ?? 'obj';
+
+  /// The placeholder types that can stand in one another's place.
+  static Set<String> _alike(String type) => switch (type) {
+    'title' || 'ctrTitle' => const <String>{'title', 'ctrTitle'},
+    'body' || 'obj' || 'subTitle' => const <String>{'body', 'obj', 'subTitle'},
+    'pic' || 'chart' || 'tbl' || 'dgm' || 'media' || 'clipArt' => <String>{type, 'obj'},
+    _ => <String>{type},
+  };
+
+  /// The placeholders of the layout or master at [part].
+  List<XmlElement> _placeholders(String? part) {
+    final doc = part == null ? null : _doc(part);
+    final common = doc == null ? null : _kid(doc.rootElement, 'cSld');
+    final tree = common == null ? null : _kid(common, 'spTree');
+    return <XmlElement>[
+      for (final el in tree?.childElements ?? const <XmlElement>[])
+        if (_ph(el) != null) el,
+    ];
+  }
+
+  /// The placeholder of [part] one of [type] and [idx] takes after: the one
+  /// with its index, else the first of a type that can stand for it, leaving
+  /// out any in [taken].
+  XmlElement? _counterpart(String? part, String type, String? idx, {Set<XmlElement> taken = const <XmlElement>{}}) {
+    final all = _placeholders(part).where((e) => !taken.contains(e)).toList();
+    if (idx != null && idx != '0') {
+      for (final el in all) {
+        if (_at(_ph(el)!, 'idx') == idx && _alike(type).contains(_phType(_ph(el)!))) return el;
+      }
+    }
+    final wanted = _alike(type);
+    for (final t in <String>[type, ...wanted]) {
+      for (final el in all) {
+        if (_phType(_ph(el)!) == t) return el;
+      }
+    }
+    return null;
+  }
+
+  static const List<List<String>> _spPrFamilies = <List<String>>[
+    <String>['prstGeom', 'custGeom'],
+    <String>['noFill', 'solidFill', 'gradFill', 'blipFill', 'pattFill', 'grpFill'],
+    <String>['ln'],
+    <String>['effectLst', 'effectDag'],
+    <String>['scene3d'],
+    <String>['sp3d'],
+  ];
+
+  static const List<List<String>> _bodyPrFamilies = <List<String>>[
+    <String>['prstTxWarp'],
+    <String>['noAutofit', 'normAutofit', 'spAutoFit'],
+    <String>['scene3d'],
+    <String>['sp3d', 'flatTx'],
+  ];
+
+  static const List<List<String>> _pPrFamilies = <List<String>>[
+    <String>['lnSpc'],
+    <String>['spcBef'],
+    <String>['spcAft'],
+    <String>['buClrTx', 'buClr'],
+    <String>['buSzTx', 'buSzPct', 'buSzPts'],
+    <String>['buFontTx', 'buFont'],
+    <String>['buNone', 'buAutoNum', 'buChar', 'buBlip'],
+    <String>['tabLst'],
+    <String>['defRPr'],
+  ];
+
+  static const List<List<String>> _rPrFamilies = <List<String>>[
+    <String>['ln'],
+    <String>['noFill', 'solidFill', 'gradFill', 'blipFill', 'pattFill', 'grpFill'],
+    <String>['effectLst', 'effectDag'],
+    <String>['highlight'],
+    <String>['uLnTx', 'uLn'],
+    <String>['uFillTx', 'uFill'],
+    <String>['latin'],
+    <String>['ea'],
+    <String>['cs'],
+    <String>['sym'],
+  ];
+
+  /// [source], an element of another part, as an element of [doc], or null
+  /// where it cannot be carried over.
+  static XmlElement? _adopt(XmlDocument doc, XmlElement source) {
+    final copy = source.copy();
+    for (final ext in copy.descendantElements.where((e) => e.name.local == 'extLst').toList()) {
+      ext.remove();
+    }
+    try {
+      return _fragment(doc, copy.toXmlString());
+    } on XmlException {
+      return null;
+    }
+  }
+
+  /// [layers], lowest first, made into one `a:[name]`: an attribute or a
+  /// family of children from a higher layer over the same from a lower,
+  /// and run properties merged the same way.
+  static XmlElement? _merged(XmlDocument doc, String name, List<XmlElement?> layers, List<List<String>> families) {
+    final present = layers.whereType<XmlElement>().toList();
+    if (present.isEmpty) return null;
+    final attributes = <String, String>{};
+    for (final layer in present) {
+      for (final at in layer.attributes) {
+        if (at.name.prefix == null) attributes[at.name.local] = at.value;
+      }
+    }
+    final children = <XmlElement>[];
+    for (final family in families) {
+      if (family.length == 1 && family.first == 'defRPr') {
+        final run = _merged(doc, 'defRPr', <XmlElement?>[for (final l in present) _kid(l, 'defRPr')], _rPrFamilies);
+        if (run != null) children.add(run);
+        continue;
+      }
+      for (final layer in present.reversed) {
+        final found = layer.childElements.where((c) => family.contains(c.name.local)).firstOrNull;
+        if (found == null) continue;
+        final adopted = _adopt(doc, found);
+        if (adopted != null) children.add(adopted);
+        break;
+      }
+    }
+    return _el(doc, kNsA, 'a', name, attributes, children);
+  }
+
+  /// Writes into the placeholder [el] of [slide] what it takes from its
+  /// layout and master, and returns the levels of its list style written.
+  Set<int> _bake(XmlDocument doc, XmlElement el, String slide) {
+    final ph = _ph(el);
+    if (ph == null) return const <int>{};
+    final type = _phType(ph);
+    final layout = layoutOf(slide);
+    final master = layout == null ? null : masterOf(layout);
+    final near = _counterpart(layout, type, _at(ph, 'idx'));
+    final nearType = near == null ? type : _phType(_ph(near)!);
+    final far = _counterpart(
+      master,
+      switch (nearType) {
+        'title' || 'ctrTitle' => 'title',
+        'dt' || 'ftr' || 'sldNum' || 'hdr' => nearType,
+        _ => 'body',
+      },
+      null,
+    );
+    final above = <XmlElement>[?near, ?far];
+    if (el.name.local != 'graphicFrame') {
+      var properties = _kid(el, 'spPr');
+      if (properties == null) {
+        properties = _el(doc, kNsP, 'p', 'spPr');
+        final nv = el.childElements.where((c) => c.name.local.startsWith('nv')).firstOrNull;
+        final blip = _kid(el, 'blipFill');
+        final after = blip ?? nv;
+        el.children.insert(after == null ? 0 : el.children.indexOf(after) + 1, properties);
+      }
+      for (final family in _spPrFamilies) {
+        if (properties.childElements.any((c) => family.contains(c.name.local))) continue;
+        for (final from in above) {
+          final kind = _kid(from, 'spPr')?.childElements.where((c) => family.contains(c.name.local)).firstOrNull;
+          final adopted = kind == null ? null : _adopt(doc, kind);
+          if (adopted == null) continue;
+          _insertOrdered(properties, adopted, _spPrOrder);
+          break;
+        }
+      }
+      if (_kid(el, 'style') == null) {
+        for (final from in above) {
+          final style = _kid(from, 'style');
+          final adopted = style == null ? null : _adopt(doc, style);
+          if (adopted == null) continue;
+          el.children.insert(el.children.indexOf(properties) + 1, adopted);
+          break;
+        }
+      }
+    }
+    final body = _kid(el, 'txBody');
+    if (body == null) return const <int>{};
+    var bodyPr = _kid(body, 'bodyPr');
+    if (bodyPr == null) {
+      bodyPr = _el(doc, kNsA, 'a', 'bodyPr');
+      body.children.insert(0, bodyPr);
+    }
+    for (final from in above) {
+      final text = _kid(from, 'txBody');
+      final given = text == null ? null : _kid(text, 'bodyPr');
+      if (given == null) continue;
+      for (final at in given.attributes) {
+        if (at.name.prefix == null && _at(bodyPr, at.name.local) == null) _setAttr(bodyPr, at.name.local, at.value);
+      }
+      for (final family in _bodyPrFamilies) {
+        if (bodyPr.childElements.any((c) => family.contains(c.name.local))) continue;
+        final kind = given.childElements.where((c) => family.contains(c.name.local)).firstOrNull;
+        final adopted = kind == null ? null : _adopt(doc, kind);
+        if (adopted != null) {
+          final ext = _kid(bodyPr, 'extLst');
+          bodyPr.children.insert(ext == null ? bodyPr.children.length : bodyPr.children.indexOf(ext), adopted);
+        }
+      }
+    }
+    // Each level, from the deck's default text through the master's text
+    // style for its role and the master's and layout's placeholders to the
+    // shape's own.
+    final masterDoc = master == null ? null : _doc(master);
+    final styles = masterDoc == null ? null : _kid(masterDoc.rootElement, 'txStyles');
+    final role = switch (nearType) {
+      'title' || 'ctrTitle' => 'titleStyle',
+      'dt' || 'ftr' || 'sldNum' || 'hdr' => 'otherStyle',
+      _ => 'bodyStyle',
+    };
+    final lists = <XmlElement?>[
+      _kid(_deckDoc.rootElement, 'defaultTextStyle'),
+      styles == null ? null : _kid(styles, role),
+      _listOf(far),
+      _listOf(near),
+    ];
+    final list = _listStyleOf(doc, body);
+    final written = <int>{};
+    for (var n = 1; n <= 9; n++) {
+      final name = 'lvl${n}pPr';
+      final own = _kid(list, name);
+      final level = _merged(doc, name, <XmlElement?>[for (final l in lists) l == null ? null : _kid(l, name), own], _pPrFamilies);
+      if (level == null) continue;
+      own?.remove();
+      _insertLevel(list, level);
+      written.add(n);
+    }
+    return written;
+  }
+
+  static XmlElement? _listOf(XmlElement? placeholder) {
+    final body = placeholder == null ? null : _kid(placeholder, 'txBody');
+    return body == null ? null : _kid(body, 'lstStyle');
   }
 
   /// An `a:lvlNpPr` stating [look] outright.
@@ -1006,12 +1380,17 @@ class PptxDeck {
             if (at.name.prefix != 'r' && at.name.prefix != r) continue;
             final rel = clip.rels[at.value];
             if (rel == null) continue;
-            final id = renamed[at.value] ??= _relate(
-              slide,
-              rel.type,
-              rel.external || !_privateTargets.contains(rel.kind) ? rel.target : _clonePart(rel.target),
-              external: rel.external,
-            );
+            if (rel.type == _relSlide && !rel.external && _textOf(rel.target) == null) {
+              // A link to a slide no longer in the deck goes.
+              if (e.name.local.startsWith('hlink')) e.remove();
+              break;
+            }
+            final id = renamed[at.value] ??= () {
+              final private = !rel.external && _privateTargets.contains(rel.kind);
+              final target = private ? _clonePart(rel.target) : rel.target;
+              if (private && rel.kind == 'diagramData') _carryDrawing(target, clip, slide);
+              return _relate(slide, rel.type, target, external: rel.external);
+            }();
             e.attributes.remove(at);
             e.attributes.add(XmlAttribute(XmlName.parts(at.name.local, prefix: r), id));
           }
@@ -1035,6 +1414,23 @@ class PptxDeck {
   }
 
   List<int> duplicate(String slide, Set<int> ids) => paste(slide, copy(slide, ids), label: 'Duplicate');
+
+  /// A SmartArt's data part names the drawing PowerPoint laid it out as
+  /// through a relationship of the slide's own; the copy at [data], pasted
+  /// on [slide], gets a copy of that drawing through one of [slide]'s.
+  void _carryDrawing(String data, SlideClip clip, String slide) {
+    final doc = _doc(data);
+    if (doc == null) return;
+    var carried = false;
+    for (final e in doc.rootElement.descendantElements) {
+      if (e.name.local != 'dataModelExt') continue;
+      final rel = clip.rels[_at(e, 'relId') ?? ''];
+      if (rel == null || rel.external) continue;
+      _setAttr(e, 'relId', _relate(slide, rel.type, _clonePart(rel.target)));
+      carried = true;
+    }
+    if (carried) _put(data, doc);
+  }
 
   /// Moves [id] through the stack of things on its slide.
   void order(String slide, int id, SlideOrder to) {
@@ -1210,17 +1606,33 @@ class PptxDeck {
     );
   }
 
-  void _format(String slide, int id, String label, void Function(XmlDocument doc, XmlElement properties, XmlElement el) edit) {
+  /// Makes [edit] to the properties of [id], or of each shape of [kinds]
+  /// in it when it is a group, as Slides formats a group: a group's own
+  /// properties hold no outline. A table, chart or diagram takes none.
+  void _format(
+    String slide,
+    int id,
+    String label,
+    void Function(XmlDocument doc, XmlElement properties, XmlElement el) edit, {
+    Set<String> kinds = const <String>{'sp', 'cxnSp', 'pic'},
+  }) {
     _change(label, () {
       final doc = _doc(slide)!;
       final el = _object(doc, id);
-      if (el == null) return;
-      final group = el.name.local == 'grpSp';
-      var properties = _kid(el, group ? 'grpSpPr' : 'spPr');
+      if (el == null || el.name.local == 'graphicFrame') return;
+      if (el.name.local == 'grpSp') {
+        for (final leaf in el.descendantElements.where((e) => kinds.contains(e.name.local)).toList()) {
+          final properties = _kid(leaf, 'spPr');
+          if (properties != null) edit(doc, properties, leaf);
+        }
+        _put(slide, doc);
+        return;
+      }
+      var properties = _kid(el, 'spPr');
       if (properties == null) {
         final was = object(slide, id)!.box;
         _transform(doc, el, was);
-        properties = _kid(el, group ? 'grpSpPr' : 'spPr')!;
+        properties = _kid(el, 'spPr')!;
       }
       edit(doc, properties, el);
       _put(slide, doc);
@@ -1233,7 +1645,7 @@ class PptxDeck {
       if (_fillKinds.contains(c.name.local)) c.remove();
     }
     _insertOrdered(properties, argb == null ? _el(doc, kNsA, 'a', 'noFill') : _solid(doc, argb), _spPrOrder);
-  });
+  }, kinds: const <String>{'sp'});
 
   XmlElement _line(XmlDocument doc, XmlElement properties) {
     var ln = _kid(properties, 'ln');
@@ -1735,18 +2147,28 @@ class PptxDeck {
         notesRels = _relsOf(rel.target);
       }
     }
-    return KeptSlide(_textOf(slide)!, rels, notes, notesRels);
+    return KeptSlide(slide, _textOf(slide)!, rels, notes, notesRels);
   }
 
-  /// Makes a slide from [kept] at [at]; returns its part.
-  String _remake(KeptSlide kept, int at) {
-    final part = _fresh('ppt/slides/slide#.xml');
+  /// Makes a slide from [kept] at [at] as [part], or a fresh part; returns
+  /// the part. A link to a slide that is gone goes to the slide made from
+  /// it in the same paste, as [moved] says, or goes altogether.
+  String _remake(KeptSlide kept, int at, {String? part, Map<String, String> moved = const <String, String>{}}) {
+    part ??= _fresh('ppt/slides/slide#.xml');
     _now.texts[part] = kept.xml;
     final doc = _relsDoc(part);
+    final dead = <String>{};
     for (final rel in kept.rels) {
       String target;
       if (rel.external) {
         target = rel.target;
+      } else if (rel.type == _relSlide) {
+        final to = _textOf(rel.target) != null ? rel.target : moved[rel.target];
+        if (to == null) {
+          dead.add(rel.id);
+          continue;
+        }
+        target = to;
       } else if (rel.type == _relNotes) {
         final notesXml = kept.notes;
         if (notesXml == null) continue;
@@ -1781,8 +2203,21 @@ class PptxDeck {
       );
     }
     _put(_relsPath(part), doc);
+    if (dead.isNotEmpty) {
+      final slideDoc = XmlDocument.parse(kept.xml);
+      _dropLinks(slideDoc, dead);
+      _put(part, slideDoc);
+    }
     _enlist(part, at);
     return part;
+  }
+
+  /// Takes out of [doc] the links made through the relationships [ids].
+  static void _dropLinks(XmlNode doc, Set<String> ids) {
+    for (final e in doc.descendantElements.toList()) {
+      if (!e.name.local.startsWith('hlink')) continue;
+      if (e.attributes.any((a) => a.name.local == 'id' && a.name.prefix != null && ids.contains(a.value))) e.remove();
+    }
   }
 
   /// Copies of [paths], each put straight after the last of them; returns
@@ -1806,9 +2241,15 @@ class PptxDeck {
   List<String> pasteSlides(SlidesClip clip, int at) {
     final made = <String>[];
     _change(clip.length == 1 ? 'Paste slide' : 'Paste slides', () {
+      final moved = <String, String>{};
+      for (final kept in clip.slides) {
+        final part = _fresh('ppt/slides/slide#.xml');
+        _now.texts[part] = kept.xml;
+        moved[kept.path] = part;
+      }
       var place = at;
       for (final kept in clip.slides) {
-        made.add(_remake(kept, place++));
+        made.add(_remake(kept, place++, part: moved[kept.path], moved: moved));
       }
     });
     return made;
@@ -1852,12 +2293,7 @@ class PptxDeck {
         };
         if (dead.isEmpty) continue;
         final slideDoc = _doc(other)!;
-        for (final e in slideDoc.rootElement.descendantElements.toList()) {
-          if (e.attributes.any((a) => a.name.local == 'id' && dead.contains(a.value)) &&
-              (e.name.local == 'hlinkClick' || e.name.local == 'hlinkHover')) {
-            e.remove();
-          }
-        }
+        _dropLinks(slideDoc, dead);
         _put(other, slideDoc);
         _unrelate(other, (rel) => dead.contains(rel.id));
       }
@@ -1901,14 +2337,62 @@ class PptxDeck {
     _change('Layout', () => _relayout(slide, layout));
   }
 
+  /// Puts the slide at [slide] on [layout]. Each placeholder takes the new
+  /// layout's placeholder with its index, or else one of its type; one with
+  /// no place there goes when it is empty, and otherwise stays where it is,
+  /// looking as it did, as a shape of its own.
   void _relayout(String slide, String layout) {
-    final doc = _doc(_relsPath(slide));
-    if (doc == null) return;
-    for (final e in doc.rootElement.childElements) {
+    final doc = _doc(slide);
+    if (doc != null) {
+      final placeholders = <XmlElement>[
+        for (final el in _tree(doc).childElements)
+          if (_ph(el) != null) el,
+      ];
+      final offered = _placeholders(layout);
+      final homes = <XmlElement, XmlElement>{};
+      for (final el in placeholders) {
+        final ph = _ph(el)!;
+        final idx = _at(ph, 'idx');
+        if (idx == null || idx == '0') continue;
+        final home = offered
+            .where((c) => !homes.containsValue(c) && _at(_ph(c)!, 'idx') == idx && _alike(_phType(ph)).contains(_phType(_ph(c)!)))
+            .firstOrNull;
+        if (home != null) homes[el] = home;
+      }
+      for (final el in placeholders) {
+        if (homes.containsKey(el)) continue;
+        final home = _counterpart(layout, _phType(_ph(el)!), null, taken: homes.values.toSet());
+        if (home != null) homes[el] = home;
+      }
+      for (final el in placeholders) {
+        final ph = _ph(el)!;
+        final home = homes[el];
+        if (home != null) {
+          _setAttr(ph, 'idx', _at(_ph(home)!, 'idx'));
+          continue;
+        }
+        final id = PptxParser.idOf(el);
+        final box = id == null ? null : object(slide, id)?.box;
+        if (box == null || _empty(el) || const <String>{'dt', 'ftr', 'sldNum', 'hdr'}.contains(_phType(ph))) {
+          el.remove();
+          continue;
+        }
+        _unplace(doc, el, slide, box, looks(slide, id!));
+      }
+      _put(slide, doc);
+    }
+    final rels = _doc(_relsPath(slide));
+    if (rels == null) return;
+    for (final e in rels.rootElement.childElements) {
       if (_at(e, 'Type') == _relLayout) _setAttr(e, 'Target', _relative(slide, layout));
     }
-    _put(_relsPath(slide), doc);
+    _put(_relsPath(slide), rels);
   }
+
+  /// True for a placeholder that holds no words and no picture.
+  static bool _empty(XmlElement el) =>
+      el.name.local == 'sp' &&
+      !el.descendantElements.any((e) => (e.name.local == 't' && e.innerText.isNotEmpty) || e.name.local == 'blip');
 
   /// Sets the ground of the slide at [slide] to [argb], or back to its
   /// layout's when null.

@@ -1516,7 +1516,8 @@ class SlideEditorState extends State<SlideEditor> {
           DeskSheetRow(label: 'Duplicate', icon: LucideIcons.copyPlus, onTap: () => Navigator.of(context).pop('duplicate')),
           if (object.hasText)
             DeskSheetRow(label: 'Edit text', icon: LucideIcons.textCursorInput, onTap: () => Navigator.of(context).pop('text')),
-          DeskSheetRow(label: 'Format options', icon: LucideIcons.slidersHorizontal, onTap: () => Navigator.of(context).pop('format')),
+          if (object.kind != 'graphicFrame')
+            DeskSheetRow(label: 'Format options', icon: LucideIcons.slidersHorizontal, onTap: () => Navigator.of(context).pop('format')),
           DeskSheetRow(label: 'Order', icon: LucideIcons.layers, onTap: () => Navigator.of(context).pop('order')),
         ],
       ),
