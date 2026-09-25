@@ -900,6 +900,9 @@ void main() {
       final paragraph = tester.renderObject<RenderParagraph>(marker);
       final boxes = paragraph.getBoxesForSelection(const TextSelection(baseOffset: 0, extentOffset: 3));
       expect(boxes.map((b) => b.top.round()).toSet(), hasLength(1));
+      // The number ends before its words begin.
+      final words = find.text('Point 12', findRichText: true);
+      expect(tester.getTopLeft(marker).dx + boxes.last.right, lessThanOrEqualTo(tester.getTopLeft(words).dx + 0.01));
     });
   });
 

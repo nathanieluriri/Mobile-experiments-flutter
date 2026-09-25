@@ -755,7 +755,7 @@ class _SlideBlockView extends StatelessWidget {
         align: DocAlign.start,
       ),
       ParagraphBlock() => _paragraph(block as ParagraphBlock),
-      ListItemBlock() => _listItem(block as ListItemBlock),
+      ListItemBlock() => _listItem(context, block as ListItemBlock),
       CodeBlock() => _text(
         <DocSpan>[DocSpan((block as CodeBlock).text, mono: true)],
         align: DocAlign.start,
@@ -810,28 +810,30 @@ class _SlideBlockView extends StatelessWidget {
   /// A bullet hangs in its own gutter, the way it does on the slide, rather
   /// than being written into the text. A marker inside the string would be
   /// found by the search and read out by a screen reader as a word.
-  Widget _listItem(ListItemBlock block) {
+  Widget _listItem(BuildContext context, ListItemBlock block) {
     final marker = block.marker;
     final gutter = kSlideMarkerGutter * scale;
+    final span = marker == null ? null : DocSpan(marker, color: _inkOf(block.spans), fontSize: _sizeOf(block));
+    // A number wider than the gutter, as a small slide draws its text larger
+    // than to scale, widens its gutter rather than running under the words.
+    var needed = 0.0;
+    if (span != null) {
+      final painter = TextPainter(
+        text: TextSpan(text: '${span.text} ', style: _style(span)),
+        textDirection: TextDirection.ltr,
+        textScaler: MediaQuery.textScalerOf(context),
+      )..layout();
+      needed = painter.width;
+      painter.dispose();
+    }
     return Padding(
       padding: EdgeInsets.only(left: block.level * gutter),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
           SizedBox(
-            width: gutter,
-            child: marker == null
-                ? null
-                : _marker(
-                    <DocSpan>[
-                      DocSpan(
-                        marker,
-                        color: _inkOf(block.spans),
-                        fontSize: _sizeOf(block),
-                      ),
-                    ],
-                    align: DocAlign.start,
-                  ),
+            width: math.max(gutter, needed),
+            child: span == null ? null : _marker(<DocSpan>[span], align: DocAlign.start),
           ),
           Expanded(child: _text(block.spans, align: DocAlign.start)),
         ],

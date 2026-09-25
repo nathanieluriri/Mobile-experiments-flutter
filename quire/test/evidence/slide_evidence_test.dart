@@ -126,7 +126,10 @@ void main() {
     await settle(tester);
     await screenshot(tester, 'D', '12_new_slide_empty_placeholders');
 
-    await tester.tap(find.bySemanticsLabel('Theme'));
+    await tester.tap(find.bySemanticsLabel('Slide format'));
+    await settle(tester);
+    await screenshot(tester, 'D', '13a_slide_format_sheet');
+    await tester.tap(find.text('Theme'));
     await settle(tester);
     await screenshot(tester, 'D', '13_theme_sheet');
     await tester.ensureVisible(find.byKey(const ValueKey<String>('builtin-Ocean')));
