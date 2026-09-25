@@ -24,13 +24,6 @@ Thumbs.db
 # golden test failure output
 **/test/failures/
 
-# never committed
-CLAUDE.md
-CLAUDE.local.md
-.claude/*
-!.claude/skills/
-GAUNTLET.md
-docs/superpowers/
-.reference/
+# secrets
 .env
 .env.*
