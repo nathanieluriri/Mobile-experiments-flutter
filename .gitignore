@@ -27,7 +27,8 @@ Thumbs.db
 # never committed
 CLAUDE.md
 CLAUDE.local.md
-.claude/
+.claude/*
+!.claude/skills/
 GAUNTLET.md
 docs/superpowers/
 .reference/

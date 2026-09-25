@@ -16,13 +16,25 @@
                     <view key="view" contentMode="scaleToFill" id="Ze5-6b-2t3">
                         <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
                         <subviews>
-                            <imageView opaque="NO" clipsSubviews="YES" multipleTouchEnabled="YES" contentMode="center" image="LaunchImage" translatesAutoresizingMaskIntoConstraints="NO" id="YRO-k0-Ey4">
+                            <imageView opaque="NO" clipsSubviews="YES" userInteractionEnabled="NO" contentMode="scaleToFill" image="LaunchMark" translatesAutoresizingMaskIntoConstraints="NO" id="QMk-Ma-rk1">
+                                <constraints>
+                                    <constraint firstAttribute="width" constant="288" id="QMk-wd-288"/>
+                                    <constraint firstAttribute="height" constant="288" id="QMk-ht-288"/>
+                                </constraints>
+                            </imageView>
+                            <imageView opaque="NO" clipsSubviews="YES" userInteractionEnabled="NO" contentMode="scaleToFill" image="LaunchName" translatesAutoresizingMaskIntoConstraints="NO" id="QNm-Na-me1">
+                                <constraints>
+                                    <constraint firstAttribute="width" constant="200" id="QNm-wd-200"/>
+                                    <constraint firstAttribute="height" constant="80" id="QNm-ht-080"/>
+                                </constraints>
                             </imageView>
                         </subviews>
-                        <color key="backgroundColor" red="1" green="1" blue="1" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
+                        <color key="backgroundColor" red="0.07450980392156863" green="0.07450980392156863" blue="0.086274509803921567" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
                         <constraints>
-                            <constraint firstItem="YRO-k0-Ey4" firstAttribute="centerX" secondItem="Ze5-6b-2t3" secondAttribute="centerX" id="1a2-6s-vTC"/>
-                            <constraint firstItem="YRO-k0-Ey4" firstAttribute="centerY" secondItem="Ze5-6b-2t3" secondAttribute="centerY" id="4X2-HB-R7a"/>
+                            <constraint firstItem="QMk-Ma-rk1" firstAttribute="centerX" secondItem="Ze5-6b-2t3" secondAttribute="centerX" id="QMk-cx-000"/>
+                            <constraint firstItem="QMk-Ma-rk1" firstAttribute="centerY" secondItem="Ze5-6b-2t3" secondAttribute="centerY" id="QMk-cy-000"/>
+                            <constraint firstItem="QNm-Na-me1" firstAttribute="centerX" secondItem="Ze5-6b-2t3" secondAttribute="centerX" id="QNm-cx-000"/>
+                            <constraint firstItem="Ze5-6b-2t3" firstAttribute="bottom" secondItem="QNm-Na-me1" secondAttribute="bottom" constant="60" id="QNm-bt-060"/>
                         </constraints>
                     </view>
                 </viewController>
@@ -32,6 +44,7 @@
         </scene>
     </scenes>
     <resources>
-        <image name="LaunchImage" width="168" height="185"/>
+        <image name="LaunchMark" width="288" height="288"/>
+        <image name="LaunchName" width="200" height="80"/>
     </resources>
 </document>

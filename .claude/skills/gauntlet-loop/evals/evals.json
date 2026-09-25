@@ -1,0 +1,63 @@
+{
+  "skill_name": "gauntlet-loop",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Run the quire reader's page-turn animation through the gauntlet.",
+      "expected_output": "The skill loads, replies with the four-line contract naming a concrete bar, then runs bounded build and blind-critic rounds with a GAUNTLET.md ledger.",
+      "files": [],
+      "expectations": [
+        "Before building, the reply contains Goal, Bar, Budget and Evidence lines",
+        "The Bar names a specific real product or standard, not a word like 'good' or 'polished'",
+        "The Budget states rounds per part, a wall-clock ceiling and an approximate agent count",
+        "GAUNTLET.md is created before round 1 and updated after every round",
+        "Each critic is a new foreground Agent call whose prompt excludes the builder's summary",
+        "Critic prompts state that PASS is a valid answer and require reproduction steps per issue",
+        "Each confirmed issue is turned into a test, golden, assertion or checklist line",
+        "The final report lists per-part outcome, recurring critic findings, checks added and budget used"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "The empty states in the quire library screen work but look amateur. Make them actually good, not just working, and iterate on it without me babysitting it.",
+      "expected_output": "The skill triggers from natural phrasing without the word gauntlet and names a real bar for empty states.",
+      "files": [],
+      "expectations": [
+        "The gauntlet-loop skill is used even though the word 'gauntlet' was not said",
+        "The bar names a real app's empty states",
+        "Critics exercise the UI via screenshots or golden tests rather than only reading source"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Resume the gauntlet from where it stopped yesterday.",
+      "expected_output": "The skill reads the existing GAUNTLET.md and continues from its Next step rather than restarting.",
+      "files": [],
+      "expectations": [
+        "GAUNTLET.md is read before any new build work",
+        "Parts already marked PASS are not re-critiqued",
+        "The contract from the ledger is reused rather than renegotiated"
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "Fix the null check crash in lib/main.dart when the PDF has no pages.",
+      "expected_output": "The skill does not trigger; a direct fix is made.",
+      "files": [],
+      "expectations": [
+        "The gauntlet-loop skill is not loaded",
+        "No GAUNTLET.md is created and no critic agents are spawned"
+      ]
+    },
+    {
+      "id": 5,
+      "prompt": "Review my current diff for bugs before I push.",
+      "expected_output": "The skill does not trigger; this is a one-off review, not an iterate-until-bar loop.",
+      "files": [],
+      "expectations": [
+        "The gauntlet-loop skill is not loaded",
+        "No builder rounds are run"
+      ]
+    }
+  ]
+}

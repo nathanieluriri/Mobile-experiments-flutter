@@ -79,9 +79,21 @@ const kBodyBottomPadding = 96.0;
 /// over all four from the left, and the hamburger that opens it is a readout
 /// of where it has got to rather than an animation of its own.
 class DeskScreen extends StatefulWidget {
-  const DeskScreen({super.key, required this.store, this.onOpen, this.onSign});
+  const DeskScreen({
+    super.key,
+    required this.store,
+    this.onOpen,
+    this.onSign,
+    this.holdsItsMark = true,
+  });
 
   final LibraryStore store;
+
+  /// Whether the desk keeps its own loading mark up for [kDeskWaking] once it
+  /// has read what it holds. Under the arrival it does not: the splash's mark
+  /// is already standing over it, and a second wait behind the first would
+  /// only make the window open late.
+  final bool holdsItsMark;
 
   /// Opening a document.
   ///
@@ -205,10 +217,12 @@ class _DeskScreenState extends State<DeskScreen> with TickerProviderStateMixin {
     _undoRise = AnimationController(vsync: this, duration: kUndoPillIn);
     widget.store.addListener(_onStoreChanged);
     if (!_awake) {
-      _leastWaking = Timer(kDeskWaking, () {
-        _leastWaking = null;
-        _wakeWhenRead();
-      });
+      if (widget.holdsItsMark) {
+        _leastWaking = Timer(kDeskWaking, () {
+          _leastWaking = null;
+          _wakeWhenRead();
+        });
+      }
       _mostWaking = Timer(kDeskWakingLimit, _wake);
     }
   }
@@ -975,7 +989,9 @@ class _DeskScreenState extends State<DeskScreen> with TickerProviderStateMixin {
     return ColoredBox(
       color: AppColors.ground,
       child: AnimatedSwitcher(
-        duration: kDeskWakingFade,
+        // Under the arrival the change happens behind the mark, and a fade
+        // still running when the window opens would be seen through it.
+        duration: widget.holdsItsMark ? kDeskWakingFade : Duration.zero,
         child: _awake
             ? KeyedSubtree(key: const ValueKey<bool>(true), child: _desk())
             : const KeyedSubtree(

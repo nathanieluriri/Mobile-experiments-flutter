@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'arrival/arrival.dart';
 import 'data/library.dart';
 import 'painting/signature_painter.dart';
 import 'screens/desk/desk_screen.dart';
@@ -24,35 +25,27 @@ import 'widgets/damaged_surface.dart';
 import 'widgets/dissolve/dissolve_scope.dart';
 import 'widgets/quire_spinner.dart';
 
-/// Starts quire with somewhere for a failure to go.
+/// Gives a failure somewhere to go, before anything can raise one.
 ///
-/// Three separate boundaries can be the first to see an error, and left alone
-/// every one of them is silent. A widget that throws while building draws
-/// Flutter's grey rectangle, sized to whatever slot the broken thing was in,
-/// with no text on it in a release build. An error on a future nobody awaited,
-/// which is how this app saves the desk, reaches the zone and prints one line
-/// to a device log the owner will never see, having silently not saved. And
-/// anything the engine raises outside a zone at all reaches the platform.
+/// Two boundaries can be the first to see an error, and left alone both are
+/// silent. A widget that throws while building draws Flutter's grey
+/// rectangle, sized to whatever slot the broken thing was in, with no text on
+/// it in a release build. Everything else reaches the platform: an error on a
+/// future nobody awaited, which is how this app saves the desk, printed one
+/// line to a device log the owner will never see, having silently not saved.
 ///
-/// All three arrive here instead, so a fault is counted once, and what the
-/// reader is shown where the broken thing was is drawn in the app's own hand.
+/// Both arrive here instead, so a fault is counted once, and what the reader
+/// is shown where the broken thing was is drawn in the app's own hand.
 ///
-/// [app] is a seam for a test that wants a tree of its own. Nothing else
-/// passes it.
-void runQuire({Widget app = const App()}) {
-  installFailureHandlers();
-  runZonedGuarded(
-    () => runApp(app),
-    (error, stack) =>
-        failures.record(error, where: 'a future nobody awaited', stack: stack),
-  );
-}
-
-/// Points the three boundaries at the log, and puts the app's own damaged
-/// leaf where Flutter would have drawn a grey rectangle.
+/// There is deliberately no [runZonedGuarded]. It is the older way to catch
+/// the second kind, and it brings a hazard with it: the binding has to be
+/// initialised inside the same zone it runs in, so a guarded `main` and an
+/// unguarded `WidgetsFlutterBinding.ensureInitialized` fail against each
+/// other at launch, which is the worst moment to learn about a zone.
+/// `PlatformDispatcher.onError` is the root zone's own handler and catches
+/// the same errors without asking `main` to be arranged around it.
 ///
-/// Separate from [runQuire] because it is the half a test can call: the other
-/// half starts an app, and a test already has one.
+/// Called first from `main`, which is the only caller that is not a test.
 void installFailureHandlers() {
   FlutterError.onError = (details) {
     failures.record(details.exception, where: 'a build', stack: details.stack);
@@ -143,6 +136,15 @@ class _AppState extends State<App> with WidgetsBindingObserver {
   /// Stops the opening screen waiting on a document that is not coming.
   Timer? _doorstepLimit;
 
+  /// True once the screen the arrival opens onto is up: the desk has read
+  /// what it holds, and the platform has said whether the app was started on
+  /// a document.
+  final ValueNotifier<bool> _arrived = ValueNotifier<bool>(false);
+
+  /// Opens the arrival anyway if the desk cannot be read, at the moment the
+  /// desk gives up waiting and shows what it has.
+  Timer? _arrivalLimit;
+
   /// True until the platform has said what the app was started on.
   ///
   /// It is the one thing that tells a cold start on a document from a warm
@@ -166,6 +168,7 @@ class _AppState extends State<App> with WidgetsBindingObserver {
     // document opened in an earlier run arrives at the top in the same beat.
     final incoming = IncomingDocuments()..addListener(_onIncoming);
     _incoming = incoming;
+    _arrivalLimit = Timer(kDeskWakingLimit, () => _arrived.value = true);
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!mounted) return;
       // The desk before the doorstep. A document handed in at a cold start
@@ -176,6 +179,8 @@ class _AppState extends State<App> with WidgetsBindingObserver {
       // The platform has now said what it started the app on. Anything that
       // arrives after this came in on top of whatever quire was showing.
       _starting = false;
+      _arrivalLimit?.cancel();
+      if (mounted) _arrived.value = true;
       // A document handed in at a cold start is opened before the desk's own
       // documents are read, not raced against them.
       await _opening;
@@ -326,6 +331,8 @@ class _AppState extends State<App> with WidgetsBindingObserver {
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _doorstepLimit?.cancel();
+    _arrivalLimit?.cancel();
+    _arrived.dispose();
     _doorstep.dispose();
     _incoming
       ?..removeListener(_onIncoming)
@@ -415,8 +422,16 @@ class _AppState extends State<App> with WidgetsBindingObserver {
       // The loop, not the ground, for the one frame the navigator has yet to
       // hand anything over: an app with nothing on screen is loading, and a
       // bare ground would say it had nothing to show.
-      builder: (context, child) =>
-          _Fitted(child: DissolveScope(child: child ?? const QuireLoading())),
+      builder: (context, child) {
+        final app = _Fitted(
+          child: DissolveScope(child: child ?? const QuireLoading()),
+        );
+        // Outside the design frame, because the splash it takes over from was
+        // laid out on the whole screen. A test that brings its own desk is not
+        // a launch, and gets no arrival.
+        if (_library == null) return app;
+        return Arrival(ready: _arrived, child: app);
+      },
     );
   }
 
@@ -520,11 +535,18 @@ class _AppState extends State<App> with WidgetsBindingObserver {
     return ValueListenableBuilder<IncomingDocument?>(
       valueListenable: _doorstep,
       builder: (context, document, _) => AnimatedSwitcher(
-        duration: kDeskWakingFade,
+        // Behind the arrival's mark the switch is not seen, and a fade still
+        // running when the window opens would be.
+        duration: _arrived.value ? kDeskWakingFade : Duration.zero,
         child: document == null
             ? KeyedSubtree(
                 key: const ValueKey<bool>(true),
-                child: DeskScreen(store: library, onOpen: _open, onSign: _sign),
+                child: DeskScreen(
+                  store: library,
+                  onOpen: _open,
+                  onSign: _sign,
+                  holdsItsMark: false,
+                ),
               )
             : KeyedSubtree(
                 key: const ValueKey<bool>(false),
