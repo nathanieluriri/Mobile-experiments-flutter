@@ -43,15 +43,21 @@ puts the slide alone on the screen with the deck's own titles to jump by.
 **A PDF can be sealed with a password,** in the file itself, so it asks for the
 password in any other reader too.
 
-**Every format can be edited, and nothing is lost by it.** The words of a Word
-document or a deck, a paragraph at a time, with each paragraph's look kept.
-Markdown and CSV as the text they are, with the page they make a tap away. A
-workbook's cells, one at a time, formulas included. A PDF takes words, ink,
-highlights, strikes and pictures, written as annotations after what is already
-in the file, so any other reader shows them. Every save is a new revision kept
-beside the document, never over it: the file it arrived as, a shipped sample
-or one on the phone, is never touched, and Revisions reads any earlier one
-again.
+**Every format can be edited, and nothing is lost by it.** A Word document is
+edited on the page, in its own styles, with a formatting bar that rides on the
+keyboard, find and replace, a word count and an outline. A deck is edited as in
+Slides: shapes picked up with handles, moved, sized and turned, words typed on
+the slide itself, tables, pictures and lines put in, and slides added from the
+deck's own layouts, reordered and given a theme. A CSV file is a grid, edited a
+cell at a time, and so are a workbook's cells, formulas included. Markdown is
+edited as the text it is, with the page it makes a tap away. A PDF takes words,
+ink, highlights, strikes and pictures, written as annotations after what is
+already in the file, and every mark, quire's own or another program's, can be
+picked up again, moved, sized, recoloured or deleted. Only what was edited is
+written again; every other part of a file is copied across as it was. Every
+save is a new revision kept beside the document, never over it: the file it
+arrived as, a shipped sample or one on the phone, is never touched, and
+Revisions reads any earlier one again.
 
 **It reads your folders where they are.** Hand quire a folder on the phone,
 Downloads to start with, and everything in it that quire reads is on the desk

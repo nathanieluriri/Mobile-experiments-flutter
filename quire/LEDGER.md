@@ -12,7 +12,8 @@ in the same change, with the reason.
 
 ## Dependencies that bring native code
 
-- `flutter_quill` (MIT) sets a Word document in the editor. It brings
+- `flutter_quill` (MIT) sets a Word document, and the words typed on a
+  slide, in the editor. It brings
   `url_launcher`, which adds a WebView activity to the manifest, not
   exported, so no other app can start it. quire never opens a link in a
   document: the editor's link handler does nothing, and with no `INTERNET`
@@ -63,6 +64,13 @@ network and no data collected": neither of these reaches the network.
   pictures, fields and section breaks are written back as they were; a
   changed paragraph keeps its own properties and each character's run
   properties.
+- A deck is edited in place. Only the slides, layouts, masters and themes an
+  edit changed are written again, and every other part is copied across as it
+  was; a save leaves out the parts nothing points at any more, such as a
+  deleted slide's pictures and charts.
+- A CSV file is written back row by row: rows nobody touched keep their own
+  text, quoting and line endings, and each save is read back before it is
+  kept.
 - Revisions sit in the same storage as the library, so the backup rules
   below cover them.
 
