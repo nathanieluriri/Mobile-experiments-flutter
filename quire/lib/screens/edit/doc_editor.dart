@@ -764,25 +764,25 @@ class DocEditorState extends State<DocEditor> {
                   spacing: 8,
                   runSpacing: 8,
                   children: <Widget>[
-                    _Toggle(
+                    TextToggle(
                       icon: LucideIcons.strikethrough,
                       label: 'Strikethrough',
                       on: _on('strike'),
                       onTap: () => apply(() => _flip('strike')),
                     ),
-                    _Toggle(
+                    TextToggle(
                       icon: LucideIcons.superscript,
                       label: 'Superscript',
                       on: _has(Attribute.superscript),
                       onTap: () => apply(() => _toggle(Attribute.superscript)),
                     ),
-                    _Toggle(
+                    TextToggle(
                       icon: LucideIcons.subscript,
                       label: 'Subscript',
                       on: _has(Attribute.subscript),
                       onTap: () => apply(() => _toggle(Attribute.subscript)),
                     ),
-                    _Toggle(
+                    TextToggle(
                       icon: LucideIcons.removeFormatting,
                       label: 'Clear formatting',
                       on: false,
@@ -1426,8 +1426,9 @@ class _Choice extends StatelessWidget {
       );
 }
 
-class _Toggle extends StatelessWidget {
-  const _Toggle({required this.icon, required this.label, required this.on, required this.onTap});
+/// A square that turns a way of setting words on or off, lit while on.
+class TextToggle extends StatelessWidget {
+  const TextToggle({super.key, required this.icon, required this.label, required this.on, required this.onTap});
 
   final IconData icon;
   final String label;

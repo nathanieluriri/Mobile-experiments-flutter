@@ -2599,4 +2599,22 @@ class PptxDeck {
     final doc = themeDoc(master);
     return doc == null ? 'Theme' : _at(doc.rootElement, 'name') ?? 'Theme';
   }
+
+  /// The typefaces the theme of [slide] sets headings and body text in.
+  ({String? headings, String? body}) themeFonts(String slide) {
+    final layout = layoutOf(slide);
+    final master = layout == null ? null : masterOf(layout);
+    final doc = master == null ? null : themeDoc(master);
+    String? face(String scheme) {
+      for (final e in doc?.rootElement.descendantElements ?? const Iterable<XmlElement>.empty()) {
+        if (e.name.local != scheme) continue;
+        final latin = e.childElements.where((c) => c.name.local == 'latin').firstOrNull;
+        final name = latin == null ? null : _at(latin, 'typeface');
+        return name == null || name.isEmpty ? null : name;
+      }
+      return null;
+    }
+
+    return (headings: face('majorFont'), body: face('minorFont'));
+  }
 }

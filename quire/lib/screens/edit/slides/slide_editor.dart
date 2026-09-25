@@ -22,7 +22,7 @@ import '../../../widgets/press_fade.dart';
 import '../../desk/desk_sheet.dart';
 import '../../reader/bodies/slide_sheet.dart';
 import '../action_pill.dart';
-import '../doc_editor.dart' show PaletteSheet;
+import '../doc_editor.dart' show PaletteSheet, TextToggle, kCommonFonts;
 import '../edit_frame.dart';
 import '../paragraph_editor.dart' show SaveEdit;
 import 'slide_sheets.dart';
@@ -206,6 +206,9 @@ class SlideEditorState extends State<SlideEditor> {
   /// Where the finger last was while it slides the zoomed view about.
   Offset? _panned;
 
+  final LayerLink _alignLink = LayerLink();
+  OverlayEntry? _alignPop;
+
   @visibleForTesting
   PptxDeck? get deck => _deck;
 
@@ -272,6 +275,7 @@ class SlideEditorState extends State<SlideEditor> {
 
   @override
   void dispose() {
+    _closeAlignment();
     _typing?.controller.dispose();
     _focus.dispose();
     _textScroll.dispose();
@@ -2053,6 +2057,7 @@ class SlideEditorState extends State<SlideEditor> {
   }
 
   void _endTyping() {
+    _closeAlignment();
     final typing = _typing;
     if (typing == null) return;
     final deck = _deck!;
@@ -2200,6 +2205,10 @@ class SlideEditorState extends State<SlideEditor> {
                 return value == false ? const TextStyle(fontStyle: FontStyle.normal) : const TextStyle();
               case 'underline':
                 return value == false ? const TextStyle(decoration: TextDecoration.none) : const TextStyle();
+              case 'font':
+                // The typeface goes into the file; the slide is drawn in
+                // quire's own, here as in the reader.
+                return const TextStyle(fontFamily: 'Inter');
             }
             return const TextStyle();
           },
@@ -2272,6 +2281,8 @@ class SlideEditorState extends State<SlideEditor> {
     return double.tryParse('${value ?? ''}') ?? _levelLook(typing).size;
   }
 
+  static String _sizeText(double size) => size == size.roundToDouble() ? '${size.round()}' : size.toStringAsFixed(1);
+
   void _stepSize(int by) {
     final now = _size();
     final next = by > 0
@@ -2284,14 +2295,241 @@ class SlideEditorState extends State<SlideEditor> {
   String get _align =>
       _typing?.controller.getSelectionStyle().attributes[Attribute.align.key]?.value as String? ?? 'left';
 
-  void _cycleAlign() {
-    final next = switch (_align) {
-      'left' => Attribute.centerAlignment,
-      'center' => Attribute.rightAlignment,
-      'right' => Attribute.justifyAlignment,
-      _ => Attribute.clone(Attribute.align, null),
-    };
-    _quietly(() => _typing!.controller.formatSelection(next));
+  /// The four alignments in a small pop-up over the button, as the Word
+  /// editor and Slides have them, which leaves the keyboard where it was.
+  void _alignment() {
+    if (_alignPop != null) {
+      _closeAlignment();
+      return;
+    }
+    final current = _align;
+    final entry = OverlayEntry(
+      builder: (context) => Stack(
+        children: <Widget>[
+          Positioned.fill(
+            child: GestureDetector(behavior: HitTestBehavior.translucent, onTap: _closeAlignment),
+          ),
+          CompositedTransformFollower(
+            link: _alignLink,
+            targetAnchor: Alignment.topCenter,
+            followerAnchor: Alignment.bottomCenter,
+            offset: const Offset(0, -6),
+            child: Container(
+              key: const ValueKey<String>('slide-alignment-pop'),
+              padding: const EdgeInsets.all(4),
+              decoration: BoxDecoration(
+                color: AppColors.surfaceHigh,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: AppColors.hairline),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  for (final (value, label, icon) in const <(String, String, IconData)>[
+                    ('left', 'Align left', LucideIcons.textAlignStart),
+                    ('center', 'Align centre', LucideIcons.textAlignCenter),
+                    ('right', 'Align right', LucideIcons.textAlignEnd),
+                    ('justify', 'Justify', LucideIcons.textAlignJustify),
+                  ])
+                    BarButton(
+                      icon: icon,
+                      label: label,
+                      on: value == current,
+                      onTap: () {
+                        _closeAlignment();
+                        _quietly(
+                          () => _typing?.controller.formatSelection(switch (value) {
+                            'center' => Attribute.centerAlignment,
+                            'right' => Attribute.rightAlignment,
+                            'justify' => Attribute.justifyAlignment,
+                            _ => Attribute.clone(Attribute.align, null),
+                          }),
+                        );
+                      },
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+    _alignPop = entry;
+    Overlay.of(context).insert(entry);
+  }
+
+  void _closeAlignment() {
+    _alignPop?.remove();
+    _alignPop = null;
+  }
+
+  /// Sets or takes away a superscript or a subscript.
+  void _script(String value) {
+    final now = _typing!.controller.getSelectionStyle().attributes[Attribute.script.key]?.value;
+    _quietly(
+      () => _typing!.controller.formatSelection(
+        now == value
+            ? Attribute.clone(Attribute.script, null)
+            : value == 'super'
+            ? Attribute.superscript
+            : Attribute.subscript,
+      ),
+    );
+  }
+
+  /// Takes the selection back to the look of its level on the slide.
+  void _clearFormatting() {
+    for (final attribute in <Attribute>[
+      Attribute.bold,
+      Attribute.italic,
+      Attribute.underline,
+      Attribute.strikeThrough,
+      Attribute.color,
+      Attribute.background,
+      Attribute.size,
+      Attribute.font,
+      Attribute.script,
+    ]) {
+      _quietly(() => _typing!.controller.formatSelection(Attribute.clone(attribute, null)));
+    }
+  }
+
+  /// The typeface the theme sets these words in.
+  String? _themeFace(_Typing typing) {
+    final fonts = _deck!.themeFonts(_slide);
+    final heading = typing.placeholder == 'title' || typing.placeholder == 'ctrTitle';
+    return heading ? fonts.headings : fonts.body;
+  }
+
+  /// The typeface of the selection, as the file will name it.
+  String _face(_Typing typing) =>
+      typing.controller.getSelectionStyle().attributes[Attribute.font.key]?.value as String? ?? _themeFace(typing) ?? 'Theme font';
+
+  Future<void> _chooseFont(_Typing typing) async {
+    final theme = _themeFace(typing);
+    final fonts = <String>{?theme, ...kCommonFonts}.toList()..sort();
+    final current = _face(typing);
+    final choice = await showDeskSheet<String>(
+      context,
+      (context) => DeskSheet(
+        title: 'Font',
+        children: <Widget>[
+          for (final name in fonts)
+            DeskSheetRow(
+              label: name,
+              icon: LucideIcons.type,
+              note: name == theme ? 'The theme\'s' : null,
+              trailing: name == current ? const Icon(LucideIcons.check, size: 18, color: AppColors.accentBright) : null,
+              onTap: () => Navigator.of(context).pop(name),
+            ),
+        ],
+      ),
+    );
+    if (choice == null || !mounted || _typing != typing) return;
+    _quietly(
+      () => typing.controller.formatSelection(choice == theme ? Attribute.clone(Attribute.font, null) : FontAttribute(choice)),
+    );
+  }
+
+  /// Typeface, strikethrough, superscript, subscript and clearing, in a
+  /// sheet as Slides and the Word editor keep them.
+  Future<void> _textFormat() async {
+    final typing = _typing!;
+    _closeAlignment();
+    _focus
+      ..unfocus()
+      ..canRequestFocus = false;
+    try {
+      await showDeskSheet<void>(
+        context,
+        (context) => StatefulBuilder(
+          builder: (context, refresh) {
+            void apply(VoidCallback change) {
+              change();
+              refresh(() {});
+            }
+
+            final attrs = typing.controller.getSelectionStyle().attributes;
+            final script = attrs[Attribute.script.key]?.value;
+            return DeskSheet(
+              title: 'Text',
+              children: <Widget>[
+                DeskSheetRow(
+                  label: _face(typing),
+                  icon: LucideIcons.type,
+                  note: 'Font',
+                  onTap: () async {
+                    await _chooseFont(typing);
+                    refresh(() {});
+                  },
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: kDeskSheetPadX),
+                  child: Row(
+                    children: <Widget>[
+                      Expanded(
+                        child: Text('Size', style: AppText.menuRow.copyWith(color: AppColors.ink)),
+                      ),
+                      EditButton(icon: LucideIcons.minus, label: 'Smaller', onTap: () => apply(() => _stepSize(-1))),
+                      SizedBox(
+                        width: 56,
+                        child: Text(
+                          _sizeText(_size()),
+                          key: const ValueKey<String>('slide-format-size'),
+                          textAlign: TextAlign.center,
+                          style: AppText.label.copyWith(color: AppColors.ink),
+                        ),
+                      ),
+                      EditButton(icon: LucideIcons.plus, label: 'Larger', onTap: () => apply(() => _stepSize(1))),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: kEditGap),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: kDeskSheetPadX),
+                  child: Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: <Widget>[
+                      TextToggle(
+                        icon: LucideIcons.strikethrough,
+                        label: 'Strikethrough',
+                        on: attrs[Attribute.strikeThrough.key]?.value == true,
+                        onTap: () => apply(() => _flip(Attribute.strikeThrough.key)),
+                      ),
+                      TextToggle(
+                        icon: LucideIcons.superscript,
+                        label: 'Superscript',
+                        on: script == 'super',
+                        onTap: () => apply(() => _script('super')),
+                      ),
+                      TextToggle(
+                        icon: LucideIcons.subscript,
+                        label: 'Subscript',
+                        on: script == 'sub',
+                        onTap: () => apply(() => _script('sub')),
+                      ),
+                      TextToggle(
+                        icon: LucideIcons.removeFormatting,
+                        label: 'Clear formatting',
+                        on: false,
+                        onTap: () => apply(_clearFormatting),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            );
+          },
+        ),
+        barrier: const Color(0x00000000),
+      );
+    } finally {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _focus.canRequestFocus = true;
+      });
+    }
+    if (mounted) setState(() {});
   }
 
   void _list(Attribute attribute) {
@@ -2303,10 +2541,13 @@ class SlideEditorState extends State<SlideEditor> {
     );
   }
 
-  Future<void> _textColour() async {
+  Future<void> _textColour({bool highlight = false}) async {
     final typing = _typing!;
-    final value = typing.controller.getSelectionStyle().attributes[Attribute.color.key]?.value as String?;
-    final now = value == null ? _levelLook(typing).colour : int.tryParse(value.replaceFirst('#', ''), radix: 16);
+    final key = highlight ? Attribute.background.key : Attribute.color.key;
+    final value = typing.controller.getSelectionStyle().attributes[key]?.value as String?;
+    final parsed = value == null ? null : int.tryParse(value.replaceFirst('#', ''), radix: 16);
+    final now = highlight ? parsed : parsed ?? _levelLook(typing).colour;
+    _closeAlignment();
     _focus
       ..unfocus()
       ..canRequestFocus = false;
@@ -2314,7 +2555,11 @@ class SlideEditorState extends State<SlideEditor> {
     try {
       picked = await showDeskSheet<int>(
         context,
-        (context) => PaletteSheet(title: 'Text colour', colour: now == null ? null : now & 0xFFFFFF, none: 'Automatic'),
+        (context) => PaletteSheet(
+          title: highlight ? 'Highlight colour' : 'Text colour',
+          colour: now == null ? null : now & 0xFFFFFF,
+          none: highlight ? 'None' : 'Automatic',
+        ),
         barrier: const Color(0x00000000),
       );
     } finally {
@@ -2323,12 +2568,14 @@ class SlideEditorState extends State<SlideEditor> {
       });
     }
     if (!mounted || picked == null || _typing != typing) return;
+    final hex = '#${picked.toRadixString(16).padLeft(6, '0').toUpperCase()}';
     _quietly(
-      () => typing.controller.formatSelection(
-        picked! < 0
-            ? Attribute.clone(Attribute.color, null)
-            : ColorAttribute('#${picked.toRadixString(16).padLeft(6, '0').toUpperCase()}'),
-      ),
+      () => typing.controller.formatSelection(switch ((highlight, picked! < 0)) {
+        (true, true) => Attribute.clone(Attribute.background, null),
+        (true, false) => BackgroundAttribute(hex),
+        (false, true) => Attribute.clone(Attribute.color, null),
+        (false, false) => ColorAttribute(hex),
+      }),
     );
   }
 
@@ -2341,21 +2588,29 @@ class SlideEditorState extends State<SlideEditor> {
         ? _levelLook(typing).colour
         : int.tryParse(colour.replaceFirst('#', ''), radix: 16);
     final size = _size();
+    final marked = style.attributes[Attribute.background.key]?.value as String?;
     return _Bar(
       key: const ValueKey<String>('slide-text-bar'),
       children: <Widget>[
         BarButton(icon: LucideIcons.check, label: 'Done', onTap: _endTyping),
         const _BarGap(),
+        BarButton(icon: LucideIcons.letterText, label: 'Text format', onTap: () => unawaited(_textFormat())),
         BarButton(icon: LucideIcons.bold, label: 'Bold', on: _on('bold'), onTap: () => _flip('bold')),
         BarButton(icon: LucideIcons.italic, label: 'Italic', on: _on('italic'), onTap: () => _flip('italic')),
         BarButton(icon: LucideIcons.underline, label: 'Underline', on: _on('underline'), onTap: () => _flip('underline')),
         BarButton(icon: LucideIcons.baseline, label: 'Text colour', swatch: swatch, onTap: () => unawaited(_textColour())),
+        BarButton(
+          icon: LucideIcons.highlighter,
+          label: 'Highlight colour',
+          swatch: marked == null ? null : int.tryParse(marked.replaceFirst('#', ''), radix: 16),
+          onTap: () => unawaited(_textColour(highlight: true)),
+        ),
         const _BarGap(),
         BarButton(icon: LucideIcons.aArrowDown, label: 'Smaller text', onTap: () => _stepSize(-1)),
         SizedBox(
           width: 40,
           child: Text(
-            size == size.roundToDouble() ? '${size.round()}' : size.toStringAsFixed(1),
+            _sizeText(size),
             key: const ValueKey<String>('slide-text-size'),
             textAlign: TextAlign.center,
             style: AppText.label.copyWith(color: AppColors.ink),
@@ -2363,15 +2618,18 @@ class SlideEditorState extends State<SlideEditor> {
         ),
         BarButton(icon: LucideIcons.aArrowUp, label: 'Larger text', onTap: () => _stepSize(1)),
         const _BarGap(),
-        BarButton(
-          icon: switch (_align) {
-            'center' => LucideIcons.textAlignCenter,
-            'right' => LucideIcons.textAlignEnd,
-            'justify' => LucideIcons.textAlignJustify,
-            _ => LucideIcons.textAlignStart,
-          },
-          label: 'Alignment',
-          onTap: _cycleAlign,
+        CompositedTransformTarget(
+          link: _alignLink,
+          child: BarButton(
+            icon: switch (_align) {
+              'center' => LucideIcons.textAlignCenter,
+              'right' => LucideIcons.textAlignEnd,
+              'justify' => LucideIcons.textAlignJustify,
+              _ => LucideIcons.textAlignStart,
+            },
+            label: 'Alignment',
+            onTap: _alignment,
+          ),
         ),
         BarButton(icon: LucideIcons.list, label: 'Bulleted list', on: list == 'bullet', onTap: () => _list(Attribute.ul)),
         BarButton(icon: LucideIcons.listOrdered, label: 'Numbered list', on: list == 'ordered', onTap: () => _list(Attribute.ol)),

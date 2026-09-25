@@ -894,9 +894,7 @@ class _SlideBlockView extends StatelessWidget {
 
   Widget _text(List<DocSpan> spans, {required DocAlign align}) => Text.rich(
     TextSpan(
-      children: <InlineSpan>[
-        for (final span in spans) TextSpan(text: span.text, style: _style(span)),
-      ],
+      children: <InlineSpan>[for (final span in spans) _inline(span)],
     ),
     softWrap: wrap,
     overflow: TextOverflow.visible,
@@ -907,6 +905,22 @@ class _SlideBlockView extends StatelessWidget {
       DocAlign.start => TextAlign.left,
     },
   );
+
+  /// A run as the slide sets it: in line, or raised or lowered and small
+  /// for a superscript or a subscript, as the editor draws one.
+  InlineSpan _inline(DocSpan span) {
+    final style = _style(span);
+    if (span.script == 0) return TextSpan(text: span.text, style: style);
+    final size = style.fontSize!;
+    return WidgetSpan(
+      alignment: PlaceholderAlignment.baseline,
+      baseline: TextBaseline.alphabetic,
+      child: Transform.translate(
+        offset: Offset(0, (span.script > 0 ? -0.4 : 0.14) * size),
+        child: Text(span.text, style: style.copyWith(fontSize: size * 0.7), textScaler: TextScaler.noScaling),
+      ),
+    );
+  }
 
   TextStyle _style(DocSpan span) => TextStyle(
     // One family, because this app has one and a slide that brought its own
@@ -923,11 +937,13 @@ class _SlideBlockView extends StatelessWidget {
     // Stated either way, never left to inherit. A slide is drawn outside any
     // Material, and the fallback style there carries a yellow double
     // underline that would land under every line of every deck.
-    decoration: span.underline
-        ? TextDecoration.underline
-        : TextDecoration.none,
+    decoration: TextDecoration.combine(<TextDecoration>[
+      if (span.underline) TextDecoration.underline,
+      if (span.strike) TextDecoration.lineThrough,
+    ]),
     decorationColor: span.color == null ? kSlideInk : Color(span.color!),
     color: span.color == null ? kSlideInk : Color(span.color!),
+    backgroundColor: span.highlight == null ? null : Color(span.highlight!),
   );
 
   Widget _image(ImageBlock block) {

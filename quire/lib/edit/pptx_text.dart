@@ -109,6 +109,20 @@ class SlideText {
     return v != null && v != 'noStrike';
   }
 
+  /// The colour a run is highlighted in, where the file names one outright.
+  static int? _highlight(XmlElement? rPr) {
+    final mark = rPr == null ? null : _kid(rPr, 'highlight');
+    final colour = mark == null ? null : _kid(mark, 'srgbClr');
+    return colour == null ? null : int.tryParse(_at(colour, 'val') ?? '', radix: 16);
+  }
+
+  /// The typeface a run names for itself, not one of the theme's.
+  static String? _typeface(XmlElement? rPr) {
+    final latin = rPr == null ? null : _kid(rPr, 'latin');
+    final face = latin == null ? null : _at(latin, 'typeface');
+    return face == null || face.isEmpty || face.startsWith('+') ? null : face;
+  }
+
   /// What sets [run] apart from [base], in Delta attributes.
   static Map<String, dynamic> attributesOf(SlideTextLook run, SlideTextLook base, XmlElement? rPr) => <String, dynamic>{
     if (run.bold != base.bold) 'bold': run.bold,
@@ -118,6 +132,8 @@ class SlideText {
     if ((run.size - base.size).abs() > 0.01) 'size': _size(run.size),
     if (run.colour != null && (run.colour! & 0xFFFFFF) != ((base.colour ?? 0xFF000000) & 0xFFFFFF)) 'color': _hex(run.colour!),
     if (_script(rPr) != null) 'script': _script(rPr),
+    if (_highlight(rPr) != null) 'background': _hex(_highlight(rPr)!),
+    if (_typeface(rPr) != null) 'font': _typeface(rPr),
   };
 
   static String _size(double points) =>
@@ -730,6 +746,22 @@ class SlideText {
     if (value != null) e.attributes.add(XmlAttribute(XmlName.parts(local), value));
   }
 
+  /// Puts [element] in [rPr] where the format keeps its kind, in place of
+  /// any [local] there was, or takes that away for a null [element].
+  static void _put(XmlElement rPr, String local, XmlElement? element) {
+    for (final c in rPr.childElements.toList()) {
+      if (c.name.local == local) c.remove();
+    }
+    if (element == null) return;
+    final rank = _rPrOrder.indexOf(local);
+    final at = rPr.children.indexWhere((n) => n is XmlElement && _rPrOrder.indexOf(n.name.local) > rank);
+    if (at < 0) {
+      rPr.children.add(element);
+    } else {
+      rPr.children.insert(at, element);
+    }
+  }
+
   /// The children of `a:rPr` in the order the format keeps them.
   static const List<String> _rPrOrder = <String>[
     'ln',
@@ -795,6 +827,32 @@ class SlideText {
         'sub' => '-25000',
         _ => null,
       });
+    }
+    final highlight = attrs['background'] is String
+        ? int.tryParse((attrs['background'] as String).replaceFirst('#', ''), radix: 16)
+        : null;
+    if (highlight != _highlight(template)) {
+      _put(
+        rPr,
+        'highlight',
+        highlight == null
+            ? null
+            : XmlElement(XmlName.parts('highlight', prefix: a), const <XmlAttribute>[], <XmlNode>[
+                XmlElement(XmlName.parts('srgbClr', prefix: a), <XmlAttribute>[
+                  XmlAttribute(XmlName.parts('val'), highlight.toRadixString(16).padLeft(6, '0').toUpperCase()),
+                ]),
+              ]),
+      );
+    }
+    final face = attrs['font'] is String ? attrs['font'] as String : null;
+    if (face != _typeface(template)) {
+      _put(
+        rPr,
+        'latin',
+        face == null
+            ? null
+            : XmlElement(XmlName.parts('latin', prefix: a), <XmlAttribute>[XmlAttribute(XmlName.parts('typeface'), face)]),
+      );
     }
     final size = double.tryParse('${attrs['size'] ?? ''}') ?? base.size;
     if ((size - was.size).abs() > 0.01) {

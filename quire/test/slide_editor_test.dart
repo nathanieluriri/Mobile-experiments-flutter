@@ -297,6 +297,9 @@ void main() {
     await tester.tap(find.bySemanticsLabel('Bold'));
     await settle(tester);
     expect(controller.getSelectionStyle().attributes['bold']?.value, isTrue);
+    // The bar scrolls, as a phone's does, to the sizes past its first tools.
+    await tester.ensureVisible(find.bySemanticsLabel('Larger text'));
+    await settle(tester);
     await tester.tap(find.bySemanticsLabel('Larger text'));
     await settle(tester);
     expect(find.text('20'), findsOneWidget);
@@ -809,6 +812,119 @@ void main() {
         });
       }
       expect(largest, greaterThanOrEqualTo(12));
+    });
+  });
+  group('after the integration critic, the text bar', () {
+    Future<QuillController> typeInBody(WidgetTester tester, SlideEditorState state) async {
+      await openSlide(tester, state, 1);
+      final body = objectNamed(state, 'Content 2');
+      final at = global(tester, state, Offset(body.box.left + 40, body.box.top + 12));
+      await tester.tapAt(at);
+      await settle(tester);
+      await tester.tapAt(at);
+      await settle(tester);
+      return state.typing!;
+    }
+
+    Future<void> press(WidgetTester tester, String label) async {
+      await tester.ensureVisible(find.bySemanticsLabel(label).first);
+      await settle(tester);
+      await tester.tap(find.bySemanticsLabel(label).first);
+      await settle(tester);
+    }
+
+    testWidgets('the alignments are a pop-up of four, as in the Word editor', (tester) async {
+      final state = await open(tester);
+      final controller = await typeInBody(tester, state);
+      for (final label in <String>['Text format', 'Highlight colour', 'Alignment']) {
+        expect(find.bySemanticsLabel(label), findsOneWidget, reason: label);
+      }
+      await press(tester, 'Alignment');
+      expect(find.byKey(const ValueKey<String>('slide-alignment-pop')), findsOneWidget);
+      for (final label in <String>['Align left', 'Align centre', 'Align right', 'Justify']) {
+        expect(find.bySemanticsLabel(label), findsOneWidget, reason: label);
+      }
+      await tester.tap(find.bySemanticsLabel('Align centre'));
+      await settle(tester);
+      expect(find.byKey(const ValueKey<String>('slide-alignment-pop')), findsNothing);
+      expect(controller.getSelectionStyle().attributes[Attribute.align.key]?.value, 'center');
+    });
+
+    testWidgets('Text format and Highlight set a typeface, a strike, a superscript and a highlight the saved deck keeps', (tester) async {
+      final state = await open(tester);
+      final controller = await typeInBody(tester, state);
+      final word = controller.document.toPlainText().indexOf(' ');
+      controller.updateSelection(TextSelection(baseOffset: 0, extentOffset: word), ChangeSource.local);
+      await settle(tester);
+      await press(tester, 'Text format');
+      for (final label in <String>['Strikethrough', 'Superscript', 'Subscript', 'Clear formatting', 'Larger']) {
+        expect(find.bySemanticsLabel(label), findsOneWidget, reason: label);
+      }
+      await tester.tap(find.bySemanticsLabel('Larger'));
+      await settle(tester);
+      expect(find.byKey(const ValueKey<String>('slide-format-size')), findsOneWidget);
+      expect(controller.getSelectionStyle().attributes[Attribute.size.key]?.value, isNotNull);
+      await tester.tap(find.bySemanticsLabel('Strikethrough'));
+      await settle(tester);
+      await tester.tap(find.bySemanticsLabel('Superscript'));
+      await settle(tester);
+      // The deck's theme sets its words in Georgia, which the row names.
+      expect(find.text('Georgia'), findsOneWidget);
+      await tester.tap(find.text('Font'));
+      await settle(tester);
+      await tester.tap(find.text('Verdana'));
+      await settle(tester);
+      expect(find.text('Verdana'), findsOneWidget);
+      await tester.binding.handlePopRoute();
+      await settle(tester);
+      await press(tester, 'Highlight colour');
+      await tester.tap(find.bySemanticsLabel('Yellow'));
+      await settle(tester);
+      final attrs = controller.getSelectionStyle().attributes;
+      expect(attrs[Attribute.strikeThrough.key]?.value, isTrue);
+      expect(attrs[Attribute.script.key]?.value, 'super');
+      expect(attrs[Attribute.font.key]?.value, 'Verdana');
+      expect(attrs[Attribute.background.key]?.value, '#FFFF00');
+      await press(tester, 'Done');
+      await save(tester);
+      final xml = utf8.decode(ZipDecoder().decodeBytes(saved!).findFile('ppt/slides/slide2.xml')!.content);
+      final run = RegExp(r'<a:r><a:rPr[^>]*>.*?</a:rPr><a:t>Forme</a:t>').firstMatch(xml)!.group(0)!;
+      expect(run, contains('strike="sngStrike"'));
+      expect(run, contains('baseline="30000"'));
+      expect(run, contains('<a:highlight><a:srgbClr val="FFFF00"/></a:highlight><a:latin typeface="Verdana"/>'));
+      final shape = (PptxParser(saved!).parse().sections[1].blocks.single as SlideBlock).shapes.firstWhere(
+        (s) => s.text.startsWith('Forme'),
+      );
+      final span = switch (shape.blocks.first) {
+        ListItemBlock(:final spans) => spans.first,
+        ParagraphBlock(:final spans) => spans.first,
+        _ => throw StateError('no words'),
+      };
+      expect(span.text, 'Forme');
+      expect(span.strike, isTrue);
+      expect(span.script, 1);
+      expect(span.highlight, 0xFFFFFF00);
+    });
+
+    testWidgets('Clear formatting takes a word back to the look of its level', (tester) async {
+      final state = await open(tester);
+      final controller = await typeInBody(tester, state);
+      final word = controller.document.toPlainText().indexOf(' ');
+      final selection = TextSelection(baseOffset: 0, extentOffset: word);
+      controller
+        ..updateSelection(selection, ChangeSource.local)
+        ..formatSelection(Attribute.strikeThrough)
+        ..formatSelection(Attribute.subscript)
+        ..formatSelection(const BackgroundAttribute('#FFFF00'))
+        ..formatSelection(const FontAttribute('Verdana'));
+      await settle(tester);
+      await press(tester, 'Text format');
+      await tester.tap(find.bySemanticsLabel('Clear formatting'));
+      await settle(tester);
+      final attrs = controller.getSelectionStyle().attributes;
+      for (final key in <String>['strike', 'script', 'background', 'font']) {
+        expect(attrs.containsKey(key), isFalse, reason: key);
+      }
     });
   });
 }

@@ -1867,15 +1867,21 @@ class PptxParser {
           if (run != null) over.layer(_runStyle(run, colours));
           final href = run == null ? null : _linkOf(run);
           // PowerPoint draws a link in the theme's link colour, underlined.
+          final strike = run == null ? null : _at(run, 'strike');
+          final shift = int.tryParse((run == null ? null : _at(run, 'baseline')) ?? '') ?? 0;
+          final highlight = run == null ? null : _kid(run, 'highlight');
           out.add(
             DocSpan(
               text,
               bold: over.bold ?? false,
               italic: over.italic ?? false,
               underline: href != null || (over.underline ?? false),
+              strike: strike != null && strike != 'noStrike',
               color: href == null ? over.colour : colours['hlink'] ?? over.colour,
+              highlight: highlight == null ? null : _colourIn(highlight, colours),
               fontSize: over.size,
               href: href,
+              script: shift.sign,
             ),
           );
         case 'br':
