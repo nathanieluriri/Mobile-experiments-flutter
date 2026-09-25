@@ -1350,17 +1350,12 @@ class LibraryStore extends ChangeNotifier {
     await _reload(entry, bytes);
   }
 
-  /// Makes revision [number] of [entry] the newest again, 0 being the
-  /// original.
-  Future<void> restoreRevision(LibraryEntry entry, int number) async {
+  /// Reads revision [number] of [entry] from now on, 0 being the original,
+  /// without making a revision of it.
+  Future<void> readRevision(LibraryEntry entry, int number) async {
     final revisions = _revisions;
     if (revisions == null) return;
-    await revisions.restore(
-      entry.path,
-      number,
-      () => originalBytes(entry),
-      note: number == 0 ? 'The original' : 'Revision $number again',
-    );
+    await revisions.readFrom(entry.path, number);
     await _reload(entry, await _read(entry));
   }
 

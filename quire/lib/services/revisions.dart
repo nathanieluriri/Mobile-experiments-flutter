@@ -60,11 +60,12 @@ class History {
 
 /// Every edit the reader saves, kept beside the document rather than over it.
 ///
-/// A save writes a new revision and points the document at it. Restoring an
-/// older one writes it again as the newest, so the history only ever grows at
-/// one end and nothing a reader did is lost by going back. Old revisions are
-/// dropped oldest first once there are more than [maxCount] or they take more
-/// than [maxBytes], but never the one being read.
+/// A save writes a new revision and points the document at it. Reading an
+/// older one points the document back at it and writes nothing, so going
+/// back and forth makes no revisions; the next save after it becomes the
+/// newest. Old revisions are dropped oldest first once there are more than
+/// [maxCount] or they take more than [maxBytes], but never the one being
+/// read.
 class RevisionStore {
   RevisionStore(
     this._home, {
@@ -211,16 +212,14 @@ class RevisionStore {
     return made;
   }
 
-  /// Writes revision [number] again as the newest and reads from it.
-  Future<Revision> restore(
-    String path,
-    int number,
-    Future<Uint8List> Function() original, {
-    String note = '',
-  }) =>
-      _serial(path, () async {
-        final bytes = await bytesOf(path, number, original);
-        return _save(path, bytes, note);
+  /// Reads [path] from revision [number] from now on, 0 being the original,
+  /// without writing anything new.
+  Future<void> readFrom(String path, int number) => _serial(path, () async {
+        final dir = await _folder(path);
+        final (history, next) = await _read(dir);
+        if (number != 0 && !history.revisions.any((r) => r.number == number)) return;
+        if (number == history.current) return;
+        await _write(dir, History(number, history.revisions), next);
       });
 
   /// Removes revision [number]. Removing the one being read moves the reader

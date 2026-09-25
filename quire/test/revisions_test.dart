@@ -44,13 +44,24 @@ void main() {
     expect(await store.bytesOf(path, 0, original), [0]);
   });
 
-  test('restoring writes the old one again as the newest', () async {
+  test('reading an older one points at it and writes no revision', () async {
     await store.save(path, _b([1]));
     await store.save(path, _b([2]));
-    await store.restore(path, 0, original);
-    final history = await store.history(path);
+    await store.readFrom(path, 1);
+    var history = await store.history(path);
+    expect(history.revisions.map((r) => r.number), [1, 2]);
+    expect(history.current, 1);
+    expect(await store.currentBytes(path), [1]);
+    await store.readFrom(path, 0);
+    history = await store.history(path);
+    expect(history.revisions.map((r) => r.number), [1, 2]);
+    expect(history.edited, isFalse);
+    expect(await store.currentBytes(path), isNull);
+    // The next save is the newest, and the ones before stay.
+    await store.save(path, _b([3]));
+    history = await store.history(path);
     expect(history.revisions.map((r) => r.number), [1, 2, 3]);
-    expect(await store.currentBytes(path), [0]);
+    expect(history.current, 3);
   });
 
   test('deleting the one being read moves back to the newest left', () async {

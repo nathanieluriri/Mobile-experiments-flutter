@@ -128,8 +128,10 @@ void main() {
     await tester.tap(find.text('Read this one'));
     await _disk(tester);
     expect(store.bytes, before);
+    // Going back to it makes no revision of it.
     final after = (await tester.runAsync(() => library.historyOf(store.entry)))!;
-    expect(after.revisions.map((r) => r.number), [1, 2]);
+    expect(after.revisions.map((r) => r.number), [1]);
+    expect(after.current, 0);
   });
 
   testWidgets('a Word document is edited in place and the rest of the file kept',

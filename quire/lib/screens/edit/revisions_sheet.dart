@@ -114,9 +114,7 @@ class RevisionActionsSheet extends StatelessWidget {
           label: 'Read this one',
           icon: LucideIcons.bookOpen,
           enabled: !current,
-          note: current
-              ? 'It is the one being read.'
-              : 'It is saved again as the newest, so nothing is lost.',
+          note: current ? 'It is the one being read.' : 'The others stay as they are.',
           onTap: () => Navigator.of(context).pop(RevisionAction.read),
         ),
         if (number != 0)
@@ -206,7 +204,7 @@ Future<String?> showRevisions(
       if (action == null || !context.mounted) return null;
       switch (action) {
         case RevisionAction.read:
-          await library.restoreRevision(entry, number);
+          await library.readRevision(entry, number);
           return number == 0 ? 'Back to the original.' : 'Back to revision $number.';
         case RevisionAction.delete:
           final sure = await showDeskSheet<bool>(
