@@ -1039,6 +1039,7 @@ class PptxParser {
     final role = _roleOf(el, ph?.type);
     final properties = _kid(el, 'spPr');
     final blocks = <DocBlock>[];
+    SlideChart? drawn;
 
     switch (_ln(el)) {
       case 'pic':
@@ -1059,6 +1060,8 @@ class PptxParser {
         final chart = _chartPicture(el, part);
         if (chart != null) {
           blocks.add(ImageBlock(chart, width: box.width, height: box.height));
+        } else {
+          drawn = _chartOf(el, part, colours);
         }
     }
 
@@ -1087,7 +1090,7 @@ class PptxParser {
     // keeps for its own reasons. Drawing it costs a layer and shows nothing.
     // An empty placeholder is kept, drawing nothing, so an editor can show
     // where its words would go.
-    if (blocks.isEmpty && fill == null && fillAsset == null && line == null && ph == null) {
+    if (blocks.isEmpty && fill == null && fillAsset == null && line == null && ph == null && drawn == null) {
       return null;
     }
 
@@ -1124,6 +1127,9 @@ class PptxParser {
       flipH: transform != null && (_at(transform, 'flipH') == '1' || _at(transform, 'flipH') == 'true'),
       flipV: transform != null && (_at(transform, 'flipV') == '1' || _at(transform, 'flipV') == 'true'),
       placeholder: blocks.isEmpty ? ph?.type : null,
+      own: idOf(el),
+      textable: _ln(el) == 'sp',
+      chart: drawn,
     );
   }
 
@@ -1262,6 +1268,95 @@ class PptxParser {
     return null;
   }
 
+  /// A chart read from its part: its kind, its categories and each series'
+  /// cached values and colour, for a chart the file keeps no picture of.
+  SlideChart? _chartOf(XmlElement el, String part, Map<String, int> colours) {
+    final data = _find(el, 'graphicData');
+    if (data == null || !(_at(data, 'uri') ?? '').contains('chart')) return null;
+    final ref = _find(data, 'chart');
+    final target = ref == null ? null : _relsOf(part)[_at(ref, 'id') ?? ''];
+    final root = target == null ? null : _root(target);
+    final chart = root == null ? null : _find(root, 'chart');
+    final plot = chart == null ? null : _kid(chart, 'plotArea');
+    if (chart == null || plot == null) return null;
+    XmlElement? kindOf;
+    for (final c in plot.childElements) {
+      if (_ln(c).endsWith('Chart')) {
+        kindOf = c;
+        break;
+      }
+    }
+    if (kindOf == null) return null;
+    final kind = switch (_ln(kindOf)) {
+      'barChart' || 'bar3DChart' => _at(_kid(kindOf, 'barDir') ?? kindOf, 'val') == 'bar' ? 'bar' : 'col',
+      'lineChart' || 'line3DChart' || 'stockChart' || 'radarChart' || 'scatterChart' => 'line',
+      'areaChart' || 'area3DChart' => 'area',
+      'pieChart' || 'pie3DChart' || 'ofPieChart' => 'pie',
+      'doughnutChart' => 'doughnut',
+      _ => 'col',
+    };
+    final grouping = _at(_kid(kindOf, 'grouping') ?? kindOf, 'val') ?? '';
+    List<String> points(XmlElement? holder) {
+      if (holder == null) return const <String>[];
+      final out = <int, String>{};
+      var count = 0;
+      for (final e in holder.descendantElements) {
+        if (_ln(e) == 'ptCount') count = int.tryParse(_at(e, 'val') ?? '') ?? count;
+        if (_ln(e) != 'pt') continue;
+        final idx = int.tryParse(_at(e, 'idx') ?? '') ?? out.length;
+        out[idx] = _kid(e, 'v')?.innerText ?? '';
+        if (idx + 1 > count) count = idx + 1;
+      }
+      return <String>[for (var i = 0; i < count; i++) out[i] ?? ''];
+    }
+
+    final accents = <int>[
+      for (var i = 1; i <= 6; i++) colours['accent$i'] ?? const <int>[0xFF4472C4, 0xFFED7D31, 0xFFA5A5A5, 0xFFFFC000, 0xFF5B9BD5, 0xFF70AD47][i - 1],
+    ];
+    final series = <SlideSeries>[];
+    var categories = const <String>[];
+    for (final ser in _kids(kindOf, 'ser')) {
+      final index = series.length;
+      final name = points(_kid(ser, 'tx')).firstOrNull ?? 'Series ${index + 1}';
+      final cats = points(_kid(ser, 'cat') ?? _kid(ser, 'xVal'));
+      if (cats.length > categories.length) categories = cats;
+      final values = <double?>[for (final v in points(_kid(ser, 'val') ?? _kid(ser, 'yVal'))) double.tryParse(v)];
+      final spPr = _kid(ser, 'spPr');
+      final own = spPr == null ? null : (_solidFill(spPr, colours) ?? _lineOf(spPr, colours));
+      final slices = <int>[
+        for (var i = 0; i < values.length; i++)
+          () {
+            for (final dPt in _kids(ser, 'dPt')) {
+              if (int.tryParse(_at(_kid(dPt, 'idx') ?? dPt, 'val') ?? '') != i) continue;
+              final fill = _kid(dPt, 'spPr');
+              final colour = fill == null ? null : _solidFill(fill, colours);
+              if (colour != null) return colour;
+            }
+            return accents[i % accents.length];
+          }(),
+      ];
+      series.add(SlideSeries(name, values, own ?? accents[index % accents.length], colours: slices));
+    }
+    if (series.isEmpty) return null;
+    final title = _kid(chart, 'title');
+    final deleted = _at(_kid(chart, 'autoTitleDeleted') ?? chart, 'val');
+    String? titleText;
+    if (title != null) {
+      titleText = title.descendantElements.where((e) => _ln(e) == 't').map((e) => e.innerText).join();
+      if (titleText.isEmpty) titleText = points(title).firstOrNull;
+    } else if (deleted != '1' && series.length == 1 && (kind == 'pie' || kind == 'doughnut')) {
+      titleText = series.single.name;
+    }
+    return SlideChart(
+      kind: kind,
+      categories: categories,
+      series: series,
+      title: titleText == null || titleText.isEmpty ? null : titleText,
+      stacked: grouping == 'stacked' || grouping == 'percentStacked',
+      legend: _kid(chart, 'legend') != null,
+    );
+  }
+
   static String? _describedBy(XmlElement el) {
     final nv = _kid(el, 'nvPicPr');
     final properties = nv == null ? null : _kid(nv, 'cNvPr');
@@ -1295,7 +1390,7 @@ class PptxParser {
   /// outline level as the placeholder, the layout, the master and the
   /// shape's own list style leave it, and each paragraph and run with its
   /// own properties laid over that. Null when the slide has no such shape.
-  SlideTextLooks? textLooks(String path, int id) {
+  SlideTextLooks? textLooks(String path, int id, {(int, int)? cell}) {
     _open();
     final root = _root(path);
     if (root == null) return null;
@@ -1309,7 +1404,14 @@ class PptxParser {
       }
     }
     if (found == null) return null;
-    final body = _kid(found, 'txBody');
+    var body = _kid(found, 'txBody');
+    if (cell != null) {
+      final table = _find(found, 'tbl');
+      final rows = table == null ? const <XmlElement>[] : _kids(table, 'tr').toList();
+      final cells = cell.$1 < rows.length ? _kids(rows[cell.$1], 'tc').toList() : const <XmlElement>[];
+      if (cell.$2 >= cells.length) return null;
+      body = _kid(cells[cell.$2], 'txBody');
+    }
     final ph = _placeholderOf(found);
     final slot = _slotFor(found, layout, master);
     final role = _roleOf(found, ph?.type);

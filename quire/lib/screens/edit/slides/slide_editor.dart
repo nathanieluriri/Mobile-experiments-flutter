@@ -33,6 +33,11 @@ const double kGripReach = 22.0;
 /// How far above a selection its turning handle stands, in pixels.
 const double kTurnReach = 28.0;
 
+/// The desk a slide is edited on: light, so words that spill past the
+/// slide's edge can still be read, as on Slides' own canvas.
+const Color kSlideDesk = Color(0xFFD5D5DB);
+const Color kSlideDeskEdge = Color(0xFFB0B0B8);
+
 /// The smallest a shape can be sized to, in points.
 const double kLeastShape = 4.0;
 
@@ -64,11 +69,40 @@ class _Drag {
 }
 
 class _Typing {
-  _Typing(this.id, this.source, this.controller, this.looks, {required this.fresh, required this.grows});
+  _Typing(
+    this.id,
+    this.source,
+    this.controller,
+    this.looks, {
+    required this.fresh,
+    required this.grows,
+    required this.box,
+    this.rotation = 0,
+    this.anchor,
+    this.cell,
+    this.placeholder,
+    required this.object,
+  });
+
+  /// The shape whose words are typed: a shape of its own, one inside a
+  /// group, or the table a cell is in.
   final int id;
+
+  /// The thing on the slide that stays picked while its words are typed.
+  final int object;
   final SlideText source;
   final QuillController controller;
   final SlideTextLooks looks;
+
+  /// Where the words are typed, in points: the shape's box, or the cell's
+  /// inside its margins.
+  final SlideBox box;
+  final double rotation;
+  final DocVerticalAlign? anchor;
+
+  /// The row and column of a table cell being typed in.
+  final (int, int)? cell;
+  final String? placeholder;
 
   /// A text box made for this typing, which goes again if it is left
   /// empty.
@@ -122,6 +156,14 @@ class SlideEditorState extends State<SlideEditor> {
   final ScrollController _stripScroll = ScrollController();
   int? _stripShows;
   bool _sheetOpen = false;
+
+  /// The table cell last typed in or tapped, which the row and column
+  /// actions act beside.
+  (int, int)? _cell;
+
+  /// How far the slide is carried up, while typing, to keep the caret in
+  /// sight as the words grow, in pixels.
+  double _follow = 0;
   Offset _origin = Offset.zero;
   double _scale = 1;
 
@@ -150,6 +192,16 @@ class SlideEditorState extends State<SlideEditor> {
   /// The canvas, for a test to find points on.
   @visibleForTesting
   GlobalKey get canvasKey => _canvasKey;
+
+  /// Where the caret is on the screen while typing.
+  @visibleForTesting
+  Rect? get caret {
+    final typing = _typing;
+    final render = _editorKey.currentState?.renderEditor;
+    if (typing == null || render == null || !render.hasSize) return null;
+    final local = render.getLocalRectForCaret(typing.controller.selection.extent);
+    return Rect.fromPoints(render.localToGlobal(local.topLeft), render.localToGlobal(local.bottomRight));
+  }
 
   @override
   void initState() {
@@ -201,7 +253,14 @@ class SlideEditorState extends State<SlideEditor> {
         typing.controller.undo();
         return;
       }
+      // A text box made for this typing and still empty goes as it closes,
+      // and that is the one step this Undo takes.
+      final goes = typing.fresh && typing.controller.document.toPlainText().trim().isEmpty;
       _endTyping();
+      if (goes) {
+        _afterHistory();
+        return;
+      }
     }
     _deck!.undo();
     _afterHistory();
@@ -686,7 +745,7 @@ class SlideEditorState extends State<SlideEditor> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
-        Expanded(child: _canvas(deck)),
+        Expanded(child: ColoredBox(color: kSlideDesk, child: _canvas(deck))),
         if (!typing && _picked.isNotEmpty) _countBar(deck),
         if (!typing) _strip(deck),
         _bottomBar(deck),
@@ -792,9 +851,9 @@ class SlideEditorState extends State<SlideEditor> {
         BarButton(icon: LucideIcons.image, label: 'Image', text: 'Image', onTap: () => unawaited(_addPicture())),
         BarButton(icon: LucideIcons.shapes, label: 'Shape', text: 'Shape', onTap: () => unawaited(_addShape())),
         BarButton(icon: LucideIcons.slash, label: 'Line', text: 'Line', onTap: _addLine),
+        BarButton(icon: LucideIcons.table, label: 'Table', text: 'Table', onTap: () => unawaited(_addTable())),
         BarButton(icon: LucideIcons.layoutTemplate, label: 'Layout', text: 'Layout', onTap: () => unawaited(_layout())),
-        BarButton(icon: LucideIcons.palette, label: 'Theme', text: 'Theme', onTap: () => unawaited(_theme())),
-        BarButton(icon: LucideIcons.paintBucket, label: 'Background', text: 'Background', onTap: () => unawaited(_background())),
+        BarButton(icon: LucideIcons.palette, label: 'Slide format', text: 'Format', onTap: () => unawaited(_slideFormat())),
       ],
     );
   }
@@ -802,6 +861,58 @@ class SlideEditorState extends State<SlideEditor> {
   Widget _objectBar(PptxDeck deck, SlideObject object) {
     final shape = deck.shape(_slide, object.id);
     final line = _isLine(object, shape);
+    final grid = object.kind == 'graphicFrame' ? deck.tableGrid(_slide, object.id) : null;
+    if (grid != null) {
+      final (widths, heights) = grid;
+      final cell = _cell ?? (heights.length - 1, widths.length - 1);
+      return _Bar(
+        key: const ValueKey<String>('table-bar'),
+        children: <Widget>[
+          BarButton(
+            icon: LucideIcons.textCursorInput,
+            label: 'Edit text',
+            onTap: () => _startTyping(object.id, cell: (math.min(cell.$1, heights.length - 1), math.min(cell.$2, widths.length - 1))),
+          ),
+          BarButton(icon: LucideIcons.betweenHorizontalEnd, label: 'Add row', onTap: () => _tableEdit(() => deck.addTableRow(_slide, object.id, cell.$1 + 1), (cell.$1 + 1, cell.$2))),
+          BarButton(icon: LucideIcons.betweenVerticalEnd, label: 'Add column', onTap: () => _tableEdit(() => deck.addTableColumn(_slide, object.id, cell.$2 + 1), (cell.$1, cell.$2 + 1))),
+          BarButton(
+            icon: LucideIcons.rows3,
+            label: 'Delete row',
+            enabled: heights.length > 1,
+            onTap: () => _tableEdit(() => deck.deleteTableRow(_slide, object.id, cell.$1), null),
+          ),
+          BarButton(
+            icon: LucideIcons.columns3,
+            label: 'Delete column',
+            enabled: widths.length > 1,
+            onTap: () => _tableEdit(() => deck.deleteTableColumn(_slide, object.id, cell.$2), null),
+          ),
+          const _BarGap(),
+          BarButton(icon: LucideIcons.copyPlus, label: 'Duplicate', onTap: () => _duplicate(object.id)),
+          BarButton(icon: LucideIcons.layers, label: 'Order', onTap: () => unawaited(_orderSheet(object.id))),
+          BarButton(icon: LucideIcons.trash2, label: 'Delete', onTap: () => _delete(object.id)),
+        ],
+      );
+    }
+    if (object.kind == 'graphicFrame' || object.kind == 'grpSp') {
+      final words = object.kind == 'grpSp'
+          ? deck.slide(_slide).shapes.where((s) => !s.inherited && s.id == object.id && s.textable && s.own != null).firstOrNull
+          : null;
+      return _Bar(
+        key: const ValueKey<String>('object-bar'),
+        children: <Widget>[
+          if (words != null)
+            BarButton(
+              icon: LucideIcons.textCursorInput,
+              label: 'Edit text',
+              onTap: () => _startTyping(words.own!, child: words),
+            ),
+          BarButton(icon: LucideIcons.copyPlus, label: 'Duplicate', onTap: () => _duplicate(object.id)),
+          BarButton(icon: LucideIcons.layers, label: 'Order', onTap: () => unawaited(_orderSheet(object.id))),
+          BarButton(icon: LucideIcons.trash2, label: 'Delete', onTap: () => _delete(object.id)),
+        ],
+      );
+    }
     return _Bar(
       key: const ValueKey<String>('object-bar'),
       children: <Widget>[
@@ -852,7 +963,7 @@ class SlideEditorState extends State<SlideEditor> {
         const pad = 16.0;
         final typing = _typing;
         final wide = (box.maxWidth - 2 * pad) / sw;
-        final typed = typing == null ? null : deck.object(slide, typing.id);
+        final typed = typing;
         // While words are typed the slide comes in close on their box, as
         // Slides does, so the words are a size a thumb can place a caret in.
         final scale = typed == null
@@ -866,6 +977,8 @@ class SlideEditorState extends State<SlideEditor> {
           if (h + 2 * pad > box.maxHeight) {
             top = (pad + 24 - typed.box.top * scale).clamp(box.maxHeight - h - pad, pad);
           }
+          top += _follow;
+          WidgetsBinding.instance.addPostFrameCallback((_) => _keepCaret(box.maxHeight));
         }
         _origin = Offset(left, top);
         _scale = scale;
@@ -881,10 +994,12 @@ class SlideEditorState extends State<SlideEditor> {
                 height: h + 2,
                 child: IgnorePointer(
                   child: DecoratedBox(
-                    decoration: BoxDecoration(border: Border.all(color: AppColors.hairline)),
+                    decoration: BoxDecoration(border: Border.all(color: kSlideDeskEdge)),
                     child: Padding(
                       padding: const EdgeInsets.all(1),
-                      child: SlideSheet(slide: block, assets: deck.assets, width: w),
+                      // Words that run past the slide's edge stay in sight
+                      // on the desk round it, as they do in Slides.
+                      child: SlideSheet(slide: block, assets: deck.assets, width: w, clip: false),
                     ),
                   ),
                 ),
@@ -895,7 +1010,8 @@ class SlideEditorState extends State<SlideEditor> {
                     painter: _Overlay(
                       hints: _hints(deck, slide, block),
                       frame: _frame(deck, slide),
-                      typingBox: typing == null ? null : _boxOf(deck, slide, typing.id),
+                      typingBox: typing?.box,
+                      typingTurn: typing?.rotation ?? 0,
                       guides: _drag == null ? null : (_drag!.guideX, _drag!.guideY),
                       origin: _origin,
                       scale: scale,
@@ -935,16 +1051,50 @@ class SlideEditorState extends State<SlideEditor> {
     final drag = _drag;
     final typing = _typing;
     if ((drag == null || !drag.moved) && typing == null) return block;
+    bool typedIn(SlideShape s) => typing != null && typing.cell == null && (s.own ?? s.id) == typing.id;
+    bool tableOf(SlideShape s) => typing != null && typing.cell != null && s.id == typing.id;
     return block.withShapes(<SlideShape>[
       for (final s in block.shapes)
-        if (s.inherited || (s.id != drag?.id && s.id != typing?.id))
+        if (s.inherited)
           s
-        else if (typing != null && s.id == typing.id)
+        else if (typedIn(s))
           s.copyWith(blocks: const <DocBlock>[])
+        else if (tableOf(s))
+          s.copyWith(blocks: <DocBlock>[for (final b in s.blocks) b is TableBlock ? _withoutCell(b, typing!.cell!) : b])
+        else if (drag != null && drag.moved && s.id == drag.id)
+          _dragged(s, drag)
         else
-          _dragged(s, drag!),
+          s,
     ]);
   }
+
+  /// [table] with the words of [cell] taken out, for the editor to type
+  /// them over it.
+  static TableBlock _withoutCell(TableBlock table, (int, int) cell) => TableBlock(
+    <DocRow>[
+      for (var r = 0; r < table.rows.length; r++)
+        DocRow(
+          <DocCell>[
+            for (var c = 0; c < table.rows[r].cells.length; c++)
+              if (r == cell.$1 && c == cell.$2)
+                DocCell(
+                  const <DocBlock>[],
+                  colSpan: table.rows[r].cells[c].colSpan,
+                  rowSpan: table.rows[r].cells[c].rowSpan,
+                  merged: table.rows[r].cells[c].merged,
+                  background: table.rows[r].cells[c].background,
+                  verticalAlign: table.rows[r].cells[c].verticalAlign,
+                  wrap: true,
+                )
+              else
+                table.rows[r].cells[c],
+          ],
+          header: table.rows[r].header,
+          height: table.rows[r].height,
+        ),
+    ],
+    columns: table.columns,
+  );
 
   static SlideShape _dragged(SlideShape s, _Drag drag) {
     final from = drag.from;
@@ -966,7 +1116,7 @@ class SlideEditorState extends State<SlideEditor> {
 
   List<(SlideBox, double, String)> _hints(PptxDeck deck, String slide, SlideBlock block) => <(SlideBox, double, String)>[
     for (final object in deck.objects(slide))
-      if (object.placeholder != null && object.id != _typing?.id)
+      if (object.placeholder != null && object.id != _typing?.object)
         if (block.shapes.where((s) => !s.inherited && s.id == object.id).every((s) => s.blocks.isEmpty))
           (
             object.box,
@@ -982,11 +1132,7 @@ class SlideEditorState extends State<SlideEditor> {
           ),
   ];
 
-  SlideBox? _boxOf(PptxDeck deck, String slide, int id) {
-    final drag = _drag;
-    if (drag != null && drag.id == id) return drag.box;
-    return deck.object(slide, id)?.box;
-  }
+
 
   /// The selection as the overlay draws it.
   _Frame? _frame(PptxDeck deck, String slide) {
@@ -1103,6 +1249,21 @@ class SlideEditorState extends State<SlideEditor> {
     final object = deck.object(slide, hit)!;
     final shape = deck.shape(slide, hit);
     final empty = shape == null || shape.blocks.isEmpty;
+    final point = _toSlide(at);
+    if (hit == _selected && object.kind == 'graphicFrame') {
+      final cell = _cellAt(deck, slide, hit, point);
+      if (cell != null && deck.tableGrid(slide, hit) != null) {
+        _startTyping(hit, cell: cell.$1, at: at);
+        return;
+      }
+    }
+    if (hit == _selected && object.kind == 'grpSp') {
+      final child = _childAt(deck, slide, hit, point);
+      if (child != null) {
+        _startTyping(child.own!, child: child, at: at);
+        return;
+      }
+    }
     if (object.hasText && !_isLine(object, shape) && (hit == _selected || (object.placeholder != null && empty))) {
       _startTyping(hit, at: empty ? null : at);
       return;
@@ -1110,6 +1271,7 @@ class SlideEditorState extends State<SlideEditor> {
     setState(() {
       _selected = hit;
       _pill = true;
+      if (object.kind == 'graphicFrame') _cell = _cellAt(deck, slide, hit, point)?.$1;
     });
   }
 
@@ -1414,6 +1576,51 @@ class SlideEditorState extends State<SlideEditor> {
     setState(() {});
   }
 
+  void _tableEdit(VoidCallback edit, (int, int)? next) {
+    edit();
+    setState(() => _cell = next);
+  }
+
+  Future<void> _addTable() async {
+    final size = await showDeskSheet<(int, int)>(context, (context) => const TableSizeSheet());
+    if (!mounted || size == null) return;
+    final deck = _deck!;
+    final (sw, sh) = deck.stage;
+    final (rows, cols) = size;
+    final height = math.min(sh * 0.7, rows * 30.0);
+    final id = deck.addTable(_slide, rows, cols, _middle(sw * 0.7, height));
+    setState(() {
+      _selected = id;
+      _cell = (0, 0);
+      _pill = true;
+    });
+  }
+
+  /// Slides' Format with nothing picked: the slide's theme, its ground and
+  /// its layout.
+  Future<void> _slideFormat() async {
+    final choice = await showDeskSheet<String>(
+      context,
+      (context) => DeskSheet(
+        title: 'Slide format',
+        children: <Widget>[
+          DeskSheetRow(label: 'Theme', icon: LucideIcons.palette, onTap: () => Navigator.of(context).pop('theme')),
+          DeskSheetRow(label: 'Background', icon: LucideIcons.paintBucket, onTap: () => Navigator.of(context).pop('background')),
+          DeskSheetRow(label: 'Layout', icon: LucideIcons.layoutTemplate, onTap: () => Navigator.of(context).pop('layout')),
+        ],
+      ),
+    );
+    if (!mounted || choice == null) return;
+    switch (choice) {
+      case 'theme':
+        await _theme();
+      case 'background':
+        await _background();
+      case 'layout':
+        await _layout();
+    }
+  }
+
   // Putting things on the slide.
 
   SlideBox _middle(double width, double height) {
@@ -1499,12 +1706,78 @@ class SlideEditorState extends State<SlideEditor> {
 
   // Typing on the slide.
 
-  void _startTyping(int id, {Offset? at, bool fresh = false}) {
+  /// The cell of the table [id] under the slide point [p], and its box.
+  ((int, int), SlideBox)? _cellAt(PptxDeck deck, String slide, int id, Offset p) {
+    final object = deck.object(slide, id);
+    final grid = deck.tableGrid(slide, id);
+    if (object == null || grid == null) return null;
+    final (widths, heights) = grid;
+    var x = object.box.left;
+    var col = -1;
+    for (var c = 0; c < widths.length; c++) {
+      if (p.dx >= x && p.dx < x + widths[c]) col = c;
+      x += widths[c];
+    }
+    var y = object.box.top;
+    var row = -1;
+    for (var r = 0; r < heights.length; r++) {
+      if (p.dy >= y && p.dy < y + heights[r]) row = r;
+      y += heights[r];
+    }
+    if (col < 0 || row < 0) return null;
+    return ((row, col), _cellBox(object.box, widths, heights, row, col));
+  }
+
+  static SlideBox _cellBox(SlideBox table, List<double> widths, List<double> heights, int row, int col) {
+    var x = table.left, y = table.top;
+    for (var c = 0; c < col; c++) {
+      x += widths[c];
+    }
+    for (var r = 0; r < row; r++) {
+      y += heights[r];
+    }
+    // Inside the cell's margins, as the reader draws its words.
+    return SlideBox(x + 6, y + 4, math.max(4, widths[col] - 12), math.max(4, heights[row] - 8));
+  }
+
+  /// The shape inside the group [group] with words, under the slide point
+  /// [p], topmost first.
+  SlideShape? _childAt(PptxDeck deck, String slide, int group, Offset p) {
+    final shapes = deck.slide(slide).shapes.where((s) => !s.inherited && s.id == group && s.textable && s.own != null);
+    for (final shape in shapes.toList().reversed) {
+      final b = shape.box;
+      final centre = Offset(b.left + b.width / 2, b.top + b.height / 2);
+      final local = _turn(p - centre, -shape.rotation * math.pi / 180);
+      if (local.dx.abs() <= b.width / 2 && local.dy.abs() <= b.height / 2) return shape;
+    }
+    return null;
+  }
+
+  void _startTyping(int id, {Offset? at, bool fresh = false, (int, int)? cell, SlideShape? child}) {
     final deck = _deck!;
     final slide = _slide;
-    final looks = deck.looks(slide, id);
+    final looks = deck.looks(slide, id, cell: cell);
     if (looks == null) return;
-    final body = deck.textBody(slide, id);
+    final object = deck.object(slide, child == null ? id : child.id ?? id);
+    final shape = child ?? deck.shape(slide, id);
+    SlideBox? box;
+    var rotation = 0.0;
+    DocVerticalAlign? anchor;
+    if (cell != null && object != null) {
+      final grid = deck.tableGrid(slide, id);
+      if (grid == null) return;
+      box = _cellBox(object.box, grid.$1, grid.$2, cell.$1, cell.$2);
+    } else if (child != null) {
+      box = child.box;
+      rotation = child.rotation;
+      anchor = child.verticalAlign;
+    } else if (object != null) {
+      box = object.box;
+      rotation = object.rotation;
+      anchor = shape?.verticalAlign;
+    }
+    if (box == null) return;
+    final body = deck.textBody(slide, id, cell: cell);
     final source = SlideText.read(body, looks);
     final document = Document.fromJson(source.ops);
     final controller = QuillController(
@@ -1512,11 +1785,26 @@ class SlideEditorState extends State<SlideEditor> {
       selection: TextSelection.collapsed(offset: math.max(0, document.length - 1)),
     );
     final bodyPr = body?.childElements.where((e) => e.name.local == 'bodyPr').firstOrNull;
-    final grows = bodyPr != null && bodyPr.childElements.any((e) => e.name.local == 'spAutoFit');
+    final grows = cell != null || (bodyPr != null && bodyPr.childElements.any((e) => e.name.local == 'spAutoFit'));
     controller.addListener(_typed);
     setState(() {
-      _typing = _Typing(id, source, controller, looks, fresh: fresh, grows: grows);
-      _selected = id;
+      _follow = 0;
+      _typing = _Typing(
+        id,
+        source,
+        controller,
+        looks,
+        fresh: fresh,
+        grows: grows,
+        box: box!,
+        rotation: rotation,
+        anchor: anchor,
+        cell: cell,
+        placeholder: object?.placeholder,
+        object: object?.id ?? id,
+      );
+      if (cell != null) _cell = cell;
+      _selected = object?.id ?? id;
       _pill = false;
     });
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -1536,6 +1824,27 @@ class SlideEditorState extends State<SlideEditor> {
     if (mounted) setState(() {});
   }
 
+  /// Carries the slide up or down so the caret stands inside the canvas,
+  /// clear of the bar under it, as the words it is typing grow.
+  void _keepCaret(double height) {
+    final typing = _typing;
+    if (!mounted || typing == null) return;
+    final render = _editorKey.currentState?.renderEditor;
+    final canvas = _canvasKey.currentContext?.findRenderObject();
+    if (render == null || canvas is! RenderBox || !render.hasSize || !render.attached) return;
+    final selection = typing.controller.selection;
+    if (!selection.isValid) return;
+    final caret = render.getLocalRectForCaret(selection.extent);
+    final top = canvas.globalToLocal(render.localToGlobal(caret.topLeft)).dy;
+    final bottom = canvas.globalToLocal(render.localToGlobal(caret.bottomLeft)).dy;
+    const margin = 16.0;
+    var by = 0.0;
+    if (bottom > height - margin) by = height - margin - bottom;
+    if (top + by < margin) by = margin - top;
+    if (by.abs() < 1) return;
+    setState(() => _follow += by);
+  }
+
   void _endTyping() {
     final typing = _typing;
     if (typing == null) return;
@@ -1547,7 +1856,8 @@ class SlideEditorState extends State<SlideEditor> {
     double? height;
     if (typing.grows) {
       final render = _editorKey.currentState?.renderEditor;
-      if (render != null && render.hasSize) height = render.size.height / _scale + 7.2;
+      // A text box's insets, or a cell's margins, round its words.
+      if (render != null && render.hasSize) height = render.size.height / _scale + (typing.cell == null ? 7.2 : 8);
     }
     _typing = null;
     controller.removeListener(_typed);
@@ -1556,9 +1866,10 @@ class SlideEditorState extends State<SlideEditor> {
       deck.forgetRedo();
       _selected = null;
     } else if (_typedChange(typing)) {
-      deck.setText(slide, typing.id, typing.source.write(deck.slideDoc(slide), ops), height: height);
+      deck.setText(slide, typing.id, typing.source.write(deck.slideDoc(slide), ops), height: height, cell: typing.cell);
     }
     _focus.unfocus();
+    _follow = 0;
     WidgetsBinding.instance.addPostFrameCallback((_) => controller.dispose());
     if (mounted) setState(() {});
   }
@@ -1636,12 +1947,9 @@ class SlideEditorState extends State<SlideEditor> {
   }
 
   Widget _textEditor(PptxDeck deck, String slide, _Typing typing, double scale) {
-    final object = deck.object(slide, typing.id);
-    if (object == null) return const SizedBox.shrink();
-    final shape = deck.shape(slide, typing.id);
-    final box = object.box;
+    final box = typing.box;
     final levels = typing.looks.levels;
-    final anchor = shape?.verticalAlign;
+    final anchor = typing.anchor;
     final editor = Localizations.override(
       context: context,
       delegates: const <LocalizationsDelegate<Object>>[FlutterQuillLocalizations.delegate],
@@ -1655,7 +1963,7 @@ class SlideEditorState extends State<SlideEditor> {
           scrollable: false,
           expands: false,
           padding: EdgeInsets.zero,
-          placeholder: object.placeholder == 'title' || object.placeholder == 'ctrTitle' ? 'Add title' : 'Add text',
+          placeholder: typing.placeholder == 'title' || typing.placeholder == 'ctrTitle' ? 'Add title' : 'Add text',
           onLaunchUrl: (_) {},
           linkActionPickerDelegate: (_, _, _) async => LinkMenuAction.none,
           customStyles: _textStyles(typing, scale),
@@ -1693,31 +2001,23 @@ class SlideEditorState extends State<SlideEditor> {
     final left = _origin.dx + box.left * scale;
     final top = _origin.dy + box.top * scale;
     final width = math.max(box.width * scale, 24.0);
-    Widget placed;
-    if (anchor == null || anchor == DocVerticalAlign.top) {
-      placed = Positioned(left: left, top: top, width: width, child: editor);
-    } else {
-      placed = Positioned(
-        left: left,
-        top: top,
-        width: width,
-        height: math.max(box.height * scale, 24),
-        child: OverflowBox(
-          alignment: anchor == DocVerticalAlign.bottom ? Alignment.bottomCenter : Alignment.center,
-          maxHeight: double.infinity,
-          child: editor,
-        ),
-      );
+    final turned = typing.rotation != 0;
+    if (!turned && (anchor == null || anchor == DocVerticalAlign.top)) {
+      return Positioned(left: left, top: top, width: width, child: editor);
     }
-    if (object.rotation == 0) return placed;
-    final p = placed as Positioned;
-    return Positioned(
-      left: p.left,
-      top: p.top,
-      width: p.width,
-      height: p.height,
-      child: Transform.rotate(angle: object.rotation * math.pi / 180, child: p.child),
+    // Held in the whole box, so a box anchored lower sets its words there
+    // and a turned one turns them round its own middle, as it is drawn.
+    Widget placed = OverflowBox(
+      alignment: switch (anchor) {
+        DocVerticalAlign.bottom => Alignment.bottomCenter,
+        DocVerticalAlign.center => Alignment.center,
+        _ => Alignment.topCenter,
+      },
+      maxHeight: double.infinity,
+      child: editor,
     );
+    if (turned) placed = Transform.rotate(angle: typing.rotation * math.pi / 180, child: placed);
+    return Positioned(left: left, top: top, width: width, height: math.max(box.height * scale, 24), child: placed);
   }
 
   /// Makes a change to the words without the editor asking for the
@@ -1908,6 +2208,7 @@ class _Overlay extends CustomPainter {
     required this.hints,
     required this.frame,
     required this.typingBox,
+    this.typingTurn = 0,
     required this.guides,
     required this.origin,
     required this.scale,
@@ -1917,6 +2218,7 @@ class _Overlay extends CustomPainter {
   final List<(SlideBox, double, String)> hints;
   final _Frame? frame;
   final SlideBox? typingBox;
+  final double typingTurn;
   final (bool, bool)? guides;
   final Offset origin;
   final double scale;
@@ -1978,7 +2280,7 @@ class _Overlay extends CustomPainter {
     }
     final typing = typingBox;
     if (typing != null) {
-      _turned(canvas, typing, 0, (rect) {
+      _turned(canvas, typing, typingTurn, (rect) {
         canvas.drawRect(
           rect.inflate(2),
           Paint()

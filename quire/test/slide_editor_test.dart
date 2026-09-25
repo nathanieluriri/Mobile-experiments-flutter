@@ -16,12 +16,40 @@ import 'package:quire/screens/edit/slides/slide_editor.dart';
 import 'support/fixtures.dart';
 import 'support/golden.dart';
 
+/// The sample deck with its fourth slide's caption put in a group of its
+/// own, placed through a child offset, as PowerPoint groups shapes.
+Uint8List grouped(Uint8List bytes) {
+  final archive = ZipDecoder().decodeBytes(bytes);
+  final out = Archive();
+  for (final f in archive.files) {
+    if (f.name == 'ppt/slides/slide4.xml') {
+      var xml = utf8.decode(f.content);
+      final start = xml.indexOf('<p:sp><p:nvSpPr><p:cNvPr id="5" name="Caption"/>');
+      final end = xml.indexOf('</p:sp>', start) + '</p:sp>'.length;
+      final caption = xml.substring(start, end);
+      xml = xml.replaceRange(
+        start,
+        end,
+        '<p:grpSp><p:nvGrpSpPr><p:cNvPr id="9" name="Group 9"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>'
+        '<p:grpSpPr><a:xfrm><a:off x="6949440" y="2194560"/><a:ext cx="4389120" cy="2743200"/>'
+        '<a:chOff x="6949440" y="2194560"/><a:chExt cx="4389120" cy="2743200"/></a:xfrm></p:grpSpPr>'
+        '$caption</p:grpSp>',
+      );
+      out.addFile(ArchiveFile.string(f.name, xml));
+    } else {
+      out.addFile(ArchiveFile.bytes(f.name, f.content));
+    }
+  }
+  return ZipEncoder().encodeBytes(out);
+}
+
 void main() {
   late Uint8List original;
   Uint8List? saved;
 
-  Future<SlideEditorState> open(WidgetTester tester) async {
+  Future<SlideEditorState> open(WidgetTester tester, {Uint8List Function(Uint8List)? shape}) async {
     original = (await tester.runAsync(() => documentBytes(kPressDayBriefing)))!;
+    if (shape != null) original = shape(original);
     saved = null;
     await pumpScreen(
       tester,
@@ -84,7 +112,7 @@ void main() {
     expect(find.text('Slide 2 of 6'), findsOneWidget);
     expect(find.byKey(const ValueKey<String>('slide-strip')), findsOneWidget);
     expect(find.byKey(const ValueKey<String>('insert-bar')), findsOneWidget);
-    for (final label in <String>['Text box', 'Image', 'Shape', 'Line', 'Layout', 'Theme', 'Background']) {
+    for (final label in <String>['Text box', 'Image', 'Shape', 'Line', 'Table', 'Layout', 'Slide format']) {
       expect(find.bySemanticsLabel(label), findsWidgets, reason: label);
     }
     // Back goes to all the slides before it leaves.
@@ -393,5 +421,183 @@ void main() {
     await save(tester);
     final reread = PptxParser(saved!).parse();
     expect(reread.sections.length, 6);
+  });
+
+  group('after the round one bar critic', () {
+    testWidgets('Undo with a new empty text box open takes back only the box', (tester) async {
+      final state = await open(tester);
+      await openSlide(tester, state, 3);
+      final picture = objectNamed(state, 'Proof sheet');
+      await tester.timedDragFrom(global(tester, state, middleOf(picture.box)), const Offset(60, 0), const Duration(milliseconds: 300));
+      await settle(tester);
+      final moved = objectNamed(state, 'Proof sheet').box;
+      await tester.tapAt(global(tester, state, const Offset(20, 520)));
+      await settle(tester);
+      await tester.tap(find.bySemanticsLabel('Text box'));
+      await settle(tester);
+      expect(state.typing, isNotNull);
+      await tester.tap(find.byKey(const ValueKey<String>('slides-undo')));
+      await settle(tester);
+      expect(state.typing, isNull);
+      expect(objectNamed(state, 'Proof sheet').box, moved);
+      expect(state.deck!.steps, 1);
+    });
+
+    testWidgets('words past a box or the slide\'s edge are not clipped in the editor', (tester) async {
+      final state = await open(tester);
+      await openSlide(tester, state, 1);
+      final body = state.deck!.objects(state.deck!.slides[1]).firstWhere((o) => o.placeholder == 'body');
+      final at = global(tester, state, Offset(body.box.left + 40, body.box.top + 12));
+      await tester.tapAt(at);
+      await settle(tester);
+      await tester.tapAt(at);
+      await settle(tester);
+      final controller = state.typing!;
+      final end = controller.document.length - 1;
+      controller.replaceText(end, 0, List<String>.generate(14, (i) => '\nExtra line $i').join(), TextSelection.collapsed(offset: end));
+      await settle(tester);
+      await tester.tap(find.bySemanticsLabel('Done'));
+      await settle(tester);
+      final last = find.descendant(of: find.byKey(state.canvasKey), matching: find.textContaining('Extra line 13', findRichText: true));
+      expect(last, findsOneWidget);
+      final clips = find.ancestor(of: last, matching: find.byType(ClipRect));
+      // Only the canvas itself clips, at its own edges.
+      expect(clips, findsOneWidget);
+      expect(tester.widget<ClipRect>(clips).key, state.canvasKey);
+    });
+
+    testWidgets('the caret stays above the text bar as the words grow', (tester) async {
+      final state = await open(tester);
+      await openSlide(tester, state, 1);
+      final body = state.deck!.objects(state.deck!.slides[1]).firstWhere((o) => o.placeholder == 'body');
+      final at = global(tester, state, Offset(body.box.left + 40, body.box.top + 12));
+      await tester.tapAt(at);
+      await settle(tester);
+      await tester.tapAt(at);
+      await settle(tester);
+      tester.view.viewInsets = const FakeViewPadding(bottom: 300 * 3.0);
+      addTearDown(tester.view.resetViewInsets);
+      await settle(tester);
+      final controller = state.typing!;
+      for (var i = 0; i < 20; i++) {
+        final end = controller.document.length - 1;
+        controller.replaceText(end, 0, '\nLine $i', TextSelection.collapsed(offset: end + '\nLine $i'.length));
+        await settle(tester);
+      }
+      final caret = state.caret!;
+      final bar = tester.getTopLeft(find.byKey(const ValueKey<String>('slide-text-bar'))).dy;
+      expect(caret.bottom, lessThanOrEqualTo(bar));
+      expect(caret.top, greaterThan(tester.getTopLeft(find.byKey(const ValueKey<String>('slide-canvas'))).dy));
+    });
+
+    testWidgets('a picture and words with a drop shadow are drawn with one', (tester) async {
+      final state = await open(tester);
+      await openSlide(tester, state, 3);
+      final deck = state.deck!;
+      final slide = deck.slides[3];
+      final picture = objectNamed(state, 'Proof sheet');
+      final caption = objectNamed(state, 'Caption');
+      int shadows() => tester
+          .widgetList<ColorFiltered>(find.byType(ColorFiltered))
+          .where((w) => w.colorFilter == const ColorFilter.mode(Color(0x40000000), BlendMode.srcIn))
+          .length;
+      expect(shadows(), 0);
+      deck.setShadowed(slide, picture.id, true);
+      deck.setShadowed(slide, caption.id, true);
+      // A tap on the empty slide draws it again.
+      await tester.tapAt(global(tester, state, const Offset(20, 520)));
+      await settle(tester);
+      final canvas = find.byKey(state.canvasKey);
+      final onSlide = tester
+          .widgetList<ColorFiltered>(find.descendant(of: canvas, matching: find.byType(ColorFiltered)))
+          .where((w) => w.colorFilter == const ColorFilter.mode(Color(0x40000000), BlendMode.srcIn));
+      expect(onSlide, hasLength(2));
+      expect(shadows(), greaterThanOrEqualTo(2));
+    });
+  });
+
+  group('tables and groups', () {
+    testWidgets('Insert puts a table on the slide, and a tap in a cell types there', (tester) async {
+      final state = await open(tester);
+      await openSlide(tester, state, 5);
+      await tester.tap(find.bySemanticsLabel('Table'));
+      await settle(tester);
+      await tester.tap(find.byKey(const ValueKey<String>('table-insert')));
+      await settle(tester);
+      final deck = state.deck!;
+      final slide = deck.slides[5];
+      final table = deck.object(slide, state.selected!)!;
+      expect(table.kind, 'graphicFrame');
+      expect(deck.tableGrid(slide, table.id)!.$2, hasLength(3));
+      expect(find.byKey(const ValueKey<String>('table-bar')), findsOneWidget);
+      final (widths, heights) = deck.tableGrid(slide, table.id)!;
+      final inCell = global(tester, state, Offset(table.box.left + widths[0] + 10, table.box.top + heights[0] + 10));
+      await tester.tapAt(inCell);
+      await settle(tester);
+      final controller = state.typing!;
+      controller.replaceText(0, 0, 'Forme', const TextSelection.collapsed(offset: 5));
+      await settle(tester);
+      await tester.tap(find.bySemanticsLabel('Done'));
+      await settle(tester);
+      await save(tester);
+      final reread = PptxDeck(saved!);
+      final drawn = reread.shape(reread.slides[5], table.id)!.blocks.whereType<TableBlock>().single;
+      expect(drawn.rows[1].cells[1].blocks, isNotEmpty);
+      expect((drawn.rows[1].cells[1].blocks.first as ParagraphBlock).text, 'Forme');
+      expect(drawn.rows[0].cells[0].background, isNotNull);
+    });
+
+    testWidgets('a table grows a row and a column beside the cell last touched', (tester) async {
+      final state = await open(tester);
+      await openSlide(tester, state, 5);
+      await tester.tap(find.bySemanticsLabel('Table'));
+      await settle(tester);
+      await tester.tap(find.byKey(const ValueKey<String>('table-insert')));
+      await settle(tester);
+      final deck = state.deck!;
+      final slide = deck.slides[5];
+      final id = state.selected!;
+      await tester.tap(find.bySemanticsLabel('Add row'));
+      await settle(tester);
+      await tester.tap(find.bySemanticsLabel('Add column'));
+      await settle(tester);
+      expect(deck.tableGrid(slide, id)!.$2, hasLength(4));
+      expect(deck.tableGrid(slide, id)!.$1, hasLength(4));
+      final frame = deck.object(slide, id)!.box;
+      final (widths, heights) = deck.tableGrid(slide, id)!;
+      expect(frame.height, closeTo(heights.reduce((a, b) => a + b), 0.5));
+      expect(frame.width, closeTo(widths.reduce((a, b) => a + b), 0.5));
+      await tester.tap(find.bySemanticsLabel('Delete row'));
+      await settle(tester);
+      expect(deck.tableGrid(slide, id)!.$2, hasLength(3));
+      await save(tester);
+      expect(PptxParser(saved!).parse().sections.length, 6);
+    });
+
+    testWidgets('a second tap inside a picked group types in the shape under it', (tester) async {
+      final state = await open(tester, shape: grouped);
+      await openSlide(tester, state, 3);
+      final deck = state.deck!;
+      final slide = deck.slides[3];
+      final group = deck.objects(slide).firstWhere((o) => o.kind == 'grpSp');
+      final at = global(tester, state, Offset(group.box.left + 30, group.box.top + 10));
+      await tester.tapAt(at);
+      await settle(tester);
+      expect(state.selected, group.id);
+      await tester.tapAt(at);
+      await settle(tester);
+      final controller = state.typing!;
+      expect(controller.document.toPlainText(), startsWith('Pulled at 09:40'));
+      controller.replaceText(0, 6, 'Taken', const TextSelection.collapsed(offset: 5));
+      await settle(tester);
+      await tester.tap(find.bySemanticsLabel('Done'));
+      await settle(tester);
+      expect(state.selected, group.id);
+      await save(tester);
+      final reread = PptxDeck(saved!);
+      final child = reread.slide(reread.slides[3]).shapes.firstWhere((s) => s.own == 5);
+      expect(child.id, group.id);
+      expect(child.text, startsWith('Taken at 09:40'));
+    });
   });
 }

@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
@@ -206,7 +207,7 @@ class PptxDeck {
     return null;
   }
 
-  SlideTextLooks? looks(String path, int id) => _reader.textLooks(path, id);
+  SlideTextLooks? looks(String path, int id, {(int, int)? cell}) => _reader.textLooks(path, id, cell: cell);
 
   List<SlideLayoutInfo> get layouts => _layouts ??= _reader.layouts();
 
@@ -258,11 +259,61 @@ class PptxDeck {
   }
 
   /// The words of the shape [id] as they stand, or null when it has none.
-  XmlElement? textBody(String slide, int id) {
+  XmlElement? textBody(String slide, int id, {(int, int)? cell}) {
+    final doc = _doc(slide);
+    final el = doc == null ? null : _anywhere(doc, id);
+    if (el == null) return null;
+    final holder = cell == null ? el : _cell(el, cell);
+    final body = holder == null ? null : _kid(holder, 'txBody');
+    return body?.copy();
+  }
+
+  /// The shape [id] wherever it is on the slide, a group's included.
+  static XmlElement? _anywhere(XmlDocument slide, int id) {
+    for (final el in _tree(slide).descendantElements) {
+      final local = el.name.local;
+      if (local != 'sp' && local != 'graphicFrame' && local != 'pic' && local != 'cxnSp' && local != 'grpSp') continue;
+      if (PptxParser.idOf(el) == id) return el;
+    }
+    return null;
+  }
+
+  static XmlElement? _table(XmlElement el) {
+    for (final e in el.descendantElements) {
+      if (e.name.local == 'tbl') return e;
+    }
+    return null;
+  }
+
+  /// The cell at [at] (row, column) of the table in [el].
+  static XmlElement? _cell(XmlElement el, (int, int) at) {
+    final table = _table(el);
+    if (table == null) return null;
+    final rows = table.childElements.where((e) => e.name.local == 'tr').toList();
+    if (at.$1 < 0 || at.$1 >= rows.length) return null;
+    final cells = rows[at.$1].childElements.where((e) => e.name.local == 'tc').toList();
+    if (at.$2 < 0 || at.$2 >= cells.length) return null;
+    return cells[at.$2];
+  }
+
+  /// The table [id]'s column widths and row heights, in points, or null
+  /// for an object that is not a table.
+  (List<double>, List<double>)? tableGrid(String slide, int id) {
     final doc = _doc(slide);
     final el = doc == null ? null : _object(doc, id);
-    final body = el == null ? null : _kid(el, 'txBody');
-    return body?.copy();
+    final table = el == null ? null : _table(el);
+    if (table == null) return null;
+    final grid = _kid(table, 'tblGrid');
+    return (
+      <double>[
+        for (final col in grid?.childElements ?? const <XmlElement>[])
+          if (col.name.local == 'gridCol') (double.tryParse(_at(col, 'w') ?? '') ?? 0) / kEmuPerPoint,
+      ],
+      <double>[
+        for (final row in table.childElements)
+          if (row.name.local == 'tr') (double.tryParse(_at(row, 'h') ?? '') ?? 0) / kEmuPerPoint,
+      ],
+    );
   }
 
   // Changing.
@@ -1194,26 +1245,220 @@ class PptxDeck {
 
   /// Puts [body] in place of [id]'s words; [height], when given, is the
   /// height in points a box that grows with its words now needs.
-  void setText(String slide, int id, XmlElement body, {double? height, String label = 'Typing'}) => _change(label, () {
+  void setText(String slide, int id, XmlElement body, {double? height, String label = 'Typing', (int, int)? cell}) =>
+      _change(label, () {
+        final doc = _doc(slide)!;
+        final el = _anywhere(doc, id);
+        if (el == null) return;
+        final holder = cell == null ? el : _cell(el, cell);
+        if (holder == null) return;
+        final old = _kid(holder, 'txBody');
+        final fresh = body.copy();
+        // A cell's words are a:txBody, a shape's p:txBody.
+        final placed = cell == null ? fresh : _renamed(doc, fresh, kNsA, 'a');
+        if (old != null) {
+          old.replace(placed);
+        } else if (cell != null) {
+          holder.children.insert(0, placed);
+        } else {
+          final after = _kid(el, 'style') ?? _kid(el, 'spPr');
+          el.children.insert(after == null ? el.children.length : el.children.indexOf(after) + 1, placed);
+        }
+        if (height != null && cell != null) {
+          _growRow(doc, el, cell.$1, height);
+        } else if (height != null) {
+          final was = object(slide, id);
+          if (was != null && (was.box.height - height).abs() > 0.5) {
+            _place(doc, el, was.box, SlideBox(was.box.left, was.box.top, was.box.width, height), null);
+          }
+        }
+        _put(slide, doc);
+      });
+
+  /// [el] under the name [local] in the namespace [uri] of [doc].
+  static XmlElement _renamed(XmlDocument doc, XmlElement el, String uri, String wanted) => XmlElement(
+    XmlName.parts(el.name.local, prefix: _prefix(doc, uri, wanted)),
+    <XmlAttribute>[for (final a in el.attributes) a.copy()],
+    <XmlNode>[for (final c in el.children) c.copy()],
+  );
+
+  /// Makes the row [row] of the table in [el] at least [height] points
+  /// tall, and the table's frame as tall as its rows.
+  static void _growRow(XmlDocument doc, XmlElement el, int row, double height) {
+    final table = _table(el);
+    if (table == null) return;
+    final rows = table.childElements.where((e) => e.name.local == 'tr').toList();
+    if (row >= rows.length) return;
+    final now = (double.tryParse(_at(rows[row], 'h') ?? '') ?? 0) / kEmuPerPoint;
+    if (height <= now + 0.5) return;
+    _setAttr(rows[row], 'h', '${_emu(height)}');
+    _fitFrame(el, table);
+  }
+
+  /// The table's frame made as tall as its rows and as wide as its columns.
+  static void _fitFrame(XmlElement el, XmlElement table) {
+    var total = 0.0;
+    for (final r in table.childElements.where((e) => e.name.local == 'tr')) {
+      total += double.tryParse(_at(r, 'h') ?? '') ?? 0;
+    }
+    var wide = 0.0;
+    final grid = _kid(table, 'tblGrid');
+    for (final c in grid?.childElements ?? const <XmlElement>[]) {
+      if (c.name.local == 'gridCol') wide += double.tryParse(_at(c, 'w') ?? '') ?? 0;
+    }
+    final xfrm = _kid(el, 'xfrm');
+    final ext = xfrm == null ? null : _kid(xfrm, 'ext');
+    if (ext == null) return;
+    _setAttr(ext, 'cy', '${total.round()}');
+    if (wide > 0) _setAttr(ext, 'cx', '${wide.round()}');
+  }
+
+  /// A new table of [rows] and [cols] empty cells filling [box], its first
+  /// row a heading in the theme's first accent; returns its id.
+  int addTable(String slide, int rows, int cols, SlideBox box) => _add(slide, 'Table', (doc, id) {
+    final colWidth = _emu(box.width / cols);
+    final rowHeight = _emu(box.height / rows);
+    String cell(bool head) =>
+        '<a:tc><a:txBody><a:bodyPr/>'
+        '${head ? '<a:lstStyle><a:lvl1pPr><a:defRPr b="1"><a:solidFill><a:schemeClr val="lt1"/></a:solidFill></a:defRPr></a:lvl1pPr></a:lstStyle>' : '<a:lstStyle/>'}'
+        '<a:p><a:endParaRPr lang="en-US" dirty="0"/></a:p></a:txBody><a:tcPr>'
+        '<a:lnL w="12700"><a:solidFill><a:schemeClr val="lt1"/></a:solidFill></a:lnL>'
+        '<a:lnR w="12700"><a:solidFill><a:schemeClr val="lt1"/></a:solidFill></a:lnR>'
+        '<a:lnT w="12700"><a:solidFill><a:schemeClr val="lt1"/></a:solidFill></a:lnT>'
+        '<a:lnB w="12700"><a:solidFill><a:schemeClr val="lt1"/></a:solidFill></a:lnB>'
+        '${head ? '<a:solidFill><a:schemeClr val="accent1"/></a:solidFill>' : '<a:solidFill><a:schemeClr val="accent1"><a:lumMod val="20000"/><a:lumOff val="80000"/></a:schemeClr></a:solidFill>'}'
+        '</a:tcPr></a:tc>';
+    final xml = StringBuffer(
+      '<p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="$id" name="Table $id"/>'
+      '<p:cNvGraphicFramePr><a:graphicFrameLocks noGrp="1"/></p:cNvGraphicFramePr><p:nvPr/></p:nvGraphicFramePr>'
+      '<p:xfrm><a:off x="${_emu(box.left)}" y="${_emu(box.top)}"/><a:ext cx="${colWidth * cols}" cy="${rowHeight * rows}"/></p:xfrm>'
+      '<a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/table"><a:tbl>'
+      '<a:tblPr firstRow="1" bandRow="1"/><a:tblGrid>',
+    );
+    for (var c = 0; c < cols; c++) {
+      xml.write('<a:gridCol w="$colWidth"/>');
+    }
+    xml.write('</a:tblGrid>');
+    for (var r = 0; r < rows; r++) {
+      xml.write('<a:tr h="$rowHeight">');
+      for (var c = 0; c < cols; c++) {
+        xml.write(cell(r == 0));
+      }
+      xml.write('</a:tr>');
+    }
+    xml.write('</a:tbl></a:graphicData></a:graphic></p:graphicFrame>');
+    return _fragment(doc, xml.toString());
+  });
+
+  /// Puts a row of empty cells in the table [id] at [at], made like the row
+  /// beside it.
+  void addTableRow(String slide, int id, int at) => _change('Add row', () {
     final doc = _doc(slide)!;
     final el = _object(doc, id);
-    if (el == null) return;
-    final old = _kid(el, 'txBody');
-    final fresh = body.copy();
-    if (old != null) {
-      old.replace(fresh);
+    final table = el == null ? null : _table(el);
+    if (el == null || table == null) return;
+    final rows = table.childElements.where((e) => e.name.local == 'tr').toList();
+    if (rows.isEmpty) return;
+    final model = rows[math.max(0, math.min(at, rows.length) - 1)];
+    final row = model.copy();
+    for (final tc in row.childElements.where((e) => e.name.local == 'tc')) {
+      _emptyCell(doc, tc);
+    }
+    if (at >= rows.length) {
+      table.children.insert(table.children.indexOf(rows.last) + 1, row);
     } else {
-      final after = _kid(el, 'style') ?? _kid(el, 'spPr');
-      el.children.insert(after == null ? el.children.length : el.children.indexOf(after) + 1, fresh);
+      table.children.insert(table.children.indexOf(rows[at]), row);
     }
-    if (height != null) {
-      final was = object(slide, id);
-      if (was != null && (was.box.height - height).abs() > 0.5) {
-        _place(doc, el, was.box, SlideBox(was.box.left, was.box.top, was.box.width, height), null);
-      }
-    }
+    _fitFrame(el, table);
     _put(slide, doc);
   });
+
+  /// Puts a column of empty cells in the table [id] at [at], as wide as the
+  /// column beside it.
+  void addTableColumn(String slide, int id, int at) => _change('Add column', () {
+    final doc = _doc(slide)!;
+    final el = _object(doc, id);
+    final table = el == null ? null : _table(el);
+    final grid = table == null ? null : _kid(table, 'tblGrid');
+    if (el == null || table == null || grid == null) return;
+    final cols = grid.childElements.where((e) => e.name.local == 'gridCol').toList();
+    if (cols.isEmpty) return;
+    final beside = math.max(0, math.min(at, cols.length) - 1);
+    final col = cols[beside].copy();
+    if (at >= cols.length) {
+      grid.children.insert(grid.children.indexOf(cols.last) + 1, col);
+    } else {
+      grid.children.insert(grid.children.indexOf(cols[at]), col);
+    }
+    for (final tr in table.childElements.where((e) => e.name.local == 'tr')) {
+      final cells = tr.childElements.where((e) => e.name.local == 'tc').toList();
+      if (cells.isEmpty) continue;
+      final cell = cells[math.min(beside, cells.length - 1)].copy();
+      _emptyCell(doc, cell);
+      cell.attributes.removeWhere((a) => const <String>{'gridSpan', 'hMerge'}.contains(a.name.local));
+      if (at >= cells.length) {
+        tr.children.insert(tr.children.indexOf(cells.last) + 1, cell);
+      } else {
+        tr.children.insert(tr.children.indexOf(cells[at]), cell);
+      }
+    }
+    _fitFrame(el, table);
+    _put(slide, doc);
+  });
+
+  /// Takes the row [row] out of the table [id]; the last row stays.
+  void deleteTableRow(String slide, int id, int row) {
+    final grid = tableGrid(slide, id);
+    if (grid == null || grid.$2.length <= 1) return;
+    _change('Delete row', () {
+      final doc = _doc(slide)!;
+      final el = _object(doc, id)!;
+      final table = _table(el)!;
+      final rows = table.childElements.where((e) => e.name.local == 'tr').toList();
+      if (row < 0 || row >= rows.length) return;
+      rows[row].remove();
+      _fitFrame(el, table);
+      _put(slide, doc);
+    });
+  }
+
+  /// Takes the column [col] out of the table [id]; the last column stays.
+  void deleteTableColumn(String slide, int id, int col) {
+    final grid = tableGrid(slide, id);
+    if (grid == null || grid.$1.length <= 1) return;
+    _change('Delete column', () {
+      final doc = _doc(slide)!;
+      final el = _object(doc, id)!;
+      final table = _table(el)!;
+      final cols = _kid(table, 'tblGrid')!.childElements.where((e) => e.name.local == 'gridCol').toList();
+      if (col < 0 || col >= cols.length) return;
+      cols[col].remove();
+      for (final tr in table.childElements.where((e) => e.name.local == 'tr')) {
+        final cells = tr.childElements.where((e) => e.name.local == 'tc').toList();
+        if (col < cells.length) cells[col].remove();
+      }
+      _fitFrame(el, table);
+      _put(slide, doc);
+    });
+  }
+
+  /// [tc] with its words taken out and its look kept.
+  static void _emptyCell(XmlDocument doc, XmlElement tc) {
+    tc.attributes.removeWhere((a) => const <String>{'rowSpan', 'vMerge'}.contains(a.name.local));
+    final body = _kid(tc, 'txBody');
+    if (body == null) return;
+    final paragraphs = body.childElements.where((e) => e.name.local == 'p').toList();
+    final first = paragraphs.isEmpty ? null : paragraphs.first;
+    for (final p in paragraphs) {
+      p.remove();
+    }
+    final end = first == null ? null : _kid(first, 'endParaRPr') ?? first.childElements.where((e) => e.name.local == 'r').map((r) => _kid(r, 'rPr')).whereType<XmlElement>().firstOrNull;
+    final p = _el(doc, kNsA, 'a', 'p');
+    if (end != null) {
+      p.children.add(XmlElement(XmlName.parts('endParaRPr', prefix: end.name.prefix), <XmlAttribute>[for (final a in end.attributes) a.copy()], <XmlNode>[for (final c in end.children) c.copy()]));
+    }
+    body.children.add(p);
+  }
 
   /// The document the slide at [path] is, for building a text body in it.
   XmlDocument slideDoc(String path) => _doc(path)!;

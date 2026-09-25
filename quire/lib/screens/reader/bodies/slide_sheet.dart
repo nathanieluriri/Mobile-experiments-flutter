@@ -84,9 +84,14 @@ class SlideSheet extends StatelessWidget {
     required this.assets,
     this.width,
     this.showBackground = true,
+    this.clip = true,
   });
 
   final SlideBlock slide;
+
+  /// False to draw what spills past the slide's edge, as an editor shows
+  /// it on the desk round the slide.
+  final bool clip;
 
   /// The deck's media, keyed by the path the file stored it under.
   final Map<String, Uint8List> assets;
@@ -121,21 +126,21 @@ class SlideSheet extends StatelessWidget {
         ? null
         : assets[slide.backgroundAsset!];
 
+    final stack = Stack(
+      fit: StackFit.expand,
+      clipBehavior: clip ? Clip.hardEdge : Clip.none,
+      children: <Widget>[
+        if (showBackground) ColoredBox(color: ground),
+        if (showBackground && picture != null)
+          Image.memory(picture, fit: BoxFit.cover, gaplessPlayback: true),
+        for (final shape in slide.shapes)
+          _PlacedShape(shape: shape, scale: scale, assets: assets),
+      ],
+    );
     return SizedBox(
       width: width,
       height: height,
-      child: ClipRect(
-        child: Stack(
-          fit: StackFit.expand,
-          children: <Widget>[
-            if (showBackground) ColoredBox(color: ground),
-            if (showBackground && picture != null)
-              Image.memory(picture, fit: BoxFit.cover, gaplessPlayback: true),
-            for (final shape in slide.shapes)
-              _PlacedShape(shape: shape, scale: scale, assets: assets),
-          ],
-        ),
-      ),
+      child: clip ? ClipRect(child: stack) : stack,
     );
   }
 }
@@ -221,26 +226,47 @@ class _Contents extends StatelessWidget {
       body = Opacity(opacity: shape.opacity, child: body);
     }
 
-    final Widget content = shape.blocks.isEmpty
-        ? const SizedBox.expand()
+    final chart = shape.chart;
+    Widget content = shape.blocks.isEmpty
+        ? (chart == null ? const SizedBox.expand() : CustomPaint(painter: SlideChartPainter(chart, scale), child: const SizedBox.expand()))
         : single
         ? body
-        // A shape whose words are taller than the box it was given keeps
-        // its box: PowerPoint would have shrunk the text to fit, and this
-        // reader would rather clip one line than move everything under it.
-        : ClipRect(
-            child: OverflowBox(
-              alignment: switch (shape.verticalAlign) {
-                DocVerticalAlign.bottom => Alignment.bottomCenter,
-                DocVerticalAlign.center => Alignment.center,
-                _ => Alignment.topCenter,
-              },
-              maxHeight: double.infinity,
-              child: body,
-            ),
+        // A shape whose words are taller than its box keeps its box, and
+        // the words run on past it, as PowerPoint and Slides draw them, so
+        // nothing typed is ever out of sight.
+        : OverflowBox(
+            alignment: switch (shape.verticalAlign) {
+              DocVerticalAlign.bottom => Alignment.bottomCenter,
+              DocVerticalAlign.center => Alignment.center,
+              _ => Alignment.topCenter,
+            },
+            maxHeight: double.infinity,
+            child: body,
           );
+    // A shadow under what the shape holds, for a picture or words with no
+    // fill or outline of their own to cast it: the same shapes, darkened
+    // and set off, drawn first. Nothing is blurred, by the app's rule.
+    final castsOwn = shape.shadow && shape.blocks.isNotEmpty && (single || (fill == null && line == null && picture == null));
+    if (castsOwn) {
+      content = Stack(
+        clipBehavior: Clip.none,
+        fit: StackFit.passthrough,
+        children: <Widget>[
+          Positioned.fill(
+            child: Transform.translate(
+              offset: Offset(3 * scale, 3 * scale),
+              child: ColorFiltered(
+                colorFilter: const ColorFilter.mode(Color(0x40000000), BlendMode.srcIn),
+                child: content,
+              ),
+            ),
+          ),
+          content,
+        ],
+      );
+    }
 
-    final plain = shape.geometry == 'rect' && shape.dash == null && !shape.shadow;
+    final plain = shape.geometry == 'rect' && shape.dash == null && (!shape.shadow || castsOwn || (fill == null && line == null && picture == null));
     if (plain) {
       return DecoratedBox(
         decoration: BoxDecoration(
@@ -265,7 +291,7 @@ class _Contents extends StatelessWidget {
 
     final outline = slideOutlineOf(shape.geometry);
     Widget inside = content;
-    if (picture != null || (single && !outline.open)) {
+    if (picture != null || (single && !outline.open && shape.geometry != 'rect')) {
       inside = ClipPath(
         clipper: _OutlineClip(outline, shape.flipH, shape.flipV),
         child: picture == null
@@ -289,7 +315,8 @@ class _Contents extends StatelessWidget {
         line: line == null ? null : Color(line),
         width: math.max(0.5, shape.lineWidth * scale),
         dash: shape.dash,
-        shadow: shape.shadow,
+        shadow: shape.shadow && !castsOwn,
+        solid: fill != null || picture != null,
         scale: scale,
         flipH: shape.flipH,
         flipV: shape.flipV,
@@ -629,9 +656,13 @@ class _OutlinePainter extends CustomPainter {
     required this.scale,
     required this.flipH,
     required this.flipV,
+    this.solid = false,
   });
 
   final SlideOutline outline;
+
+  /// True for a shape its shadow is the whole of: filled, or a picture.
+  final bool solid;
   final Color? fill;
   final Color? line;
   final double width;
@@ -650,7 +681,7 @@ class _OutlinePainter extends CustomPainter {
     if (shadow) {
       final offset = Offset(3 * scale, 3 * scale);
       final ink = Paint()..color = const Color(0x40000000);
-      if (fill != null && !outline.open) {
+      if ((fill != null || solid) && !outline.open) {
         canvas.drawPath(path.shift(offset), ink);
       } else if (stroke != null) {
         canvas.drawPath(
@@ -685,7 +716,8 @@ class _OutlinePainter extends CustomPainter {
       old.shadow != shadow ||
       old.scale != scale ||
       old.flipH != flipH ||
-      old.flipV != flipV;
+      old.flipV != flipV ||
+      old.solid != solid;
 }
 
 /// One block of a shape.
@@ -777,7 +809,7 @@ class _SlideBlockView extends StatelessWidget {
             width: gutter,
             child: marker == null
                 ? null
-                : _text(
+                : _marker(
                     <DocSpan>[
                       DocSpan(
                         marker,
@@ -793,6 +825,14 @@ class _SlideBlockView extends StatelessWidget {
       ),
     );
   }
+
+  /// A bullet or a number, which stands in one line past its gutter rather
+  /// than breaking in two where the gutter is narrow.
+  Widget _marker(List<DocSpan> spans, {required DocAlign align}) => Text.rich(
+    TextSpan(children: <InlineSpan>[for (final span in spans) TextSpan(text: span.text, style: _style(span))]),
+    softWrap: false,
+    overflow: TextOverflow.visible,
+  );
 
   int? _inkOf(List<DocSpan> spans) {
     for (final span in spans) {
@@ -854,7 +894,8 @@ class _SlideBlockView extends StatelessWidget {
       border: TableBorder.symmetric(
         inside: BorderSide(color: AppColors.pageInkSoft, width: hairline),
       ),
-      defaultVerticalAlignment: TableCellVerticalAlignment.middle,
+      // PowerPoint sets a cell's words at its top unless the cell says.
+      defaultVerticalAlignment: TableCellVerticalAlignment.top,
       columnWidths: <int, TableColumnWidth>{
         for (var i = 0; i < table.columns.length; i++)
           if (table.columns[i].width != null)
@@ -865,7 +906,14 @@ class _SlideBlockView extends StatelessWidget {
           TableRow(
             children: <Widget>[
               for (final cell in row.cells)
-                _TableCell(cell: cell, scale: scale, assets: assets),
+                TableCell(
+                  verticalAlignment: switch (cell.verticalAlign) {
+                    DocVerticalAlign.center => TableCellVerticalAlignment.middle,
+                    DocVerticalAlign.bottom => TableCellVerticalAlignment.bottom,
+                    _ => TableCellVerticalAlignment.top,
+                  },
+                  child: _TableCell(cell: cell, scale: scale, assets: assets, height: row.height),
+                ),
             ],
           ),
       ],
@@ -878,16 +926,22 @@ class _TableCell extends StatelessWidget {
     required this.cell,
     required this.scale,
     required this.assets,
+    this.height,
   });
 
   final DocCell cell;
   final double scale;
   final Map<String, Uint8List> assets;
 
+  /// The row's height as the file states it, which a row with little in it
+  /// still keeps, in points.
+  final double? height;
+
   @override
   Widget build(BuildContext context) {
     final fill = cell.background;
     return Container(
+      constraints: BoxConstraints(minHeight: (height ?? 0) * scale),
       color: fill == null ? null : Color(fill),
       padding: EdgeInsets.symmetric(
         horizontal: 6 * scale,
@@ -925,4 +979,252 @@ class _MissingPicture extends StatelessWidget {
     ),
     child: const SizedBox.expand(),
   );
+}
+
+/// A chart drawn from the values its file keeps: columns, bars, lines,
+/// areas, a pie or a doughnut, with its title, its axes and its legend, in
+/// the slide's own points.
+class SlideChartPainter extends CustomPainter {
+  SlideChartPainter(this.chart, this.scale);
+  final SlideChart chart;
+  final double scale;
+
+  static const Color _ink = Color(0xFF404040);
+  static const Color _grid = Color(0x33000000);
+
+  TextPainter _label(String text, double points, {bool bold = false, double? maxWidth}) => TextPainter(
+    text: TextSpan(
+      text: text,
+      style: TextStyle(
+        fontFamily: 'Inter',
+        fontSize: math.max(kSlideMinFontSize, points * scale),
+        fontWeight: bold ? FontWeight.w700 : FontWeight.w400,
+        color: _ink,
+        decoration: TextDecoration.none,
+      ),
+    ),
+    textDirection: TextDirection.ltr,
+    maxLines: 1,
+    ellipsis: '…',
+  )..layout(maxWidth: maxWidth ?? double.infinity);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    var area = Offset.zero & size;
+    final pad = 6 * scale;
+    area = area.deflate(pad);
+    final title = chart.title;
+    if (title != null) {
+      final t = _label(title, 14, bold: true, maxWidth: area.width);
+      t.paint(canvas, Offset(area.center.dx - t.width / 2, area.top));
+      area = Rect.fromLTRB(area.left, area.top + t.height + pad, area.right, area.bottom);
+    }
+    final round = chart.kind == 'pie' || chart.kind == 'doughnut';
+    final keys = round
+        ? <(String, int)>[
+            for (var i = 0; i < chart.categories.length; i++)
+              (chart.categories[i], i < chart.series.first.colours.length ? chart.series.first.colours[i] : chart.series.first.colour),
+          ]
+        : <(String, int)>[for (final s in chart.series) (s.name, s.colour)];
+    if (chart.legend && keys.isNotEmpty) {
+      final labels = <TextPainter>[for (final (name, _) in keys) _label(name, 9, maxWidth: area.width / 2)];
+      final swatch = 7 * scale;
+      final gap = 8 * scale;
+      final total = labels.fold<double>(0, (sum, l) => sum + swatch + 3 * scale + l.width + gap) - gap;
+      var x = area.center.dx - math.min(total, area.width) / 2;
+      final y = area.bottom - labels.first.height;
+      for (var i = 0; i < labels.length; i++) {
+        if (x + swatch + labels[i].width > area.right) break;
+        canvas.drawRect(Rect.fromLTWH(x, y + (labels[i].height - swatch) / 2, swatch, swatch), Paint()..color = Color(keys[i].$2));
+        labels[i].paint(canvas, Offset(x + swatch + 3 * scale, y));
+        x += swatch + 3 * scale + labels[i].width + gap;
+      }
+      area = Rect.fromLTRB(area.left, area.top, area.right, y - pad);
+    }
+    if (area.width <= 0 || area.height <= 0) return;
+    if (round) {
+      _pie(canvas, area);
+    } else {
+      _axes(canvas, area);
+    }
+  }
+
+  void _pie(Canvas canvas, Rect area) {
+    final series = chart.series.first;
+    final values = <double>[for (final v in series.values) math.max(0, v ?? 0)];
+    final total = values.fold<double>(0, (a, b) => a + b);
+    if (total <= 0) return;
+    final radius = math.min(area.width, area.height) / 2;
+    final circle = Rect.fromCircle(center: area.center, radius: radius);
+    var start = -math.pi / 2;
+    for (var i = 0; i < values.length; i++) {
+      final sweep = values[i] / total * 2 * math.pi;
+      canvas.drawArc(circle, start, sweep, true, Paint()..color = Color(i < series.colours.length ? series.colours[i] : series.colour));
+      canvas.drawArc(
+        circle,
+        start,
+        sweep,
+        true,
+        Paint()
+          ..color = const Color(0xFFFFFFFF)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = math.max(0.5, scale),
+      );
+      start += sweep;
+    }
+    if (chart.kind == 'doughnut') {
+      canvas.drawCircle(area.center, radius * 0.5, Paint()..color = const Color(0xFFFFFFFF));
+    }
+  }
+
+  void _axes(Canvas canvas, Rect area) {
+    final n = chart.categories.isEmpty
+        ? chart.series.fold<int>(0, (m, s) => math.max(m, s.values.length))
+        : chart.categories.length;
+    if (n == 0) return;
+    var high = 0.0, low = 0.0;
+    for (var i = 0; i < n; i++) {
+      var up = 0.0, down = 0.0;
+      for (final s in chart.series) {
+        final v = i < s.values.length ? s.values[i] ?? 0 : 0.0;
+        if (chart.stacked) {
+          if (v >= 0) {
+            up += v;
+          } else {
+            down += v;
+          }
+        } else {
+          up = math.max(up, v);
+          down = math.min(down, v);
+        }
+      }
+      high = math.max(high, up);
+      low = math.min(low, down);
+    }
+    if (high == low) high = low + 1;
+    final raw = (high - low) / 5;
+    final magnitude = math.pow(10, (math.log(raw) / math.ln10).floor()).toDouble();
+    final step = <double>[1, 2, 2.5, 5, 10].map((m) => m * magnitude).firstWhere((m) => m >= raw, orElse: () => 10 * magnitude);
+    high = (high / step).ceil() * step;
+    low = (low / step).floor() * step;
+    final ticks = <double>[for (var v = low; v <= high + step / 2; v += step) v];
+    String show(double v) => v == v.roundToDouble() ? '${v.round()}' : v.toStringAsFixed(1);
+    final valueLabels = <TextPainter>[for (final v in ticks) _label(show(v), 8)];
+    final across = chart.kind == 'bar';
+    final catLabels = <TextPainter>[
+      for (var i = 0; i < n; i++) _label(i < chart.categories.length ? chart.categories[i] : '${i + 1}', 8, maxWidth: across ? area.width * 0.3 : area.width / n),
+    ];
+    final labelWidth = across
+        ? catLabels.fold<double>(0, (m, l) => math.max(m, l.width))
+        : valueLabels.fold<double>(0, (m, l) => math.max(m, l.width));
+    final labelHeight = valueLabels.first.height;
+    final plot = Rect.fromLTRB(area.left + labelWidth + 4 * scale, area.top + labelHeight / 2, area.right, area.bottom - labelHeight - 3 * scale);
+    if (plot.width <= 0 || plot.height <= 0) return;
+    double at(double v) => across
+        ? plot.left + (v - low) / (high - low) * plot.width
+        : plot.bottom - (v - low) / (high - low) * plot.height;
+    final grid = Paint()
+      ..color = _grid
+      ..strokeWidth = math.max(0.5, 0.5 * scale);
+    for (var k = 0; k < ticks.length; k++) {
+      final p = at(ticks[k]);
+      if (across) {
+        canvas.drawLine(Offset(p, plot.top), Offset(p, plot.bottom), grid);
+        valueLabels[k].paint(canvas, Offset(p - valueLabels[k].width / 2, plot.bottom + 3 * scale));
+      } else {
+        canvas.drawLine(Offset(plot.left, p), Offset(plot.right, p), grid);
+        valueLabels[k].paint(canvas, Offset(plot.left - 4 * scale - valueLabels[k].width, p - valueLabels[k].height / 2));
+      }
+    }
+    final band = (across ? plot.height : plot.width) / n;
+    // A bar chart lists its first category at the foot, as PowerPoint does.
+    double slotOf(int i) => across ? (n - 1 - i).toDouble() : i.toDouble();
+    for (var i = 0; i < n; i++) {
+      final l = catLabels[i];
+      if (across) {
+        l.paint(canvas, Offset(plot.left - 4 * scale - l.width, plot.top + band * (slotOf(i) + 0.5) - l.height / 2));
+      } else {
+        l.paint(canvas, Offset(plot.left + band * (i + 0.5) - l.width / 2, plot.bottom + 3 * scale));
+      }
+    }
+    final zero = at(0.0.clamp(low, high));
+    if (chart.kind == 'line' || chart.kind == 'area') {
+      final sums = List<double>.filled(n, 0);
+      for (final s in chart.series) {
+        final path = Path();
+        final points = <Offset>[];
+        for (var i = 0; i < n && i < s.values.length; i++) {
+          final v = s.values[i];
+          if (v == null) continue;
+          final value = chart.stacked ? sums[i] + v : v;
+          if (chart.stacked) sums[i] = value;
+          points.add(Offset(plot.left + band * (i + 0.5), at(value)));
+        }
+        if (points.isEmpty) continue;
+        path.addPolygon(points, false);
+        if (chart.kind == 'area') {
+          final fill = Path()
+            ..moveTo(points.first.dx, zero)
+            ..addPolygon(points, false)
+            ..lineTo(points.last.dx, zero)
+            ..close();
+          canvas.drawPath(fill, Paint()..color = Color(s.colour).withValues(alpha: chart.stacked ? 1 : 0.6));
+        } else {
+          canvas.drawPath(
+            path,
+            Paint()
+              ..color = Color(s.colour)
+              ..style = PaintingStyle.stroke
+              ..strokeWidth = math.max(1, 2 * scale),
+          );
+          for (final p in points) {
+            canvas.drawCircle(p, math.max(1.5, 2.5 * scale), Paint()..color = Color(s.colour));
+          }
+        }
+      }
+      return;
+    }
+    final count = chart.series.length;
+    final gapShare = 0.3;
+    final inner = band * (1 - gapShare);
+    for (var i = 0; i < n; i++) {
+      var up = 0.0, down = 0.0;
+      for (var k = 0; k < count; k++) {
+        final s = chart.series[k];
+        final v = i < s.values.length ? s.values[i] : null;
+        if (v == null) continue;
+        double from, to;
+        if (chart.stacked) {
+          from = v >= 0 ? up : down;
+          to = from + v;
+          if (v >= 0) {
+            up = to;
+          } else {
+            down = to;
+          }
+        } else {
+          from = 0;
+          to = v;
+        }
+        final slot = chart.stacked ? inner : inner / count;
+        final offset = band * slotOf(i) + band * gapShare / 2 + (chart.stacked ? 0 : slot * k);
+        final a = at(from.clamp(low, high)), b = at(to.clamp(low, high));
+        final rect = across
+            ? Rect.fromLTRB(math.min(a, b), plot.top + offset, math.max(a, b), plot.top + offset + slot)
+            : Rect.fromLTRB(plot.left + offset, math.min(a, b), plot.left + offset + slot, math.max(a, b));
+        canvas.drawRect(rect, Paint()..color = Color(s.colour));
+      }
+    }
+    final axis = Paint()
+      ..color = const Color(0x66000000)
+      ..strokeWidth = math.max(0.5, 0.75 * scale);
+    if (across) {
+      canvas.drawLine(Offset(zero, plot.top), Offset(zero, plot.bottom), axis);
+    } else {
+      canvas.drawLine(Offset(plot.left, zero), Offset(plot.right, zero), axis);
+    }
+  }
+
+  @override
+  bool shouldRepaint(SlideChartPainter old) => old.chart != chart || old.scale != scale;
 }

@@ -2,12 +2,14 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_quill/quill_delta.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:quire/edit/pptx_deck.dart';
 import 'package:quire/edit/pptx_text.dart';
 import 'package:quire/format/pptx_parser.dart';
 import 'package:quire/model/document.dart';
+import 'package:quire/screens/reader/bodies/slide_sheet.dart';
 import 'package:xml/xml.dart';
 
 import 'support/fixtures.dart';
@@ -102,6 +104,47 @@ List<List<String>> _sections(Uint8List bytes) {
         for (final id in section.descendantElements.where((e) => e.name.local == 'sldId')) id.getAttribute('id')!,
       ],
   ];
+}
+
+/// The sample deck with a clustered column chart, and no picture of it, on
+/// its last slide.
+Uint8List _charted(Uint8List bytes) {
+  const chart = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+      '<c:chartSpace xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" '
+      'xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><c:chart><c:autoTitleDeleted val="1"/><c:plotArea>'
+      '<c:barChart><c:barDir val="col"/><c:grouping val="clustered"/>'
+      '<c:ser><c:idx val="0"/><c:order val="0"/><c:tx><c:strRef><c:strCache><c:ptCount val="1"/><c:pt idx="0"><c:v>Monday</c:v></c:pt></c:strCache></c:strRef></c:tx>'
+      '<c:cat><c:strRef><c:strCache><c:ptCount val="3"/><c:pt idx="0"><c:v>One</c:v></c:pt><c:pt idx="1"><c:v>Two</c:v></c:pt><c:pt idx="2"><c:v>Three</c:v></c:pt></c:strCache></c:strRef></c:cat>'
+      '<c:val><c:numRef><c:numCache><c:ptCount val="3"/><c:pt idx="0"><c:v>1200</c:v></c:pt><c:pt idx="1"><c:v>1180</c:v></c:pt><c:pt idx="2"><c:v>900</c:v></c:pt></c:numCache></c:numRef></c:val></c:ser>'
+      '<c:ser><c:idx val="1"/><c:order val="1"/><c:tx><c:strRef><c:strCache><c:ptCount val="1"/><c:pt idx="0"><c:v>Tuesday</c:v></c:pt></c:strCache></c:strRef></c:tx>'
+      '<c:spPr><a:solidFill><a:srgbClr val="C0504D"/></a:solidFill></c:spPr>'
+      '<c:val><c:numRef><c:numCache><c:ptCount val="3"/><c:pt idx="0"><c:v>1100</c:v></c:pt><c:pt idx="2"><c:v>950</c:v></c:pt></c:numCache></c:numRef></c:val></c:ser>'
+      '</c:barChart></c:plotArea><c:legend><c:legendPos val="b"/></c:legend></c:chart></c:chartSpace>';
+  const frame = '<p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="30" name="Chart 30"/><p:cNvGraphicFramePr/><p:nvPr/></p:nvGraphicFramePr>'
+      '<p:xfrm><a:off x="914400" y="1828800"/><a:ext cx="6096000" cy="3048000"/></p:xfrm><a:graphic>'
+      '<a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/chart">'
+      '<c:chart xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" r:id="rId9"/></a:graphicData></a:graphic></p:graphicFrame>';
+  final archive = ZipDecoder().decodeBytes(bytes);
+  final out = Archive();
+  for (final f in archive.files) {
+    var text = f.name.endsWith('.xml') || f.name.endsWith('.rels') ? utf8.decode(f.content) : null;
+    if (f.name == 'ppt/slides/slide6.xml') text = text!.replaceFirst('</p:spTree>', '$frame</p:spTree>');
+    if (f.name == 'ppt/slides/_rels/slide6.xml.rels') {
+      text = text!.replaceFirst(
+        '</Relationships>',
+        '<Relationship Id="rId9" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart" Target="../charts/chart1.xml"/></Relationships>',
+      );
+    }
+    if (f.name == '[Content_Types].xml') {
+      text = text!.replaceFirst(
+        '</Types>',
+        '<Override PartName="/ppt/charts/chart1.xml" ContentType="application/vnd.openxmlformats-officedocument.drawingml.chart+xml"/></Types>',
+      );
+    }
+    out.addFile(text == null ? ArchiveFile.bytes(f.name, f.content) : ArchiveFile.string(f.name, text));
+  }
+  out.addFile(ArchiveFile.string('ppt/charts/chart1.xml', chart));
+  return ZipEncoder().encodeBytes(out);
 }
 
 void main() {
@@ -250,6 +293,33 @@ void main() {
         <String>['259', '260'],
       ]);
       _expectWhole(deck.write());
+    });
+
+    test('reads a chart with no picture of it from its cached values', () {
+      final deck = PptxDeck(_charted(bytes));
+      final shape = deck.shape(deck.slides[5], 30)!;
+      final chart = shape.chart!;
+      expect(chart.kind, 'col');
+      expect(chart.categories, <String>['One', 'Two', 'Three']);
+      expect(chart.series.map((s) => s.name), <String>['Monday', 'Tuesday']);
+      expect(chart.series[1].values, <double?>[1100, null, 950]);
+      expect(chart.series[1].colour, 0xFFC0504D);
+      expect(chart.legend, isTrue);
+      // A copy of the chart has a chart part of its own.
+      final made = deck.paste(deck.slides[4], deck.copy(deck.slides[5], <int>{30})).single;
+      final out = deck.write();
+      _expectWhole(out);
+      final again = PptxDeck(out);
+      expect(again.shape(again.slides[4], made)!.chart!.series, hasLength(2));
+      expect(_names(out).where((n) => n.startsWith('ppt/charts/chart')), hasLength(2));
+    });
+
+    testWidgets('a chart with no picture of it is drawn on its slide', (tester) async {
+      final deck = PptxDeck(_charted(bytes));
+      await tester.pumpWidget(MaterialApp(home: Center(child: SlideSheet(slide: deck.slide(deck.slides[5]), assets: deck.assets, width: 400))));
+      final painters = tester.widgetList<CustomPaint>(find.byType(CustomPaint)).map((w) => w.painter).whereType<SlideChartPainter>();
+      expect(painters, hasLength(1));
+      expect(painters.single.chart.series, hasLength(2));
     });
 
     test('never deletes the last slide', () {

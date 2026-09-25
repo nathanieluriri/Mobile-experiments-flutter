@@ -571,3 +571,46 @@ class ThemeSheet extends StatelessWidget {
     );
   }
 }
+
+/// How many rows and columns a new table has, handed back as (rows,
+/// columns).
+class TableSizeSheet extends StatefulWidget {
+  const TableSizeSheet({super.key});
+
+  @override
+  State<TableSizeSheet> createState() => _TableSizeSheetState();
+}
+
+class _TableSizeSheetState extends State<TableSizeSheet> {
+  int _rows = 3;
+  int _cols = 3;
+
+  @override
+  Widget build(BuildContext context) => DeskSheet(
+    title: 'Table',
+    children: <Widget>[
+      FormatRow(
+        label: 'Rows',
+        child: ChoiceRow<int>(
+          choices: <(int, String)>[for (var i = 1; i <= 10; i++) (i, '$i')],
+          chosen: _rows,
+          onPick: (value) => setState(() => _rows = value),
+        ),
+      ),
+      FormatRow(
+        label: 'Columns',
+        child: ChoiceRow<int>(
+          choices: <(int, String)>[for (var i = 1; i <= 8; i++) (i, '$i')],
+          chosen: _cols,
+          onPick: (value) => setState(() => _cols = value),
+        ),
+      ),
+      DeskSheetRow(
+        key: const ValueKey<String>('table-insert'),
+        label: 'Insert a table of $_rows by $_cols',
+        icon: LucideIcons.table,
+        onTap: () => Navigator.of(context).pop((_rows, _cols)),
+      ),
+    ],
+  );
+}

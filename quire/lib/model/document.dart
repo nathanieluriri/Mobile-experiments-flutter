@@ -211,6 +211,39 @@ class SlideBox {
   String toString() => 'SlideBox($left, $top, $width, $height)';
 }
 
+/// A chart as a slide carries it: its kind and the values the file keeps
+/// for it, which is enough to draw it when the file has no picture of it.
+class SlideChart {
+  const SlideChart({
+    required this.kind,
+    required this.categories,
+    required this.series,
+    this.title,
+    this.stacked = false,
+    this.legend = true,
+  });
+
+  /// 'col', 'bar', 'line', 'area', 'pie' or 'doughnut'.
+  final String kind;
+  final List<String> categories;
+  final List<SlideSeries> series;
+  final String? title;
+  final bool stacked;
+  final bool legend;
+}
+
+/// One series of a chart: its name, its values by category, and its colour
+/// as 0xAARRGGBB.
+class SlideSeries {
+  const SlideSeries(this.name, this.values, this.colour, {this.colours = const <int>[]});
+  final String name;
+  final List<double?> values;
+  final int colour;
+
+  /// A pie's slice colours, by category.
+  final List<int> colours;
+}
+
 /// What a shape was put on its slide to be.
 ///
 /// PowerPoint says this itself, in the placeholder each shape claims, and it
@@ -246,9 +279,23 @@ class SlideShape {
     this.flipH = false,
     this.flipV = false,
     this.placeholder,
+    this.own,
+    this.textable = false,
+    this.chart,
   });
 
+  /// The chart the shape is, drawn from its values when the file keeps no
+  /// picture of it.
+  final SlideChart? chart;
+
   final SlideBox box;
+
+  /// The shape's own id on its slide, which differs from [id] for a shape
+  /// inside a group.
+  final int? own;
+
+  /// True for a shape words can be typed into.
+  final bool textable;
   final List<DocBlock> blocks;
   final SlideRole role;
 
@@ -332,6 +379,9 @@ class SlideShape {
     flipH: flipH ?? this.flipH,
     flipV: flipV ?? this.flipV,
     placeholder: placeholder,
+    own: own,
+    textable: textable,
+    chart: chart,
   );
 
   /// Every word the shape holds, in order.
