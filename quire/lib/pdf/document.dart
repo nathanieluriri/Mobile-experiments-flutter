@@ -40,11 +40,10 @@ class XrefEntry {
 /// whose catalogue is missing falls through to [_scanAllObjects], which is why
 /// a damaged download still opens to its real pages instead of an error sheet.
 ///
-/// It is not proof against a hostile file, and it used to say it was. Two
-/// hundred thousand nested array brackets, or a page tree that is a chain
-/// sixty thousand deep, run the stack out; a `/DecodeParms` that claims a
-/// billion columns asks for the memory that number describes. Every caller
-/// inside the app takes [Object], which is what makes those survivable.
+/// Everything a file decides the depth of is capped at [kMaxPdfNesting]: the
+/// nesting of its objects, its page tree and its chain of cross reference
+/// sections. An object nested past it reads as absent rather than as a stack
+/// overflow.
 class PdfFile {
   PdfFile._(this.bytes);
   final Uint8List bytes;
@@ -293,12 +292,22 @@ class PdfFile {
       final word = PdfLexer(bytes, probe.pos).parseObject();
       xrefIsStream = !(word is PdfKeyword && word.value == 'xref');
     }
-    final seen = <int>{};
+    final seen = _xrefSeen..clear();
     while (offset > 0 && offset < bytes.length && seen.add(offset)) {
       final next = _readXrefSection(offset);
       if (next == null) break;
       offset = next;
     }
+  }
+
+  /// Every section read so far, shared by the /Prev chain and the /XRefStm
+  /// a hybrid trailer points at, so neither can lead back to a section
+  /// already read. A stream whose /XRefStm named itself recursed until the
+  /// stack ran out.
+  final Set<int> _xrefSeen = <int>{};
+
+  void _readHybrid(Object? at) {
+    if (at is int && _xrefSeen.add(at)) _readXrefSection(at);
   }
 
   /// Returns the /Prev offset, 0 when there is none, or null on failure.
@@ -316,8 +325,7 @@ class PdfFile {
     for (final k in ['Root', 'Info', 'Encrypt', 'ID', 'Size']) {
       if (obj.dict[k] != null) trailer.putIfAbsent(k, () => obj.dict[k]);
     }
-    final hybrid = obj.dict['XRefStm'];
-    if (hybrid is int) _readXrefSection(hybrid);
+    _readHybrid(obj.dict['XRefStm']);
     final prev = obj.dict['Prev'];
     return prev is int ? prev : 0;
   }
@@ -332,8 +340,7 @@ class PdfFile {
         final t = lx.parseObject();
         if (t is Map<String, Object?>) {
           t.forEach((k, v) => trailer.putIfAbsent(k, () => v));
-          final hybrid = t['XRefStm'];
-          if (hybrid is int) _readXrefSection(hybrid);
+          _readHybrid(t['XRefStm']);
           final prev = t['Prev'];
           return prev is int ? prev : 0;
         }
@@ -510,11 +517,15 @@ class PdfFile {
     final e = xref[number];
     if (e == null) return null;
     Object? out;
-    if (e.inObjStm != null) {
-      final list = _loadObjStm(e.inObjStm!);
-      if (e.indexInStm < list.length) out = list[e.indexInStm];
-    } else {
-      out = _parseIndirectAt(e.offset);
+    try {
+      if (e.inObjStm != null) {
+        final list = _loadObjStm(e.inObjStm!);
+        if (e.indexInStm < list.length) out = list[e.indexInStm];
+      } else {
+        out = _parseIndirectAt(e.offset);
+      }
+    } on PdfTooDeep {
+      out = null;
     }
     _cache[number] = out;
     return out;
@@ -540,7 +551,11 @@ class PdfFile {
     final out = <Object?>[];
     for (var i = 0; i < offsets.length; i++) {
       final lx = PdfLexer(data, first + offsets[i]);
-      out.add(lx.parseObject());
+      try {
+        out.add(lx.parseObject());
+      } on PdfTooDeep {
+        out.add(null);
+      }
     }
     _objStmCache[stmNumber] = out;
     return out;
@@ -665,7 +680,7 @@ class PdfFile {
     final root = _rootDict();
     final tree = dict(root?['Pages']);
     if (tree != null) {
-      _walkPages(tree, null, out, <Object>{}, {});
+      _walkPages(tree, null, out, <Object>{}, {}, 0);
     }
     if (out.isEmpty) {
       _pageRefs.clear();
@@ -684,8 +699,10 @@ class PdfFile {
 
   void _walkPages(Map<String, Object?> node, PdfRef? ref,
       List<Map<String, Object?>> out, Set<Object> seen,
-      Map<String, Object?> inherited) {
-    if (!seen.add(node)) return;
+      Map<String, Object?> inherited, int depth) {
+    // The seen set stops a cycle but not a chain: a linear run of /Pages
+    // nodes has no cycle and ran the stack out sixty thousand deep.
+    if (depth > kMaxPdfNesting || !seen.add(node)) return;
     final merged = Map<String, Object?>.from(inherited);
     for (final k in _inherited) {
       if (node[k] != null) merged[k] = node[k];
@@ -694,7 +711,9 @@ class PdfFile {
     if (kids is List) {
       for (final k in kids) {
         final kd = dict(k);
-        if (kd != null) _walkPages(kd, k is PdfRef ? k : null, out, seen, merged);
+        if (kd != null) {
+          _walkPages(kd, k is PdfRef ? k : null, out, seen, merged, depth + 1);
+        }
       }
       return;
     }
@@ -741,21 +760,28 @@ class PdfFile {
 }
 
 Uint8List lzwDecode(Uint8List data, {int early = 1}) {
-  final out = <int>[];
-  final table = <List<int>>[];
+  final limit = decodeLimit(data.length);
+  final out = BytesBuilder(copy: false);
+  var written = 0;
+  final table = <Uint8List>[];
   void reset() {
     table
       ..clear()
-      ..addAll(List.generate(256, (i) => [i]))
-      ..add(const <int>[])
-      ..add(const <int>[]);
+      ..addAll(List.generate(256, (i) => Uint8List.fromList([i])))
+      ..add(Uint8List(0))
+      ..add(Uint8List(0));
   }
+
+  Uint8List extended(Uint8List head, int last) =>
+      Uint8List(head.length + 1)
+        ..setRange(0, head.length, head)
+        ..[head.length] = last;
 
   reset();
   var codeLen = 9, bitBuf = 0, bitCount = 0;
-  List<int>? prev;
+  Uint8List? prev;
   for (final b in data) {
-    bitBuf = (bitBuf << 8) | b;
+    bitBuf = ((bitBuf << 8) | b) & 0xFFFFFF;
     bitCount += 8;
     while (bitCount >= codeLen) {
       final code = (bitBuf >> (bitCount - codeLen)) & ((1 << codeLen) - 1);
@@ -766,21 +792,27 @@ Uint8List lzwDecode(Uint8List data, {int early = 1}) {
         prev = null;
         continue;
       }
-      if (code == 257) return Uint8List.fromList(out);
-      List<int> entry;
+      if (code == 257) return out.takeBytes();
+      Uint8List entry;
+      // A full table takes no more entries until the next clear code. Left
+      // to grow, a stream that never clears adds a string up to four
+      // thousand bytes long for every code it reads.
+      final full = table.length >= 4096;
       if (code < table.length) {
         entry = table[code];
-        if (prev != null) table.add([...prev, entry.first]);
-      } else if (prev != null) {
-        entry = [...prev, prev.first];
-        table.add(entry);
+        if (prev != null && !full) table.add(extended(prev, entry.first));
+      } else if (prev != null && prev.isNotEmpty) {
+        entry = extended(prev, prev.first);
+        if (!full) table.add(entry);
       } else {
-        return Uint8List.fromList(out);
+        return out.takeBytes();
       }
-      out.addAll(entry);
+      written += entry.length;
+      if (written > limit) throw const PdfStreamTooLarge();
+      out.add(entry);
       prev = entry;
       if (table.length + early - 1 >= (1 << codeLen) && codeLen < 12) codeLen++;
     }
   }
-  return Uint8List.fromList(out);
+  return out.takeBytes();
 }

@@ -11,6 +11,23 @@ bool isDelim(int c) =>
     c == 0x5d || c == 0x7b || c == 0x7d || c == 0x2f || c == 0x25;
 bool isRegular(int c) => !isWhite(c) && !isDelim(c);
 
+/// How deep arrays and dictionaries may nest, and how deep a page tree may
+/// go, before a file is refused.
+///
+/// Both are walked by recursion, and a file chooses the depth. Two hundred
+/// thousand `[` ran the stack out in 32ms, a hundred thousand `<<` did the
+/// same, and so did a page tree sixty thousand `Pages` deep. Real files nest
+/// a handful of levels. Past this the lexer throws [PdfTooDeep], which the
+/// document treats as an object it cannot read, rather than letting the stack
+/// decide.
+const kMaxPdfNesting = 256;
+
+/// Thrown by [PdfLexer.parseObject] for an object nested past
+/// [kMaxPdfNesting].
+class PdfTooDeep extends FormatException {
+  const PdfTooDeep() : super('nested past $kMaxPdfNesting');
+}
+
 /// Marker returned for a bare keyword the caller must interpret (operators,
 /// `obj`, `endobj`, `stream`, `R`, ...).
 class PdfKeyword {
@@ -25,6 +42,8 @@ class PdfLexer {
   PdfLexer(this.bytes, [this.pos = 0]);
   final Uint8List bytes;
   int pos;
+
+  int _depth = 0;
 
   int get length => bytes.length;
   bool get atEnd => pos >= bytes.length;
@@ -56,25 +75,11 @@ class PdfLexer {
       case 0x28:
         return _literalString();
       case 0x5b:
-        pos++;
-        final list = <Object?>[];
-        while (true) {
-          skipWhitespace();
-          if (atEnd) break;
-          if (bytes[pos] == 0x5d) {
-            pos++;
-            break;
-          }
-          final o = parseObject();
-          if (o is PdfKeyword && o.value == 'R') {
-            _collapseRef(list);
-          } else {
-            list.add(o);
-          }
-        }
-        return list;
+        return _nested(_array);
       case 0x3c:
-        if (pos + 1 < bytes.length && bytes[pos + 1] == 0x3c) return _dict();
+        if (pos + 1 < bytes.length && bytes[pos + 1] == 0x3c) {
+          return _nested(_dict);
+        }
         return _hexString();
       case 0x5d:
       case 0x3e:
@@ -88,6 +93,36 @@ class PdfLexer {
       return _number();
     }
     return _keyword();
+  }
+
+  T _nested<T>(T Function() read) {
+    if (_depth >= kMaxPdfNesting) throw const PdfTooDeep();
+    _depth++;
+    try {
+      return read();
+    } finally {
+      _depth--;
+    }
+  }
+
+  List<Object?> _array() {
+    pos++;
+    final list = <Object?>[];
+    while (true) {
+      skipWhitespace();
+      if (atEnd) break;
+      if (bytes[pos] == 0x5d) {
+        pos++;
+        break;
+      }
+      final o = parseObject();
+      if (o is PdfKeyword && o.value == 'R') {
+        _collapseRef(list);
+      } else {
+        list.add(o);
+      }
+    }
+    return list;
   }
 
   void _collapseRef(List<Object?> list) {
