@@ -4,6 +4,23 @@ import 'package:markdown/markdown.dart' as md;
 
 import '../model/document.dart';
 
+/// The deepest a Markdown file may nest its lists and quotes.
+///
+/// The markdown package re-reads every line once for each container it sits
+/// in, so its cost grows with the nesting times the length of the file. Two
+/// thousand nested list items, the four megabytes a documentation generator
+/// can emit, ran for nearly five minutes and never finished, and a hang is the
+/// one failure nothing can catch: the app stops answering and the system kills
+/// it. Measured here, a list 1200 deep took 7.8s and 2000 took 36s.
+///
+/// People write lists three or four deep, and eight is already unusual. The
+/// count is taken from the source before the package sees it, since by the
+/// time the tree exists the time is already spent, and it counts two columns
+/// of indentation as a level, which overstates four space indents by double.
+/// Past the limit the file is refused with a `FormatException`, which the
+/// loader already turns into the damaged state the app draws.
+const kMaxMarkdownNesting = 64;
+
 /// CommonMark plus GFM into [QuireDocument], walking the markdown package's
 /// own AST.
 ///
@@ -18,11 +35,20 @@ class MarkdownParser {
   final Map<String, int> _anchors = {};
 
   QuireDocument parse({String title = 'Document'}) {
+    final lines = const LineSplitter().convert(source);
+    for (final line in lines) {
+      if (nestingOf(line) > kMaxMarkdownNesting) {
+        throw const FormatException(
+          'This file nests its lists or quotes more than '
+          '$kMaxMarkdownNesting deep, further than it can be read.',
+        );
+      }
+    }
     final doc = md.Document(
       extensionSet: md.ExtensionSet.gitHubWeb,
       encodeHtml: false,
     );
-    final nodes = doc.parseLines(const LineSplitter().convert(source));
+    final nodes = doc.parseLines(lines);
     final blocks = <DocBlock>[];
     for (final n in nodes) {
       _block(n, blocks, 0);
@@ -34,6 +60,59 @@ class MarkdownParser {
       outline: _outline,
     );
   }
+
+  /// An upper bound on how many lists and quotes [line] sits inside: half its
+  /// indentation in columns, plus every marker that opens one at its start.
+  /// Indentation alone counts only ahead of a marker, so a deeply indented
+  /// line of code is not mistaken for nesting.
+  static int nestingOf(String line) {
+    var i = 0;
+    var column = 0;
+    while (i < line.length) {
+      final c = line.codeUnitAt(i);
+      if (c == 0x20) {
+        column++;
+      } else if (c == 0x09) {
+        column += 4 - column % 4;
+      } else {
+        break;
+      }
+      i++;
+    }
+    var markers = 0;
+    while (i < line.length) {
+      final c = line.codeUnitAt(i);
+      var end = i;
+      if (c == 0x3E) {
+        end = i + 1;
+      } else if (c == 0x2D || c == 0x2A || c == 0x2B) {
+        end = i + 1;
+        if (end < line.length && !_isSpace(line.codeUnitAt(end))) break;
+      } else if (c >= 0x30 && c <= 0x39) {
+        end = i;
+        while (end < line.length && end - i < 9) {
+          final d = line.codeUnitAt(end);
+          if (d < 0x30 || d > 0x39) break;
+          end++;
+        }
+        if (end >= line.length) break;
+        final d = line.codeUnitAt(end);
+        if (d != 0x2E && d != 0x29) break;
+        end++;
+        if (end < line.length && !_isSpace(line.codeUnitAt(end))) break;
+      } else {
+        break;
+      }
+      markers++;
+      i = end;
+      while (i < line.length && _isSpace(line.codeUnitAt(i))) {
+        i++;
+      }
+    }
+    return markers == 0 ? 0 : column ~/ 2 + markers;
+  }
+
+  static bool _isSpace(int c) => c == 0x20 || c == 0x09;
 
   String _slug(String text) {
     var s = text

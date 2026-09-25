@@ -1,8 +1,10 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:quire/format/csv_parser.dart';
+import 'package:quire/format/document_loader.dart';
 import 'package:quire/format/docx_parser.dart';
 import 'package:quire/format/markdown_parser.dart';
 import 'package:quire/format/number_format.dart';
@@ -474,6 +476,63 @@ void main() {
   });
 
   group('markdown', () {
+    String nestedList(int depth) => [
+          for (var i = 0; i < depth; i++) '${'  ' * i}- item $i',
+        ].join('\n');
+
+    test('a list nested past the limit is refused before it is parsed', () {
+      // Used to run for nearly five minutes inside the markdown package.
+      final source = nestedList(2000);
+      final clock = Stopwatch()..start();
+      expect(() => MarkdownParser(source).parse(), throwsFormatException);
+      expect(clock.elapsed, lessThan(const Duration(seconds: 2)));
+    });
+
+    test('quotes and markers nested on one line count too', () {
+      expect(
+        () => MarkdownParser('${'> ' * 200}x').parse(),
+        throwsFormatException,
+      );
+      expect(
+        () => MarkdownParser('${'- ' * 200}x').parse(),
+        throwsFormatException,
+      );
+      expect(
+        () => MarkdownParser(
+          [for (var i = 1; i <= 200; i++) '${'>' * i} x'].join('\n'),
+        ).parse(),
+        throwsFormatException,
+      );
+    });
+
+    test('a refused file loads as damaged rather than hanging', () {
+      final loaded = DocumentLoader.load(
+        Uint8List.fromList(utf8.encode(nestedList(2000))),
+        'deep.md',
+      );
+      expect(loaded.failed, isTrue);
+      expect(loaded.error, isA<FormatException>());
+    });
+
+    test('ordinary nesting and deep indentation still read', () {
+      final doc = MarkdownParser(nestedList(20)).parse();
+      expect(doc.sections.single.blocks.whereType<ListItemBlock>().length, 20);
+      final code = '```\n${' ' * 400}deeply indented code\n```';
+      expect(
+        MarkdownParser(code).parse().sections.single.blocks.single,
+        isA<CodeBlock>(),
+      );
+    });
+
+    test('nesting is counted from markers, not from any indentation', () {
+      expect(MarkdownParser.nestingOf('---'), 0);
+      expect(MarkdownParser.nestingOf('*emphasis* here'), 0);
+      expect(MarkdownParser.nestingOf('1.5 is a number'), 0);
+      expect(MarkdownParser.nestingOf('${' ' * 400}code'), 0);
+      expect(MarkdownParser.nestingOf('    - four in'), 3);
+      expect(MarkdownParser.nestingOf('> - 1. x'), 3);
+    });
+
     test('bindery-notes.md covers the whole block vocabulary', () async {
       final doc = MarkdownParser(
         String.fromCharCodes(await documentBytes(kBinderyNotes)),
