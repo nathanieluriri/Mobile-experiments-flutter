@@ -466,6 +466,23 @@ Uint8List _footed(Uint8List bytes) {
   return ZipEncoder().encodeBytes(out);
 }
 
+/// The sample deck with slide 4's picture cropped to its middle half.
+Uint8List _cropped(Uint8List bytes) {
+  final archive = ZipDecoder().decodeBytes(bytes);
+  final out = Archive();
+  for (final f in archive.files) {
+    if (f.name == 'ppt/slides/slide4.xml') {
+      out.addFile(ArchiveFile.string(
+        f.name,
+        utf8.decode(f.content).replaceFirst('<a:blip r:embed="rId2"/><a:stretch>', '<a:blip r:embed="rId2"/><a:srcRect l="25000" r="25000"/><a:stretch>'),
+      ));
+    } else {
+      out.addFile(ArchiveFile.bytes(f.name, f.content));
+    }
+  }
+  return ZipEncoder().encodeBytes(out);
+}
+
 void main() {
   late Uint8List bytes;
 
@@ -1296,6 +1313,32 @@ void main() {
       await tester.pumpWidget(MaterialApp(home: SlideSheet(slide: deck.slide(deck.slides[5]), assets: deck.assets, width: 400)));
       final title = find.byWidgetPredicate((w) => w is RichText && w.text.toPlainText().contains('Sheets off by four'));
       expect(tester.widget<RichText>(title).textAlign, TextAlign.center);
+    });
+  });
+
+  group('after the round two critic, pictures', () {
+    testWidgets('a picture is stretched over its frame, as a widened one is saved', (tester) async {
+      final deck = PptxDeck((await tester.runAsync(() => documentBytes(kPressDayBriefing)))!);
+      final slide = deck.slides[3];
+      final picture = deck.objects(slide).firstWhere((o) => o.isPicture);
+      deck.place(slide, picture.id, SlideBox(picture.box.left, picture.box.top, picture.box.width * 1.6, picture.box.height));
+      final image = deck.slide(slide).shapes.expand((s) => s.blocks).whereType<ImageBlock>().single;
+      expect(image.stretch, isTrue);
+      await tester.pumpWidget(MaterialApp(home: SlideSheet(slide: deck.slide(slide), assets: deck.assets, width: 400)));
+      expect(tester.widget<Image>(find.byType(Image)).fit, BoxFit.fill);
+    });
+
+    testWidgets('a cropped picture shows only what the crop keeps, over the whole frame', (tester) async {
+      final deck = PptxDeck(_cropped((await tester.runAsync(() => documentBytes(kPressDayBriefing)))!));
+      final slide = deck.slides[3];
+      final image = deck.slide(slide).shapes.expand((s) => s.blocks).whereType<ImageBlock>().single;
+      expect(image.crop, (0.25, 0.0, 0.25, 0.0));
+      await tester.pumpWidget(MaterialApp(home: SlideSheet(slide: deck.slide(slide), assets: deck.assets, width: 400)));
+      final frame = tester.getSize(find.ancestor(of: find.byType(Image), matching: find.byType(ClipRect)).first);
+      final drawn = tester.getSize(find.byType(Image));
+      expect(drawn.width, closeTo(frame.width * 2, 0.5));
+      expect(drawn.height, closeTo(frame.height, 0.5));
+      expect(tester.getTopLeft(find.byType(Image)).dx, closeTo(tester.getTopLeft(find.ancestor(of: find.byType(Image), matching: find.byType(ClipRect)).first).dx - frame.width / 2, 0.5));
     });
   });
 }

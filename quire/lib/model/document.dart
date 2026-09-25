@@ -173,7 +173,7 @@ class DividerBlock extends DocBlock {
 /// A picture. The bytes live in [QuireDocument.assets] rather than here, so a
 /// block list stays cheap to copy and to walk for search.
 class ImageBlock extends DocBlock {
-  const ImageBlock(this.assetKey, {this.width, this.height, this.alt});
+  const ImageBlock(this.assetKey, {this.width, this.height, this.alt, this.stretch = false, this.crop});
 
   /// Key into [QuireDocument.assets].
   final String assetKey;
@@ -182,6 +182,14 @@ class ImageBlock extends DocBlock {
   final double? width;
   final double? height;
   final String? alt;
+
+  /// True for a picture stretched to fill its frame, as a slide's is,
+  /// rather than fitted inside it.
+  final bool stretch;
+
+  /// The share of the picture cut off each side, left, top, right and
+  /// bottom, from 0 to 1, as a slide's crop gives it.
+  final (double, double, double, double)? crop;
 }
 
 /// A box on a slide, in the slide's own points with the origin at its top

@@ -900,7 +900,32 @@ class _SlideBlockView extends StatelessWidget {
       // reader the deck was always laid out this way.
       return const _MissingPicture();
     }
-    return Image.memory(bytes, fit: BoxFit.contain, gaplessPlayback: true);
+    if (!block.stretch) return Image.memory(bytes, fit: BoxFit.contain, gaplessPlayback: true);
+    final (l, t, r, b) = block.crop ?? (0.0, 0.0, 0.0, 0.0);
+    if (l == 0 && t == 0 && r == 0 && b == 0) {
+      return Image.memory(bytes, fit: BoxFit.fill, gaplessPlayback: true);
+    }
+    // The part the crop keeps is stretched over the frame: the whole
+    // picture drawn that much larger, shifted, and cut to the frame.
+    return LayoutBuilder(
+      builder: (context, box) {
+        final w = box.maxWidth / math.max(0.01, 1 - l - r);
+        final h = box.maxHeight / math.max(0.01, 1 - t - b);
+        return ClipRect(
+          child: OverflowBox(
+            alignment: Alignment.topLeft,
+            minWidth: w,
+            maxWidth: w,
+            minHeight: h,
+            maxHeight: h,
+            child: Transform.translate(
+              offset: Offset(-l * w, -t * h),
+              child: Image.memory(bytes, fit: BoxFit.fill, gaplessPlayback: true),
+            ),
+          ),
+        );
+      },
+    );
   }
 
   Widget _table(TableBlock table) {

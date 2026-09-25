@@ -1068,12 +1068,20 @@ class PptxParser {
       case 'pic':
         final key = _pictureFill(el, part);
         if (key != null) {
+          final fill = _kid(el, 'blipFill');
+          final source = fill == null ? null : _kid(fill, 'srcRect');
+          double side(String name) => (double.tryParse((source == null ? null : _at(source, name)) ?? '') ?? 0) / 100000;
+          final crop = (side('l'), side('t'), side('r'), side('b'));
           blocks.add(
             ImageBlock(
               key,
               width: box.width,
               height: box.height,
               alt: _describedBy(el),
+              // PowerPoint stretches a picture over its frame unless it
+              // tiles it.
+              stretch: fill == null || _kid(fill, 'tile') == null,
+              crop: crop == (0.0, 0.0, 0.0, 0.0) ? null : crop,
             ),
           );
         }
