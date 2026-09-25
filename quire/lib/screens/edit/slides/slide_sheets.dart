@@ -526,7 +526,7 @@ class ThemeSheet extends StatelessWidget {
                 spacing: 12,
                 runSpacing: 14,
                 children: <Widget>[
-                  for (final master in deck.masters)
+                  for (final master in deck.distinctMasters(keep: current))
                     SlideChoice(
                       key: ValueKey<String>('theme-$master'),
                       slide: deck.layoutPreview(deck.layouts.firstWhere((l) => l.master == master).path),

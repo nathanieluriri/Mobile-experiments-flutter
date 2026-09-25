@@ -543,6 +543,54 @@ Uint8List _graded(Uint8List bytes) {
   return ZipEncoder().encodeBytes(out);
 }
 
+/// The sample deck with a second master just like the first, with a theme
+/// of its own just like the first and one layout, a copy of Statement, as
+/// LibreOffice writes a master for each layout.
+Uint8List _twoMasters(Uint8List bytes) {
+  const rel = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
+  final archive = ZipDecoder().decodeBytes(bytes);
+  String textOf(String name) => utf8.decode(archive.findFile(name)!.content);
+  final out = Archive();
+  for (final f in archive.files) {
+    var text = f.name.endsWith('.xml') || f.name.endsWith('.rels') ? utf8.decode(f.content) : null;
+    if (f.name == 'ppt/presentation.xml') {
+      text = text!.replaceFirst('</p:sldMasterIdLst>', '<p:sldMasterId id="2147483653" r:id="rId99"/></p:sldMasterIdLst>');
+    }
+    if (f.name == 'ppt/_rels/presentation.xml.rels') {
+      text = text!.replaceFirst('</Relationships>', '<Relationship Id="rId99" Type="$rel/slideMaster" Target="slideMasters/slideMaster2.xml"/></Relationships>');
+    }
+    if (f.name == '[Content_Types].xml') {
+      text = text!.replaceFirst(
+        '</Types>',
+        '<Override PartName="/ppt/slideMasters/slideMaster2.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideMaster+xml"/>'
+            '<Override PartName="/ppt/slideLayouts/slideLayout4.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml"/>'
+            '<Override PartName="/ppt/theme/theme2.xml" ContentType="application/vnd.openxmlformats-officedocument.theme+xml"/></Types>',
+      );
+    }
+    out.addFile(text == null ? ArchiveFile.bytes(f.name, f.content) : ArchiveFile.string(f.name, text));
+  }
+  final master = textOf('ppt/slideMasters/slideMaster1.xml').replaceFirst(
+    RegExp(r'<p:sldLayoutIdLst>.*</p:sldLayoutIdLst>'),
+    '<p:sldLayoutIdLst><p:sldLayoutId id="2147483654" r:id="rId1"/></p:sldLayoutIdLst>',
+  );
+  out
+    ..addFile(ArchiveFile.string('ppt/slideMasters/slideMaster2.xml', master))
+    ..addFile(ArchiveFile.string(
+      'ppt/slideMasters/_rels/slideMaster2.xml.rels',
+      '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+          '<Relationship Id="rId1" Type="$rel/slideLayout" Target="../slideLayouts/slideLayout4.xml"/>'
+          '<Relationship Id="rId2" Type="$rel/theme" Target="../theme/theme2.xml"/></Relationships>',
+    ))
+    ..addFile(ArchiveFile.string('ppt/slideLayouts/slideLayout4.xml', textOf('ppt/slideLayouts/slideLayout3.xml')))
+    ..addFile(ArchiveFile.string(
+      'ppt/slideLayouts/_rels/slideLayout4.xml.rels',
+      '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+          '<Relationship Id="rId1" Type="$rel/slideMaster" Target="../slideMasters/slideMaster2.xml"/></Relationships>',
+    ))
+    ..addFile(ArchiveFile.string('ppt/theme/theme2.xml', textOf('ppt/theme/theme1.xml')));
+  return ZipEncoder().encodeBytes(out);
+}
+
 void main() {
   late Uint8List bytes;
 
@@ -1496,6 +1544,22 @@ void main() {
       expect(link.underline, isTrue);
       expect(link.color, deck.themeColours(deck.masters.single)['hlink']! | 0xFF000000);
       expect(plain.underline, isFalse);
+    });
+  });
+
+  group('after the round two critic, themes', () {
+    test('masters that look alike are offered once, and a slide keeps its kind of layout', () {
+      final deck = PptxDeck(_twoMasters(bytes));
+      expect(deck.masters, hasLength(2));
+      final second = deck.masters.last;
+      expect(deck.distinctMasters(), <String>[deck.masters.first]);
+      expect(deck.distinctMasters(keep: second), <String>[second]);
+      final before = <String?>[for (final slide in deck.slides) deck.layoutOf(slide)];
+      deck.useMaster(second);
+      final after = <String?>[for (final slide in deck.slides) deck.layoutOf(slide)];
+      expect(after.last, 'ppt/slideLayouts/slideLayout4.xml');
+      expect(after.take(5), before.take(5));
+      _expectWhole(deck.write());
     });
   });
 }

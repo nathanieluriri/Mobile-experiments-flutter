@@ -247,6 +247,28 @@ class PptxDeck {
     return out;
   }
 
+  /// The masters that look different from one another, as a theme sheet
+  /// offers them: of masters with the same theme and ground, as LibreOffice
+  /// writes one per layout, only the first, or [keep] where it is one.
+  List<String> distinctMasters({String? keep}) {
+    String lookOf(String master) {
+      final theme = themeOf(master);
+      final doc = _doc(master);
+      final common = doc == null ? null : _kid(doc.rootElement, 'cSld');
+      final ground = common == null ? null : _kid(common, 'bg');
+      return '${theme == null ? '' : _textOf(theme)}|${ground?.toXmlString() ?? ''}';
+    }
+
+    final seen = <String, String>{};
+    for (final master in masters) {
+      final look = lookOf(master);
+      final held = seen[look];
+      if (held == null || master == keep) seen[look] = master;
+    }
+    final chosen = seen.values.toSet();
+    return <String>[for (final master in masters) if (chosen.contains(master)) master];
+  }
+
   /// The theme part the master at [path] uses.
   String? themeOf(String master) {
     for (final rel in _relsOf(master)) {
@@ -2456,10 +2478,12 @@ class PptxDeck {
         if (now == null) continue;
         final info = layouts.where((l) => l.path == now).firstOrNull;
         if (info == null || info.master == master) continue;
+        // A slide goes to the layout made for the same thing, and stays as
+        // it is where the master has none.
         final match = targets.where((l) => l.type != null && l.type == info.type).firstOrNull ??
             targets.where((l) => l.name == info.name).firstOrNull ??
-            targets.where((l) => l.type == 'obj').firstOrNull ??
-            targets.first;
+            (info.type == null || info.type == 'cust' ? targets.where((l) => l.type == 'obj').firstOrNull : null);
+        if (match == null) continue;
         _relayout(slide, match.path);
       }
     });
