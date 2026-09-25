@@ -18,6 +18,10 @@ import 'paragraph_editor.dart' show SaveEdit;
 /// How tall the bar of formatting under the page is.
 const double kFormatBarHeight = 56.0;
 
+/// Logical pixels to a point of type on the page: a little over actual
+/// size, as Docs sets a document for reading on a phone.
+const double kDocPoint = 1.4;
+
 /// The colours words and highlights are offered in, as Docs lays them out:
 /// greys first, then the bright colours, then their darker shades.
 const List<(int, String)> kTextColours = <(int, String)>[
@@ -58,14 +62,65 @@ const List<double> kTextSizes = <double>[
   6, 7, 8, 9, 10, 10.5, 11, 12, 14, 18, 24, 30, 36, 48, 60, 72, 96,
 ];
 
+/// Typefaces offered besides the document's own.
+const List<String> kCommonFonts = <String>[
+  'Arial', 'Calibri', 'Cambria', 'Courier New', 'Georgia', 'Times New Roman', 'Verdana',
+];
+
+const List<String> _serifs = <String>[
+  'times', 'roman', 'georgia', 'cambria', 'garamond', 'antiqua', 'palatino', 'constantia',
+  'baskerville', 'bookman', 'century', 'didot', 'bodoni', 'rockwell', 'sitka', 'merriweather',
+  'lora', 'playfair', 'tinos', 'caladea', 'gelasio', 'charter', 'minion', 'hoefler', 'iowan',
+  'caslon', 'perpetua', 'goudy', 'calisto', 'californian', 'cochin', 'crimson', 'spectral',
+  'literata', 'cormorant', 'lucida bright', 'high tower', 'mincho', 'batang', 'song',
+];
+
+const List<String> _monos = <String>[
+  'courier', 'consolas', 'menlo', 'monaco', 'console', 'mono', 'code', 'typewriter',
+  'cousine', 'inconsolata', 'andale',
+];
+
+/// The families a document's typeface is drawn with: its own name first,
+/// for a phone that has it, then the phone's own face of the same kind.
+({String family, List<String> fallback}) docFont(String name) {
+  final lower = name.toLowerCase();
+  if (_monos.any(lower.contains)) {
+    return (family: name, fallback: const <String>['monospace', 'Courier New', 'Menlo', 'Roboto Mono']);
+  }
+  final serif = _serifs.any(lower.contains) || (lower.contains('serif') && !lower.contains('sans'));
+  if (serif) {
+    return (family: name, fallback: const <String>['serif', 'Noto Serif', 'Georgia', 'Times New Roman']);
+  }
+  return (family: name, fallback: const <String>[kFontFamily]);
+}
+
+/// Text in [look], as the page draws it.
+TextStyle docTextStyle(RunLook look, {double line = 1}) {
+  final font = docFont(look.font);
+  final colour = look.color;
+  return TextStyle(
+    fontFamily: font.family,
+    fontFamilyFallback: font.fallback,
+    fontSize: look.size * kDocPoint,
+    height: (line * 1.15).clamp(1.0, 3.5),
+    fontWeight: look.bold ? FontWeight.w700 : FontWeight.w400,
+    fontStyle: look.italic ? FontStyle.italic : FontStyle.normal,
+    color: colour == null ? AppColors.pageInk : Color(0xFF000000 | colour),
+    decoration: TextDecoration.combine(<TextDecoration>[
+      if (look.underline) TextDecoration.underline,
+      if (look.strike) TextDecoration.lineThrough,
+    ]),
+  );
+}
+
 /// A Word document edited in place, the way Google Docs does it on a phone:
 /// the words on the page in the document's own look, a bar of formatting
 /// docked under the page and riding on the keyboard, and a menu with find
 /// and replace, the word count and the outline.
 ///
-/// Everything the editor cannot change, tables, pictures, fields, page
-/// breaks, is shown and written back exactly as it was, and paragraphs
-/// nobody touched are written back untouched.
+/// Everything the editor cannot change, tables, pictures, shapes, fields,
+/// tracked changes, section breaks, is shown and written back exactly as it
+/// was, and paragraphs nobody touched are written back untouched.
 class DocEditor extends StatefulWidget {
   const DocEditor({
     super.key,
@@ -89,13 +144,34 @@ class DocEditorState extends State<DocEditor> {
   late final QuillController _controller;
   final FocusNode _focus = FocusNode();
   final ScrollController _scroll = ScrollController();
+  final GlobalKey<EditorState> _editorKey = GlobalKey<EditorState>();
+  final GlobalKey _pageKey = GlobalKey();
 
   bool _saving = false;
   String? _problem;
   bool _finding = false;
 
+  /// Whether the page had the keyboard when the bar was touched.
+  bool _typing = false;
+
+  List<int> _found = const <int>[];
+  int _foundLength = 0;
+  int _current = -1;
+  List<Rect> _marks = const <Rect>[];
+  Rect? _currentMark;
+
   @visibleForTesting
   QuillController get controller => _controller;
+
+  /// Where the find highlights sit over the page, the current one apart.
+  @visibleForTesting
+  (List<Rect>, Rect?) get findMarks => (_marks, _currentMark);
+
+  @visibleForTesting
+  ScrollController get scroll => _scroll;
+
+  @visibleForTesting
+  RenderEditor? get renderEditor => _editorKey.currentState?.renderEditor;
 
   @override
   void initState() {
@@ -112,7 +188,9 @@ class DocEditorState extends State<DocEditor> {
     _controller = QuillController(
       document: document,
       selection: const TextSelection.collapsed(offset: 0),
+      onReplaceText: (index, len, data) => !_endsList(index, len, data),
     )..addListener(_changed);
+    _scroll.addListener(_placeMarks);
   }
 
   @override
@@ -126,7 +204,23 @@ class DocEditorState extends State<DocEditor> {
   }
 
   void _changed() {
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    setState(() {});
+    if (_finding) WidgetsBinding.instance.addPostFrameCallback((_) => _placeMarks());
+  }
+
+  /// Backspace at the very start of a list item takes it out of the list,
+  /// as Docs does, rather than joining it to the item above.
+  bool _endsList(int index, int len, Object? data) {
+    final selection = _controller.selection;
+    if (len != 1 || data is! String || data.isNotEmpty) return false;
+    if (!selection.isCollapsed || selection.baseOffset != index + 1) return false;
+    final query = _controller.document.queryChild(index + 1);
+    final line = query.node;
+    if (line is! Line || query.offset != 0) return false;
+    if (line.style.attributes[Attribute.list.key] == null) return false;
+    _controller.formatText(index + 1, 0, Attribute.clone(Attribute.list, null));
+    return true;
   }
 
   bool get _canSave => _source != null && _controller.hasUndo;
@@ -157,19 +251,15 @@ class DocEditorState extends State<DocEditor> {
 
   bool _has(Attribute attribute) => _style[attribute.key]?.value == attribute.value;
 
-  void _toggle(Attribute attribute) {
-    _controller.formatSelection(_has(attribute) ? Attribute.clone(attribute, null) : attribute);
-    _keepTyping();
-  }
+  void _toggle(Attribute attribute) =>
+      _quietly(() => _controller.formatSelection(_has(attribute) ? Attribute.clone(attribute, null) : attribute));
 
-  void _set(Attribute attribute) {
-    _controller.formatSelection(attribute);
-    _keepTyping();
-  }
+  void _set(Attribute attribute) => _quietly(() => _controller.formatSelection(attribute));
 
-  /// Back to the page after a button, with the keyboard still up.
+  /// Back to the page after a button of the bar, keeping the keyboard up
+  /// when it was up.
   void _keepTyping() {
-    if (!_focus.hasFocus) _focus.requestFocus();
+    if (_typing && !_focus.hasFocus) _focus.requestFocus();
   }
 
   int? _colourOf(String key) {
@@ -182,21 +272,60 @@ class DocEditorState extends State<DocEditor> {
 
   int get _header => (_style[Attribute.header.key]?.value as int?) ?? 0;
 
-  double? get _size {
+  bool get _quote => _style[Attribute.blockQuote.key]?.value == true;
+
+  /// The look the line at the selection is drawn in before any formatting
+  /// of its own.
+  RunLook get _lineBase => _source?.lineLook(header: _header, quote: _quote).run ?? const RunLook();
+
+  double get _size {
     final value = _style[Attribute.size.key]?.value;
     return switch (value) {
-      num() => value.toDouble(),
-      String() => double.tryParse(value),
-      _ => null,
-    };
+          num() => value.toDouble(),
+          String() => double.tryParse(value),
+          _ => null,
+        } ??
+        _lineBase.size;
+  }
+
+  String get _font => (_style[Attribute.font.key]?.value as String?) ?? _lineBase.font;
+
+  /// A sheet over the page. The page gives up the keyboard first, and does
+  /// not take it back when the sheet goes: Docs' panels take the keyboard's
+  /// place until the reader taps the page again.
+  ///
+  /// The page may not take focus while the sheet is up: the editor asks for
+  /// the keyboard whenever its text changes, and the route under a sheet
+  /// gives focus back to whatever last asked for it.
+  Future<T?> _sheet<T>(WidgetBuilder builder) async {
+    _focus
+      ..unfocus()
+      ..canRequestFocus = false;
+    try {
+      return await showDeskSheet<T>(context, builder);
+    } finally {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _focus.canRequestFocus = true;
+      });
+    }
+  }
+
+  /// Makes a change without the editor asking for the keyboard, which it
+  /// does after any change while the keyboard is down.
+  void _quietly(VoidCallback change) {
+    _controller.ignoreFocusOnTextChange = true;
+    try {
+      change();
+    } finally {
+      _controller.ignoreFocusOnTextChange = false;
+    }
   }
 
   // Sheets.
 
   Future<void> _colour({required bool highlight}) async {
     final key = highlight ? Attribute.background.key : Attribute.color.key;
-    final choice = await showDeskSheet<int>(
-      context,
+    final choice = await _sheet<int>(
       (context) => PaletteSheet(
         title: highlight ? 'Highlight colour' : 'Text colour',
         colour: _colourOf(key),
@@ -213,8 +342,7 @@ class DocEditorState extends State<DocEditor> {
   }
 
   Future<void> _alignment() async {
-    final choice = await showDeskSheet<String>(
-      context,
+    final choice = await _sheet<String>(
       (context) => DeskSheet(
         title: 'Alignment',
         children: <Widget>[
@@ -234,29 +362,60 @@ class DocEditorState extends State<DocEditor> {
       ),
     );
     if (choice == null || !mounted) return;
-    _set(switch (choice) {
-      'center' => Attribute.centerAlignment,
-      'right' => Attribute.rightAlignment,
-      'justify' => Attribute.justifyAlignment,
-      _ => Attribute.clone(Attribute.align, null),
-    });
+    _set(_alignAttribute(choice));
+  }
+
+  static Attribute _alignAttribute(String? align) => switch (align) {
+        'center' => Attribute.centerAlignment,
+        'right' => Attribute.rightAlignment,
+        'justify' => Attribute.justifyAlignment,
+        _ => Attribute.clone(Attribute.align, null),
+      };
+
+  /// Gives the lines of the selection a paragraph style, in its own
+  /// alignment, as Docs does.
+  void _paragraphStyle(int level) {
+    _set(level == 0 ? Attribute.clone(Attribute.header, null) : HeaderAttribute(level: level));
+    if (_quote) _set(Attribute.clone(Attribute.blockQuote, null));
+    _set(_alignAttribute(_source?.alignFor(header: level)));
+  }
+
+  void _stepSize(int by) {
+    final size = _step(_size, by);
+    _set(size == _lineBase.size ? Attribute.clone(Attribute.size, null) : SizeAttribute(_sizeText(size)));
+  }
+
+  Future<void> _chooseFont() async {
+    final fonts = <String>{...?_source?.fonts, ...kCommonFonts}.toList()..sort();
+    final current = _font;
+    final choice = await showDeskSheet<String>(
+      context,
+      (context) => DeskSheet(
+        title: 'Font',
+        children: <Widget>[
+          for (final name in fonts)
+            DeskSheetRow(
+              label: name,
+              icon: LucideIcons.type,
+              trailing: name == current ? const Icon(LucideIcons.check, size: 18, color: AppColors.accentBright) : null,
+              onTap: () => Navigator.of(context).pop(name),
+            ),
+        ],
+      ),
+    );
+    if (choice == null || !mounted) return;
+    _set(choice == _lineBase.font ? Attribute.clone(Attribute.font, null) : FontAttribute(choice));
   }
 
   Future<void> _textFormat() async {
-    await showDeskSheet<void>(
-      context,
+    await _sheet<void>(
       (context) => StatefulBuilder(
         builder: (context, refresh) {
-          void apply(Attribute attribute, {bool toggle = false}) {
-            if (toggle) {
-              _toggle(attribute);
-            } else {
-              _set(attribute);
-            }
+          void apply(VoidCallback change) {
+            change();
             refresh(() {});
           }
 
-          final size = _size;
           final header = _header;
           return DeskSheet(
             title: 'Text',
@@ -272,16 +431,28 @@ class DocEditorState extends State<DocEditor> {
                       (1, 'Heading 1'),
                       (2, 'Heading 2'),
                       (3, 'Heading 3'),
+                      (4, 'Heading 4'),
+                      (5, 'Heading 5'),
+                      (6, 'Heading 6'),
                     ])
                       _Choice(
                         label: label,
-                        chosen: header == level,
-                        onTap: () => apply(level == 0 ? Attribute.clone(Attribute.header, null) : HeaderAttribute(level: level)),
+                        chosen: header == level && !(level == 0 && _quote),
+                        onTap: () => apply(() => _paragraphStyle(level)),
                       ),
                   ],
                 ),
               ),
               const SizedBox(height: kEditGap),
+              DeskSheetRow(
+                label: _font,
+                icon: LucideIcons.type,
+                note: 'Font',
+                onTap: () async {
+                  await _chooseFont();
+                  refresh(() {});
+                },
+              ),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: kDeskSheetPadX),
                 child: Row(
@@ -292,12 +463,12 @@ class DocEditorState extends State<DocEditor> {
                     EditButton(
                       icon: LucideIcons.minus,
                       label: 'Smaller',
-                      onTap: () => apply(SizeAttribute(_sizeText(_step(size, -1)))),
+                      onTap: () => apply(() => _stepSize(-1)),
                     ),
                     SizedBox(
                       width: 56,
                       child: Text(
-                        size == null ? 'Auto' : _sizeText(size),
+                        _sizeText(_size),
                         key: const ValueKey<String>('doc-size'),
                         textAlign: TextAlign.center,
                         style: AppText.label.copyWith(color: AppColors.ink),
@@ -306,7 +477,7 @@ class DocEditorState extends State<DocEditor> {
                     EditButton(
                       icon: LucideIcons.plus,
                       label: 'Larger',
-                      onTap: () => apply(SizeAttribute(_sizeText(_step(size, 1)))),
+                      onTap: () => apply(() => _stepSize(1)),
                     ),
                   ],
                 ),
@@ -322,28 +493,25 @@ class DocEditorState extends State<DocEditor> {
                       icon: LucideIcons.strikethrough,
                       label: 'Strikethrough',
                       on: _has(Attribute.strikeThrough),
-                      onTap: () => apply(Attribute.strikeThrough, toggle: true),
+                      onTap: () => apply(() => _toggle(Attribute.strikeThrough)),
                     ),
                     _Toggle(
                       icon: LucideIcons.superscript,
                       label: 'Superscript',
                       on: _has(Attribute.superscript),
-                      onTap: () => apply(Attribute.superscript, toggle: true),
+                      onTap: () => apply(() => _toggle(Attribute.superscript)),
                     ),
                     _Toggle(
                       icon: LucideIcons.subscript,
                       label: 'Subscript',
                       on: _has(Attribute.subscript),
-                      onTap: () => apply(Attribute.subscript, toggle: true),
+                      onTap: () => apply(() => _toggle(Attribute.subscript)),
                     ),
                     _Toggle(
                       icon: LucideIcons.removeFormatting,
                       label: 'Clear formatting',
                       on: false,
-                      onTap: () {
-                        _clearFormatting();
-                        refresh(() {});
-                      },
+                      onTap: () => apply(_clearFormatting),
                     ),
                   ],
                 ),
@@ -355,15 +523,15 @@ class DocEditorState extends State<DocEditor> {
     );
   }
 
-  static double _step(double? size, int by) {
-    final now = size ?? 11;
-    if (by > 0) return kTextSizes.firstWhere((s) => s > now, orElse: () => kTextSizes.last);
-    return kTextSizes.lastWhere((s) => s < now, orElse: () => kTextSizes.first);
+  static double _step(double size, int by) {
+    if (by > 0) return kTextSizes.firstWhere((s) => s > size, orElse: () => kTextSizes.last);
+    return kTextSizes.lastWhere((s) => s < size, orElse: () => kTextSizes.first);
   }
 
   static String _sizeText(double size) =>
       size == size.roundToDouble() ? size.toInt().toString() : size.toString();
 
+  /// Takes the selection back to the look of its paragraph style.
   void _clearFormatting() {
     for (final attribute in <Attribute>[
       Attribute.bold,
@@ -376,14 +544,12 @@ class DocEditorState extends State<DocEditor> {
       Attribute.font,
       Attribute.script,
     ]) {
-      _controller.formatSelection(Attribute.clone(attribute, null));
+      _set(Attribute.clone(attribute, null));
     }
-    _keepTyping();
   }
 
   Future<void> _more() async {
-    final choice = await showDeskSheet<String>(
-      context,
+    final choice = await _sheet<String>(
       (context) => DeskSheet(
         title: 'Document',
         children: <Widget>[
@@ -410,10 +576,26 @@ class DocEditorState extends State<DocEditor> {
       case 'find':
         setState(() => _finding = true);
       case 'count':
-        await showDeskSheet<void>(context, (context) => WordCountSheet(text: _controller.document.toPlainText()));
+        await showDeskSheet<void>(context, (context) => WordCountSheet(text: countedText));
       case 'outline':
         await _outline();
     }
+  }
+
+  /// The words of the document the word count counts: its paragraphs and
+  /// the words in its tables and fields.
+  String get countedText {
+    final out = StringBuffer(_controller.document.toPlainText());
+    for (final block in _source?.blocks.values ?? const <KeptBlock>[]) {
+      if (block.kind == 'table') {
+        for (final row in block.rows) {
+          out.writeln(row.join(' '));
+        }
+      } else if (block.kind == 'field') {
+        out.writeln(block.lines.join('\n'));
+      }
+    }
+    return out.toString();
   }
 
   /// The headings in order, each a tap away.
@@ -436,8 +618,7 @@ class DocEditorState extends State<DocEditor> {
 
   Future<void> _outline() async {
     final all = headings;
-    final at = await showDeskSheet<int>(
-      context,
+    final at = await _sheet<int>(
       (context) => DeskSheet(
         title: 'Document outline',
         note: all.isEmpty ? 'Headings added to the document appear here.' : null,
@@ -455,16 +636,78 @@ class DocEditorState extends State<DocEditor> {
       ),
     );
     if (at == null || !mounted) return;
-    goTo(at);
+    _quietly(() => _controller.updateSelection(TextSelection.collapsed(offset: at), ChangeSource.local));
+    reveal(at, top: true);
   }
 
-  /// Puts the cursor at [offset] and the page where it can be seen.
+  /// Puts the cursor at [offset], with the keyboard, and the page where it
+  /// can be seen.
   void goTo(int offset, {int length = 0}) {
     _focus.requestFocus();
     _controller.updateSelection(
       TextSelection(baseOffset: offset, extentOffset: offset + length),
       ChangeSource.local,
     );
+  }
+
+  /// Scrolls the page so [offset] is in view: at the top of the page for a
+  /// heading gone to from the outline, a third of the way down for a match.
+  void reveal(int offset, {bool top = false}) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final render = _editorKey.currentState?.renderEditor;
+      if (render == null || !_scroll.hasClients) return;
+      final caret = render.getLocalRectForCaret(TextPosition(offset: offset));
+      final position = _scroll.position;
+      final target = top ? caret.top - 16 : caret.top - position.viewportDimension / 3;
+      _scroll.jumpTo(target.clamp(position.minScrollExtent, position.maxScrollExtent));
+      _placeMarks();
+    });
+  }
+
+  void _onFound(List<int> matches, int length, int current) {
+    _found = matches;
+    _foundLength = length;
+    _current = current;
+    WidgetsBinding.instance.addPostFrameCallback((_) => _placeMarks());
+  }
+
+  /// Works out where each match of the find sits over the page.
+  void _placeMarks() {
+    if (!mounted) return;
+    if (!_finding || _found.isEmpty || _foundLength == 0) {
+      if (_marks.isNotEmpty || _currentMark != null) {
+        setState(() {
+          _marks = const <Rect>[];
+          _currentMark = null;
+        });
+      }
+      return;
+    }
+    final render = _editorKey.currentState?.renderEditor;
+    final page = _pageKey.currentContext?.findRenderObject();
+    if (render == null || page is! RenderBox || !render.attached || !page.attached) return;
+    final length = _controller.document.length;
+    final marks = <Rect>[];
+    Rect? current;
+    for (var i = 0; i < _found.length; i++) {
+      final at = _found[i];
+      if (at + _foundLength >= length) continue;
+      final points = render.getEndpointsForSelection(TextSelection(baseOffset: at, extentOffset: at + _foundLength));
+      if (points.isEmpty) continue;
+      final start = points.first.point;
+      final end = points.last.point;
+      final height = render.preferredLineHeight(TextPosition(offset: at));
+      final right = (end.dy - start.dy).abs() < 1 ? end.dx : start.dx + height;
+      final a = page.globalToLocal(render.localToGlobal(Offset(start.dx, start.dy - height)));
+      final b = page.globalToLocal(render.localToGlobal(Offset(right, start.dy)));
+      final rect = Rect.fromPoints(a, b);
+      marks.add(rect);
+      if (i == _current) current = rect;
+    }
+    setState(() {
+      _marks = marks;
+      _currentMark = current;
+    });
   }
 
   @override
@@ -505,8 +748,12 @@ class DocEditorState extends State<DocEditor> {
             FindBar(
               key: const ValueKey<String>('doc-find'),
               controller: _controller,
-              onShow: goTo,
-              onClose: () => setState(() => _finding = false),
+              onFound: _onFound,
+              onShow: (offset, {int length = 0}) => reveal(offset),
+              onClose: () {
+                setState(() => _finding = false);
+                _placeMarks();
+              },
             ),
           Expanded(child: _page()),
           if (_source != null) _bar(),
@@ -516,7 +763,9 @@ class DocEditorState extends State<DocEditor> {
   }
 
   Widget _page() {
-    final base = AppText.pageBody.copyWith(color: AppColors.pageInk, fontSize: 15, height: 1.45);
+    final source = _source;
+    final body = source?.lineLook() ?? const ParagraphLook(RunLook(size: 11, font: kFontFamily));
+    final base = docTextStyle(body.run, line: body.line);
     return ColoredBox(
       color: AppColors.page,
       child: Localizations.override(
@@ -524,57 +773,107 @@ class DocEditorState extends State<DocEditor> {
         delegates: const <LocalizationsDelegate<Object>>[FlutterQuillLocalizations.delegate],
         child: DefaultTextStyle(
           style: base,
-          child: Builder(
-            builder: (context) => QuillEditor(
-              key: const ValueKey<String>('doc-page'),
-              controller: _controller,
-              focusNode: _focus,
-              scrollController: _scroll,
-              config: QuillEditorConfig(
-                padding: const EdgeInsets.fromLTRB(20, 20, 20, 40),
-                placeholder: 'Type here',
-                // The phone never leaves the app for a link in a document.
-                onLaunchUrl: (_) {},
-                linkActionPickerDelegate: (_, _, _) async => LinkMenuAction.none,
-                embedBuilders: <EmbedBuilder>[
-                  KeptBlockEmbed(_source),
-                  KeptInlineEmbed(_source),
-                ],
-                unknownEmbedBuilder: KeptInlineEmbed(_source),
-                customStyles: _styles(context, base),
-                // Every font the document names is drawn in the app's own
-                // face, and kept in the file as it was.
-                customStyleBuilder: (attribute) => attribute.key == Attribute.font.key
-                    ? const TextStyle(fontFamily: kFontFamily)
-                    : const TextStyle(),
+          child: Stack(
+            key: _pageKey,
+            children: <Widget>[
+              Positioned.fill(
+                child: IgnorePointer(
+                  child: CustomPaint(painter: _FindPainter(_marks, _currentMark)),
+                ),
               ),
-            ),
+              Builder(
+                builder: (context) => QuillEditor(
+                  key: const ValueKey<String>('doc-page'),
+                  controller: _controller,
+                  focusNode: _focus,
+                  scrollController: _scroll,
+                  config: QuillEditorConfig(
+                    editorKey: _editorKey,
+                    padding: const EdgeInsets.fromLTRB(20, 20, 20, 40),
+                    placeholder: 'Type here',
+                    // The phone never leaves the app for a link in a document.
+                    onLaunchUrl: (_) {},
+                    linkActionPickerDelegate: (_, _, _) async => LinkMenuAction.none,
+                    embedBuilders: <EmbedBuilder>[
+                      KeptBlockEmbed(source),
+                      KeptInlineEmbed(source),
+                    ],
+                    unknownEmbedBuilder: KeptInlineEmbed(source),
+                    customStyles: _styles(context),
+                    // Sizes are points and typefaces the document's own, drawn
+                    // in the phone's face of the same kind when it lacks it.
+                    customStyleBuilder: (attribute) {
+                      final value = attribute.value;
+                      if (attribute.key == Attribute.size.key && value != null) {
+                        final points = double.tryParse('$value');
+                        return points == null ? const TextStyle() : TextStyle(fontSize: points * kDocPoint);
+                      }
+                      if (attribute.key == Attribute.font.key && value is String) {
+                        final font = docFont(value);
+                        return TextStyle(fontFamily: font.family, fontFamilyFallback: font.fallback);
+                      }
+                      return const TextStyle();
+                    },
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
       ),
     );
   }
 
-  DefaultStyles _styles(BuildContext context, TextStyle base) {
+  /// The document's own paragraph styles as the page's styles: body text,
+  /// headings, quotations and lists in their typefaces, sizes, colours,
+  /// spacing and indents.
+  DefaultStyles _styles(BuildContext context) {
     final theme = Theme.of(context);
-    DefaultTextBlockStyle heading(double size, double above) => DefaultTextBlockStyle(
-          base.copyWith(fontSize: size, height: 1.2, fontWeight: FontWeight.w600),
-          HorizontalSpacing.zero,
-          VerticalSpacing(above, 4),
-          VerticalSpacing.zero,
-          null,
-        );
+    final source = _source;
+    DefaultTextBlockStyle block(ParagraphLook look, {bool rule = false}) {
+      final spacing = VerticalSpacing(look.before * kDocPoint, look.after * kDocPoint);
+      final colour = look.rule;
+      return DefaultTextBlockStyle(
+        docTextStyle(look.run, line: look.line),
+        HorizontalSpacing(math.min(look.left * kDocPoint, 64), math.min(look.right * kDocPoint, 64)),
+        spacing,
+        spacing,
+        rule && colour != null
+            ? BoxDecoration(border: Border(left: BorderSide(color: Color(0xFF000000 | colour), width: 2)))
+            : null,
+      );
+    }
+
+    final body = source?.lineLook() ?? const ParagraphLook(RunLook(size: 11, font: kFontFamily), after: 8);
+    final paragraph = block(body);
+    final flat = DefaultTextBlockStyle(
+      paragraph.style,
+      HorizontalSpacing.zero,
+      paragraph.verticalSpacing,
+      paragraph.lineSpacing,
+      null,
+    );
+    DefaultTextBlockStyle heading(int level) =>
+        source == null ? flat : block(source.lineLook(header: level));
     return DefaultStyles(
-      paragraph: DefaultTextBlockStyle(
-        base,
+      paragraph: flat,
+      align: flat,
+      indent: DefaultTextBlockStyle(flat.style, HorizontalSpacing.zero, flat.verticalSpacing, flat.lineSpacing, null),
+      h1: heading(1),
+      h2: heading(2),
+      h3: heading(3),
+      h4: heading(4),
+      h5: heading(5),
+      h6: heading(6),
+      quote: source == null ? null : block(source.lineLook(quote: true), rule: true),
+      lists: DefaultListBlockStyle(
+        flat.style,
         HorizontalSpacing.zero,
-        const VerticalSpacing(0, 10),
-        VerticalSpacing.zero,
+        flat.verticalSpacing,
+        VerticalSpacing(0, math.min(body.after, 4) * kDocPoint),
+        null,
         null,
       ),
-      h1: heading(26, 18),
-      h2: heading(21, 14),
-      h3: heading(17, 12),
       bold: const TextStyle(fontWeight: FontWeight.w700),
       link: TextStyle(color: theme.colorScheme.primary, decoration: TextDecoration.underline),
     );
@@ -585,98 +884,138 @@ class DocEditorState extends State<DocEditor> {
     final colour = _colourOf(Attribute.color.key);
     final highlight = _colourOf(Attribute.background.key);
     final list = style[Attribute.list.key]?.value;
-    return Container(
-      key: const ValueKey<String>('doc-format-bar'),
-      height: kFormatBarHeight,
-      decoration: const BoxDecoration(
-        color: AppColors.surface,
-        border: Border(top: BorderSide(color: AppColors.hairline)),
-      ),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 8),
-        child: Row(
-          children: <Widget>[
-            _BarButton(
-              icon: LucideIcons.letterText,
-              label: 'Text format',
-              onTap: () => unawaited(_textFormat()),
-            ),
-            const _BarGap(),
-            _BarButton(
-              icon: LucideIcons.bold,
-              label: 'Bold',
-              on: _has(Attribute.bold),
-              onTap: () => _toggle(Attribute.bold),
-            ),
-            _BarButton(
-              icon: LucideIcons.italic,
-              label: 'Italic',
-              on: _has(Attribute.italic),
-              onTap: () => _toggle(Attribute.italic),
-            ),
-            _BarButton(
-              icon: LucideIcons.underline,
-              label: 'Underline',
-              on: _has(Attribute.underline),
-              onTap: () => _toggle(Attribute.underline),
-            ),
-            _BarButton(
-              icon: LucideIcons.baseline,
-              label: 'Text colour',
-              swatch: colour,
-              onTap: () => unawaited(_colour(highlight: false)),
-            ),
-            _BarButton(
-              icon: LucideIcons.highlighter,
-              label: 'Highlight colour',
-              swatch: highlight,
-              onTap: () => unawaited(_colour(highlight: true)),
-            ),
-            const _BarGap(),
-            _BarButton(
-              icon: switch (_align) {
-                'center' => LucideIcons.textAlignCenter,
-                'right' => LucideIcons.textAlignEnd,
-                'justify' => LucideIcons.textAlignJustify,
-                _ => LucideIcons.textAlignStart,
-              },
-              label: 'Alignment',
-              onTap: () => unawaited(_alignment()),
-            ),
-            _BarButton(
-              icon: LucideIcons.list,
-              label: 'Bulleted list',
-              on: list == 'bullet',
-              onTap: () => _toggle(Attribute.ul),
-            ),
-            _BarButton(
-              icon: LucideIcons.listOrdered,
-              label: 'Numbered list',
-              on: list == 'ordered',
-              onTap: () => _toggle(Attribute.ol),
-            ),
-            _BarButton(
-              icon: LucideIcons.indentDecrease,
-              label: 'Decrease indent',
-              onTap: () {
-                _controller.indentSelection(false);
-                _keepTyping();
-              },
-            ),
-            _BarButton(
-              icon: LucideIcons.indentIncrease,
-              label: 'Increase indent',
-              onTap: () {
-                _controller.indentSelection(true);
-                _keepTyping();
-              },
-            ),
-          ],
+    return Listener(
+      onPointerDown: (_) => _typing = _focus.hasFocus,
+      child: Container(
+        key: const ValueKey<String>('doc-format-bar'),
+        height: kFormatBarHeight,
+        decoration: const BoxDecoration(
+          color: AppColors.surface,
+          border: Border(top: BorderSide(color: AppColors.hairline)),
+        ),
+        child: SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          child: Row(
+            children: <Widget>[
+              _BarButton(
+                icon: LucideIcons.letterText,
+                label: 'Text format',
+                onTap: () => unawaited(_textFormat()),
+              ),
+              const _BarGap(),
+              _BarButton(
+                icon: LucideIcons.bold,
+                label: 'Bold',
+                on: _has(Attribute.bold),
+                onTap: () {
+                  _toggle(Attribute.bold);
+                  _keepTyping();
+                },
+              ),
+              _BarButton(
+                icon: LucideIcons.italic,
+                label: 'Italic',
+                on: _has(Attribute.italic),
+                onTap: () {
+                  _toggle(Attribute.italic);
+                  _keepTyping();
+                },
+              ),
+              _BarButton(
+                icon: LucideIcons.underline,
+                label: 'Underline',
+                on: _has(Attribute.underline),
+                onTap: () {
+                  _toggle(Attribute.underline);
+                  _keepTyping();
+                },
+              ),
+              _BarButton(
+                icon: LucideIcons.baseline,
+                label: 'Text colour',
+                swatch: colour,
+                onTap: () => unawaited(_colour(highlight: false)),
+              ),
+              _BarButton(
+                icon: LucideIcons.highlighter,
+                label: 'Highlight colour',
+                swatch: highlight,
+                onTap: () => unawaited(_colour(highlight: true)),
+              ),
+              const _BarGap(),
+              _BarButton(
+                icon: switch (_align) {
+                  'center' => LucideIcons.textAlignCenter,
+                  'right' => LucideIcons.textAlignEnd,
+                  'justify' => LucideIcons.textAlignJustify,
+                  _ => LucideIcons.textAlignStart,
+                },
+                label: 'Alignment',
+                onTap: () => unawaited(_alignment()),
+              ),
+              _BarButton(
+                icon: LucideIcons.list,
+                label: 'Bulleted list',
+                on: list == 'bullet',
+                onTap: () {
+                  _toggle(Attribute.ul);
+                  _keepTyping();
+                },
+              ),
+              _BarButton(
+                icon: LucideIcons.listOrdered,
+                label: 'Numbered list',
+                on: list == 'ordered',
+                onTap: () {
+                  _toggle(Attribute.ol);
+                  _keepTyping();
+                },
+              ),
+              _BarButton(
+                icon: LucideIcons.indentDecrease,
+                label: 'Decrease indent',
+                onTap: () {
+                  _quietly(() => _controller.indentSelection(false));
+                  _keepTyping();
+                },
+              ),
+              _BarButton(
+                icon: LucideIcons.indentIncrease,
+                label: 'Increase indent',
+                onTap: () {
+                  _quietly(() => _controller.indentSelection(true));
+                  _keepTyping();
+                },
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
+}
+
+/// The matches of a find, washed over the words they cover, the current one
+/// stronger.
+class _FindPainter extends CustomPainter {
+  _FindPainter(this.marks, this.current);
+
+  final List<Rect> marks;
+  final Rect? current;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final wash = Paint()..color = const Color(0x66FFD54F);
+    for (final rect in marks) {
+      canvas.drawRect(rect, wash);
+    }
+    final current = this.current;
+    if (current != null) canvas.drawRect(current, Paint()..color = const Color(0x99FF9800));
+  }
+
+  @override
+  bool shouldRepaint(_FindPainter old) => old.marks != marks || old.current != current;
 }
 
 class _BarGap extends StatelessWidget {
@@ -889,14 +1228,24 @@ class WordCountSheet extends StatelessWidget {
   }
 }
 
-/// Find, and replace, across the whole document: the matches counted, one
-/// shown at a time, replaced one by one or all at once.
+/// Find, and replace, across the whole document: every match marked on the
+/// page as it is typed, one shown at a time, replaced one by one or all at
+/// once.
 class FindBar extends StatefulWidget {
-  const FindBar({super.key, required this.controller, required this.onShow, required this.onClose});
+  const FindBar({
+    super.key,
+    required this.controller,
+    required this.onShow,
+    required this.onClose,
+    this.onFound,
+  });
 
   final QuillController controller;
   final void Function(int offset, {int length}) onShow;
   final VoidCallback onClose;
+
+  /// The matches, their length and the one shown, whenever they change.
+  final void Function(List<int> matches, int length, int current)? onFound;
 
   @override
   State<FindBar> createState() => FindBarState();
@@ -907,6 +1256,7 @@ class FindBarState extends State<FindBar> {
   final TextEditingController _replace = TextEditingController();
   bool _matchCase = false;
   int _at = -1;
+  String _told = '';
 
   @visibleForTesting
   List<int> get matches {
@@ -925,7 +1275,7 @@ class FindBarState extends State<FindBar> {
   @override
   void initState() {
     super.initState();
-    _find.addListener(() => setState(() => _at = -1));
+    _find.addListener(_typed);
   }
 
   @override
@@ -935,6 +1285,13 @@ class FindBarState extends State<FindBar> {
     super.dispose();
   }
 
+  /// As the words to find are typed, the first match is shown.
+  void _typed() {
+    final all = matches;
+    setState(() => _at = all.isEmpty ? -1 : 0);
+    if (all.isNotEmpty) widget.onShow(all.first, length: _find.text.length);
+  }
+
   void _step(int by) {
     final all = matches;
     if (all.isEmpty) return;
@@ -942,34 +1299,47 @@ class FindBarState extends State<FindBar> {
     widget.onShow(all[_at], length: _find.text.length);
   }
 
+  /// Replaces the match shown and moves on to the next one after it.
   void replaceOne() {
     final all = matches;
     if (all.isEmpty) return;
     final at = _at < 0 ? 0 : _at.clamp(0, all.length - 1);
     final index = all[at];
-    widget.controller.replaceText(
-      index,
-      _find.text.length,
-      _replace.text,
-      TextSelection.collapsed(offset: index + _replace.text.length),
-    );
+    widget.controller.replaceText(index, _find.text.length, _replace.text, null, ignoreFocus: true);
+    final after = index + _replace.text.length;
     final left = matches;
-    setState(() => _at = left.isEmpty ? -1 : at % left.length - 1);
-    if (left.isNotEmpty) _step(1);
+    if (left.isEmpty) {
+      setState(() => _at = -1);
+      return;
+    }
+    final next = left.indexWhere((m) => m >= after);
+    setState(() => _at = next < 0 ? 0 : next);
+    widget.onShow(left[_at], length: _find.text.length);
   }
 
   void replaceAll() {
     final all = matches;
     if (all.isEmpty) return;
     for (final index in all.reversed) {
-      widget.controller.replaceText(index, _find.text.length, _replace.text, null);
+      widget.controller.replaceText(index, _find.text.length, _replace.text, null, ignoreFocus: true);
     }
     setState(() => _at = -1);
+  }
+
+  void _tell(List<int> all) {
+    final told = '${_find.text}|$_matchCase|$_at|${all.length}|${all.firstOrNull}|${all.lastOrNull}';
+    if (told == _told) return;
+    _told = told;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) widget.onFound?.call(all, _find.text.length, _at);
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     final all = matches;
+    if (_at >= all.length) _at = all.isEmpty ? -1 : 0;
+    _tell(all);
     final count = all.isEmpty ? (_find.text.isEmpty ? '' : 'None') : '${_at < 0 ? 0 : _at + 1} of ${all.length}';
     return Container(
       padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
@@ -1021,10 +1391,10 @@ class FindBarState extends State<FindBar> {
                 icon: LucideIcons.caseSensitive,
                 label: 'Match case',
                 chosen: _matchCase,
-                onTap: () => setState(() {
-                  _matchCase = !_matchCase;
-                  _at = -1;
-                }),
+                onTap: () {
+                  setState(() => _matchCase = !_matchCase);
+                  _typed();
+                },
               ),
               const SizedBox(width: 4),
               EditButton(icon: LucideIcons.replace, label: 'Replace', enabled: all.isNotEmpty, onTap: replaceOne),
@@ -1038,8 +1408,9 @@ class FindBarState extends State<FindBar> {
   }
 }
 
-/// A table or anything else at the level of paragraphs the editor keeps as
-/// it is: shown, and written back untouched.
+/// A table, a field across paragraphs, a section break or anything else at
+/// the level of paragraphs the editor keeps as it is: shown, and written
+/// back untouched.
 class KeptBlockEmbed extends EmbedBuilder {
   const KeptBlockEmbed(this.source);
 
@@ -1057,48 +1428,128 @@ class KeptBlockEmbed extends EmbedBuilder {
   @override
   Widget build(BuildContext context, EmbedContext embedContext) {
     final block = source?.blocks[embedContext.node.value.data];
-    final rows = block?.rows ?? const <List<String>>[];
+    final body = source?.lineLook().run ?? const RunLook(size: 11, font: kFontFamily);
     final ink = AppColors.pageInk;
-    final line = BorderSide(color: ink.withValues(alpha: 0.25));
-    final Widget body;
-    if (rows.isNotEmpty) {
-      final columns = rows.fold<int>(0, (m, r) => math.max(m, r.length));
-      body = Table(
-        border: TableBorder(top: line, bottom: line, left: line, right: line, horizontalInside: line, verticalInside: line),
-        defaultVerticalAlignment: TableCellVerticalAlignment.middle,
-        children: <TableRow>[
-          for (final row in rows)
-            TableRow(
-              children: <Widget>[
-                for (var c = 0; c < columns; c++)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-                    child: Text(
-                      c < row.length ? row[c] : '',
-                      style: TextStyle(fontFamily: kFontFamily, fontSize: 12, color: ink, height: 1.3),
-                    ),
-                  ),
-              ],
-            ),
-        ],
-      );
-    } else {
-      body = Text(
-        block?.text.isNotEmpty == true ? block!.text : 'Kept as it is',
-        style: TextStyle(fontFamily: kFontFamily, fontSize: 13, color: ink.withValues(alpha: 0.7)),
+    final table = block?.table;
+    if (block?.kind == 'section') {
+      return Semantics(
+        label: 'Section break',
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          child: Row(
+            children: <Widget>[
+              Expanded(child: Container(height: 1, color: ink.withValues(alpha: 0.2))),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                child: Text(
+                  'Section break',
+                  style: TextStyle(fontFamily: kFontFamily, fontSize: 11, color: ink.withValues(alpha: 0.45)),
+                ),
+              ),
+              Expanded(child: Container(height: 1, color: ink.withValues(alpha: 0.2))),
+            ],
+          ),
+        ),
       );
     }
+    if (table != null && table.rows.isNotEmpty) {
+      return Semantics(
+        label: 'Table, kept as it is',
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: _TableView(table),
+        ),
+      );
+    }
+    final lines = block?.lines ?? const <String>[];
     return Semantics(
-      label: rows.isNotEmpty ? 'Table, kept as it is' : 'Kept as it is',
+      label: 'Kept as it is',
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 8),
-        child: body,
+        child: Text(
+          lines.isNotEmpty ? lines.join('\n') : (block?.text.isNotEmpty == true ? block!.text : 'Kept as it is'),
+          style: docTextStyle(body).copyWith(color: ink.withValues(alpha: 0.75)),
+        ),
       ),
     );
   }
 }
 
-/// A picture, a field, a break or a note mark inside a paragraph, kept whole.
+/// A table drawn with its columns' widths, its merged cells, its shading
+/// and its cells' own text.
+class _TableView extends StatelessWidget {
+  const _TableView(this.table);
+
+  final KeptTable table;
+
+  @override
+  Widget build(BuildContext context) {
+    final columns = table.rows.fold<int>(0, (m, row) => math.max(m, row.fold<int>(0, (s, c) => s + c.span)));
+    final widths = <double>[
+      for (var c = 0; c < columns; c++) c < table.widths.length && table.widths[c] > 0 ? table.widths[c] : 72,
+    ];
+    final line = table.border == null
+        ? BorderSide(color: AppColors.pageInk.withValues(alpha: 0.12))
+        : BorderSide(color: Color(0xFF000000 | table.border!));
+    return LayoutBuilder(
+      builder: (context, box) {
+        final natural = widths.fold<double>(0, (a, w) => a + w) * kDocPoint;
+        final room = box.maxWidth - line.width;
+        final scale = box.maxWidth.isFinite && natural > room ? room / natural : 1.0;
+        return Container(
+          decoration: BoxDecoration(border: Border(top: line, left: line)),
+          width: natural * scale + line.width,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              for (final row in table.rows)
+                IntrinsicHeight(
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: () {
+                      final cells = <Widget>[];
+                      var at = 0;
+                      for (final cell in row) {
+                        var width = 0.0;
+                        for (var k = 0; k < cell.span && at + k < widths.length; k++) {
+                          width += widths[at + k];
+                        }
+                        at += cell.span;
+                        final fill = cell.fill;
+                        cells.add(Container(
+                          width: width * kDocPoint * scale,
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: fill == null ? null : Color(0xFF000000 | fill),
+                            border: Border(right: line, bottom: line),
+                          ),
+                          child: cell.continued
+                              ? null
+                              : Text(
+                                  cell.text,
+                                  textAlign: switch (cell.align) {
+                                    'center' => TextAlign.center,
+                                    'right' => TextAlign.right,
+                                    _ => TextAlign.left,
+                                  },
+                                  style: docTextStyle(cell.look).copyWith(fontSize: cell.look.size * kDocPoint * scale),
+                                ),
+                        ));
+                      }
+                      return cells;
+                    }(),
+                  ),
+                ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// A picture, a shape, a field, a tracked insertion, a break, a symbol or a
+/// note mark inside a paragraph, kept whole.
 class KeptInlineEmbed extends EmbedBuilder {
   const KeptInlineEmbed(this.source);
 
@@ -1114,28 +1565,60 @@ class KeptInlineEmbed extends EmbedBuilder {
   Widget build(BuildContext context, EmbedContext embedContext) {
     final kept = source?.inlines[embedContext.node.value.data];
     final ink = AppColors.pageInk;
+    final style = embedContext.textStyle;
     if (kept == null || kept.kind == 'hidden') return const SizedBox.shrink();
-    if (kept.kind == 'image') {
-      final part = kept.imagePart;
-      final bytes = part == null ? null : source?.partBytes(part);
-      final width = kept.width ?? 120;
-      final height = kept.height ?? 80;
-      return LayoutBuilder(
-        builder: (context, box) {
-          final room = box.maxWidth.isFinite ? box.maxWidth : width;
-          final scale = width > room ? room / width : 1.0;
-          return SizedBox(
-            width: width * scale,
-            height: height * scale,
-            child: bytes == null
-                ? ColoredBox(color: ink.withValues(alpha: 0.08))
-                : Image.memory(bytes, fit: BoxFit.fill, gaplessPlayback: true),
-          );
-        },
-      );
-    }
-    if (kept.kind == 'break') {
-      return Text('↵', style: TextStyle(fontFamily: kFontFamily, color: ink.withValues(alpha: 0.4)));
+    switch (kept.kind) {
+      case 'image':
+        final part = kept.imagePart;
+        final bytes = part == null ? null : source?.partBytes(part);
+        final width = (kept.width ?? 120) * kDocPoint / 1.33;
+        final height = (kept.height ?? 80) * kDocPoint / 1.33;
+        return LayoutBuilder(
+          builder: (context, box) {
+            final room = box.maxWidth.isFinite ? box.maxWidth : width;
+            final scale = width > room ? room / width : 1.0;
+            return SizedBox(
+              width: width * scale,
+              height: height * scale,
+              child: bytes == null
+                  ? ColoredBox(color: ink.withValues(alpha: 0.08))
+                  : Image.memory(bytes, fit: BoxFit.fill, gaplessPlayback: true),
+            );
+          },
+        );
+      case 'break':
+        return Text('↵', style: style.copyWith(color: ink.withValues(alpha: 0.4)));
+      case 'glyph':
+        return Text(kept.text, style: style);
+      case 'note':
+        return Transform.translate(
+          offset: Offset(0, -(style.fontSize ?? 14) * 0.35),
+          child: Text(kept.text, style: style.copyWith(fontSize: (style.fontSize ?? 14) * 0.7)),
+        );
+      case 'inserted':
+        return Text(
+          kept.text,
+          style: style.copyWith(
+            color: const Color(0xFF1E7B45),
+            decoration: TextDecoration.underline,
+            decorationColor: const Color(0xFF1E7B45),
+          ),
+        );
+      case 'shape':
+        return Container(
+          constraints: const BoxConstraints(maxWidth: 220),
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+          decoration: BoxDecoration(
+            border: Border.all(color: ink.withValues(alpha: 0.35)),
+            borderRadius: BorderRadius.circular(3),
+          ),
+          child: Text(
+            kept.text.isEmpty ? 'Shape' : kept.text,
+            maxLines: 3,
+            overflow: TextOverflow.ellipsis,
+            style: style.copyWith(fontSize: (style.fontSize ?? 14) * 0.85, color: ink.withValues(alpha: 0.75)),
+          ),
+        );
     }
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 3),
@@ -1145,7 +1628,7 @@ class KeptInlineEmbed extends EmbedBuilder {
       ),
       child: Text(
         kept.text,
-        style: embedContext.textStyle.copyWith(color: ink.withValues(alpha: 0.75)),
+        style: style.copyWith(color: ink.withValues(alpha: 0.75)),
       ),
     );
   }

@@ -30,6 +30,22 @@ class OoxmlPackage {
   /// Marks [name] as changed, so [write] puts it back.
   void touch(String name) => _changed.add(name);
 
+  /// The part at [name] as text, exactly as it is in the package.
+  String? textOf(String name) {
+    final file = _zip.findFile(name);
+    if (file == null) return null;
+    return utf8.decode(file.content as List<int>, allowMalformed: true);
+  }
+
+  final Map<String, String> _texts = <String, String>{};
+
+  /// Puts [text] in place of the part at [name] when the package is
+  /// written, for a part patched as text rather than reserialised.
+  void replace(String name, String text) {
+    _texts[name] = text;
+    _changed.remove(name);
+  }
+
   /// The bytes of the part at [name] as they are in the package, for one
   /// that is not XML, such as a picture.
   Uint8List? bytesOf(String name) {
@@ -110,10 +126,11 @@ class OoxmlPackage {
   /// The package with every touched part written again, or the bytes that
   /// were read when nothing was touched.
   Uint8List write() {
-    if (_changed.isEmpty && _madeBytes.isEmpty) return original;
+    if (_changed.isEmpty && _madeBytes.isEmpty && _texts.isEmpty) return original;
     return patchZip(original, <String, List<int>>{
       for (final name in _changed)
         name: utf8.encode(_open[name]!.toXmlString()),
+      for (final entry in _texts.entries) entry.key: utf8.encode(entry.value),
       ..._madeBytes,
     });
   }

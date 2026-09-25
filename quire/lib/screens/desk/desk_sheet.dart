@@ -196,7 +196,12 @@ class DeskSheetRow extends StatelessWidget {
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(label, style: AppText.menuRow.copyWith(color: ink)),
+                      Text(
+                        label,
+                        maxLines: note == null ? 1 : 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppText.menuRow.copyWith(color: ink),
+                      ),
                       if (note != null) ...[
                         const SizedBox(height: 2),
                         Text(

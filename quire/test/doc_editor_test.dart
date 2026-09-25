@@ -47,6 +47,28 @@ List<(String, Map<String, Object?>)> _lines(Uint8List bytes) {
   return out;
 }
 
+/// The style the page draws [words] in, found in the text it rendered.
+TextStyle? drawnStyle(WidgetTester tester, String words) {
+  for (final rich in tester.widgetList<RichText>(find.byType(RichText))) {
+    TextStyle? found;
+    void visit(InlineSpan span, TextStyle? inherited) {
+      if (found != null || span is! TextSpan) return;
+      final style = inherited == null ? span.style : inherited.merge(span.style);
+      if ((span.text ?? '').contains(words)) {
+        found = style;
+        return;
+      }
+      for (final child in span.children ?? const <InlineSpan>[]) {
+        visit(child, style);
+      }
+    }
+
+    visit(rich.text, null);
+    if (found != null) return found;
+  }
+  return null;
+}
+
 void main() {
   late Uint8List original;
   Uint8List? saved;
@@ -94,7 +116,8 @@ void main() {
     final state = await open(tester);
     final ops = state.controller.document.toDelta().toJson();
     expect(ops.first['insert'], 'House Style');
-    expect((ops.first['attributes'] as Map)['font'], 'Georgia');
+    // The heading's look is its style's, drawn by the page, not carried by the words.
+    expect(ops.first['attributes'], isNull);
     expect(ops[1]['attributes'], {'header': 1});
     expect(find.byKey(const ValueKey<String>('doc-format-bar')), findsOneWidget);
     for (final label in [
@@ -141,7 +164,7 @@ void main() {
     final attributes = op['attributes']! as Map<String, Object?>;
     expect(attributes['bold'], isTrue);
     expect(attributes['underline'], isTrue);
-    expect(attributes['font'], 'Georgia');
+    expect(attributes['font'], isNull);
   });
 
   testWidgets('a heading, a numbered list and centring from the bar and the text sheet', (tester) async {
@@ -202,9 +225,10 @@ void main() {
       'measure',
     );
     await settle(tester);
+    expect(tester.widget<Text>(find.byKey(const ValueKey<String>('doc-find-count'))).data, '1 of $count');
     await tester.tap(find.bySemanticsLabel('Next match'));
     await settle(tester);
-    expect(tester.widget<Text>(find.byKey(const ValueKey<String>('doc-find-count'))).data, '1 of $count');
+    expect(tester.widget<Text>(find.byKey(const ValueKey<String>('doc-find-count'))).data, '2 of $count');
     await tester.enterText(
       find.descendant(of: find.byKey(const ValueKey<String>('doc-replace-field')), matching: find.byType(EditableText)),
       'width',
@@ -222,8 +246,9 @@ void main() {
     await settle(tester);
     await tester.tap(find.text('Word count'));
     await settle(tester);
-    final (words, _, _) = WordCountSheet.count(state.controller.document.toPlainText());
-    expect(words, greaterThan(300));
+    final (words, _, _) = WordCountSheet.count(state.countedText);
+    final (withoutTables, _, _) = WordCountSheet.count(state.controller.document.toPlainText());
+    expect(words - withoutTables, greaterThan(40));
     expect(find.text('$words'), findsOneWidget);
     await tester.tapAt(const Offset(200, 100));
     await settle(tester);
@@ -265,7 +290,7 @@ void main() {
 
   testWidgets('the table and the picture are shown, and kept whole', (tester) async {
     final state = await open(tester);
-    expect(find.bySemanticsLabel('Table, kept as it is'), findsOneWidget);
+    expect(find.byWidgetPredicate((w) => w is Semantics && w.properties.label == 'Table, kept as it is'), findsOneWidget);
     expect(find.byType(Image), findsWidgets);
     final at = offsetOf(state, 'Tables are where');
     state.controller.replaceText(at, 0, 'Note: ', null);
@@ -275,5 +300,204 @@ void main() {
     final after = _documentXml(saved!);
     expect(after, contains(_element(before, 'w:tbl')));
     expect(after, contains(_element(before, 'w:drawing')));
+  });
+  group('round two', () {
+    testWidgets('the page draws the document in its own typefaces, sizes and colours', (tester) async {
+      await open(tester);
+      final heading = drawnStyle(tester, 'House Style')!;
+      expect(heading.fontFamily, 'Georgia');
+      expect(heading.fontFamilyFallback, contains('serif'));
+      expect(heading.fontSize, closeTo(20 * kDocPoint, 0.01));
+      expect(heading.color, const Color(0xFF1F3243));
+      final body = drawnStyle(tester, 'Most of what follows')!;
+      expect(body.fontFamily, 'Georgia');
+      expect(body.fontSize, closeTo(10.5 * kDocPoint, 0.01));
+    });
+
+    testWidgets('a paragraph given Heading 2 looks like the other Heading 2s at once, and Normal text takes it back', (tester) async {
+      final state = await open(tester);
+      pickWords(state, 'Most of what follows');
+      await tester.tap(find.bySemanticsLabel('Text format'));
+      await settle(tester);
+      await tester.tap(find.text('Heading 2'));
+      await settle(tester);
+      final heading = drawnStyle(tester, 'Most of what follows')!;
+      final other = drawnStyle(tester, 'The measure and the leading')!;
+      expect(heading.fontSize, other.fontSize);
+      expect(heading.fontWeight, other.fontWeight);
+      expect(heading.color, other.color);
+      await tester.tap(find.text('Normal text'));
+      await settle(tester);
+      final body = drawnStyle(tester, 'Most of what follows')!;
+      expect(body.fontSize, closeTo(10.5 * kDocPoint, 0.01));
+      expect(body.fontWeight, FontWeight.w400);
+      expect(state.controller.getSelectionStyle().attributes[Attribute.align.key]?.value, 'justify');
+    });
+
+    testWidgets('Enter at the end of a heading gives body text, on the page and in the file', (tester) async {
+      final state = await open(tester);
+      final end = offsetOf(state, 'Setting the measure') + 'Setting the measure'.length;
+      state.controller.updateSelection(TextSelection.collapsed(offset: end), ChangeSource.local);
+      state.controller.replaceText(end, 0, '\n', TextSelection.collapsed(offset: end + 1));
+      state.controller.replaceText(end + 1, 0, 'A new paragraph under the heading.', TextSelection.collapsed(offset: end + 35));
+      await settle(tester);
+      final typed = drawnStyle(tester, 'A new paragraph under')!;
+      expect(typed.fontSize, closeTo(10.5 * kDocPoint, 0.01));
+      expect(typed.fontStyle, FontStyle.normal);
+      expect(typed.fontWeight, FontWeight.w400);
+      await save(tester);
+      final line = _lines(saved!).firstWhere((l) => l.$1.startsWith('A new paragraph'));
+      expect(line.$2['header'], isNull);
+      final op = DocxDelta.read(saved!).ops.firstWhere((o) => (o['insert'] as String?)?.contains('A new paragraph') ?? false);
+      expect(op['attributes'], isNull);
+    });
+
+    testWidgets('the text sheet leaves the keyboard down while it is used', (tester) async {
+      final state = await open(tester);
+      await tester.tapAt(tester.getCenter(find.byKey(const ValueKey<String>('doc-page'))));
+      await settle(tester);
+      expect(tester.testTextInput.isVisible, isTrue);
+      pickWords(state, 'Most of what follows');
+      await tester.tap(find.bySemanticsLabel('Text format'));
+      await settle(tester);
+      expect(tester.testTextInput.isVisible, isFalse);
+      await tester.tap(find.bySemanticsLabel('Larger'));
+      await settle(tester);
+      await tester.tap(find.text('Heading 1'));
+      await settle(tester);
+      expect(tester.testTextInput.isVisible, isFalse);
+      await tester.tapAt(const Offset(200, 100));
+      await settle(tester);
+      expect(tester.testTextInput.isVisible, isFalse);
+      expect(find.text('Heading 6'), findsNothing);
+    });
+
+    testWidgets('Replace moves on to the next match, even when the new words hold the old', (tester) async {
+      final state = await open(tester);
+      final before = RegExp('measure').allMatches(state.controller.document.toPlainText().toLowerCase()).length;
+      await tester.tap(find.bySemanticsLabel('More options'));
+      await settle(tester);
+      await tester.tap(find.text('Find and replace'));
+      await settle(tester);
+      await tester.enterText(
+        find.descendant(of: find.byKey(const ValueKey<String>('doc-find-field')), matching: find.byType(EditableText)),
+        'measure',
+      );
+      await tester.enterText(
+        find.descendant(of: find.byKey(const ValueKey<String>('doc-replace-field')), matching: find.byType(EditableText)),
+        'measures',
+      );
+      for (var i = 0; i < 3; i++) {
+        await tester.tap(find.bySemanticsLabel('Replace'));
+        await settle(tester);
+      }
+      final text = state.controller.document.toPlainText().toLowerCase();
+      expect(RegExp('measures').allMatches(text).length, greaterThanOrEqualTo(3));
+      expect(text, isNot(contains('measuress')));
+      expect(RegExp('measure').allMatches(text).length, before);
+    });
+
+    testWidgets('find marks every match as it is typed, the current one apart', (tester) async {
+      final state = await open(tester);
+      await tester.tap(find.bySemanticsLabel('More options'));
+      await settle(tester);
+      await tester.tap(find.text('Find and replace'));
+      await settle(tester);
+      await tester.enterText(
+        find.descendant(of: find.byKey(const ValueKey<String>('doc-find-field')), matching: find.byType(EditableText)),
+        'measure',
+      );
+      await settle(tester);
+      final (marks, current) = state.findMarks;
+      final count = RegExp('measure').allMatches(state.controller.document.toPlainText().toLowerCase()).length;
+      expect(marks.length, count);
+      expect(current, isNotNull);
+      final page = tester.getRect(find.byKey(const ValueKey<String>('doc-page')));
+      expect(current!.top, greaterThanOrEqualTo(-1));
+      expect(current.bottom, lessThanOrEqualTo(page.height + 1));
+    });
+
+    testWidgets('the outline puts the heading at the top of the page', (tester) async {
+      await open(tester);
+      await tester.tap(find.bySemanticsLabel('More options'));
+      await settle(tester);
+      await tester.tap(find.text('Document outline'));
+      await settle(tester);
+      await tester.tap(find.text('Widows, orphans, and the last line'));
+      await settle(tester);
+      final page = tester.getRect(find.byKey(const ValueKey<String>('doc-page')));
+      final heading = tester.getRect(find.textContaining('Widows, orphans, and the last line', findRichText: true).last);
+      expect(heading.top - page.top, lessThan(page.height / 4));
+      expect(tester.testTextInput.isVisible, isFalse);
+    });
+
+    testWidgets('clearing formatting leaves text in its paragraph style', (tester) async {
+      final state = await open(tester);
+      pickWords(state, 'Most of what follows is about restraint.');
+      await tester.tap(find.bySemanticsLabel('Text format'));
+      await settle(tester);
+      await tester.tap(find.bySemanticsLabel('Clear formatting'));
+      await settle(tester);
+      final body = drawnStyle(tester, 'Most of what follows')!;
+      expect(body.fontSize, closeTo(10.5 * kDocPoint, 0.01));
+    });
+
+    testWidgets('paragraphs are spaced and indented as the document sets them', (tester) async {
+      final state = await open(tester);
+      final render = state.renderEditor!;
+      final end = offsetOf(state, 'the reader noticing the hand.') + 'the reader noticing the hand.'.length;
+      final first = render.getLocalRectForCaret(TextPosition(offset: end - 1));
+      final next = offsetOf(state, 'The measure and the leading');
+      final lineHeight = render.preferredLineHeight(TextPosition(offset: end - 1));
+      final heading = render.getLocalRectForCaret(TextPosition(offset: next));
+      expect(heading.top - first.top, greaterThan(lineHeight + 18 * kDocPoint));
+    });
+
+    testWidgets('the table is drawn with its shading and its merged row', (tester) async {
+      final state = await open(tester);
+      final source = DocxDelta.read(original);
+      final table = source.blocks.values.firstWhere((b) => b.kind == 'table').table!;
+      expect(table.rows.first.first.fill, 0x1F3243);
+      expect(table.rows.first.first.look.bold, isTrue);
+      expect(table.rows.first.first.look.color, 0xFFFFFF);
+      expect(table.rows.last.first.span, 3);
+      state.reveal(offsetOf(state, 'Tables are where'));
+      await settle(tester);
+      expect(
+        find.byWidgetPredicate((w) => w is Container && w.decoration is BoxDecoration && (w.decoration! as BoxDecoration).color == const Color(0xFF1F3243)),
+        findsWidgets,
+      );
+    });
+
+    testWidgets('backspace at the start of a list item takes it out of the list', (tester) async {
+      final state = await open(tester);
+      final start = offsetOf(state, 'Letterspace small capitals');
+      final before = state.controller.document.toPlainText();
+      state.controller.updateSelection(TextSelection.collapsed(offset: start), ChangeSource.local);
+      state.controller.replaceText(start - 1, 1, '', TextSelection.collapsed(offset: start - 1));
+      await settle(tester);
+      expect(state.controller.document.toPlainText(), before);
+      final line = state.controller.document.queryChild(start).node!;
+      expect(line.style.attributes[Attribute.list.key], isNull);
+    });
+
+    testWidgets('numbering a paragraph starts a list of its own, and the later list still counts from 1', (tester) async {
+      final state = await open(tester);
+      pickWords(state, 'Numerals follow the company');
+      await tester.ensureVisible(find.bySemanticsLabel('Numbered list'));
+      await tester.tap(find.bySemanticsLabel('Numbered list'));
+      await settle(tester);
+      await save(tester);
+      final xml = _documentXml(saved!);
+      String? numOf(String words) => RegExp('<w:p>(?:(?!</w:p>).)*?<w:numId w:val="(\\d+)"/>(?:(?!</w:p>).)*?$words', dotAll: true)
+          .firstMatch(xml)
+          ?.group(1);
+      final mine = numOf('Numerals follow');
+      final later = numOf('Fix the trim size');
+      expect(mine, isNotNull);
+      expect(later, isNotNull);
+      expect(mine, isNot(later));
+      expect(RegExp('<w:numId w:val="$mine"/>').allMatches(xml).length, 1);
+    });
   });
 }
