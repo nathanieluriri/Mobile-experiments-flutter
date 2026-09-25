@@ -135,12 +135,21 @@ class SlideEditor extends StatefulWidget {
     required this.bytes,
     required this.onSave,
     required this.onBack,
+    this.openAt,
+    this.onPlace,
   });
 
   final String title;
   final Uint8List bytes;
   final SaveEdit onSave;
   final VoidCallback onBack;
+
+  /// The slide the reader was on, opened to be edited, or null to open on
+  /// all the slides.
+  final int? openAt;
+
+  /// Told which slide is being edited when the deck is saved.
+  final ValueChanged<int>? onPlace;
 
   @override
   State<SlideEditor> createState() => SlideEditorState();
@@ -249,7 +258,13 @@ class SlideEditorState extends State<SlideEditor> {
   void initState() {
     super.initState();
     try {
-      _deck = PptxDeck(widget.bytes);
+      final deck = PptxDeck(widget.bytes);
+      _deck = deck;
+      final at = widget.openAt;
+      if (at != null && deck.slides.isNotEmpty) {
+        _current = at.clamp(0, deck.slides.length - 1);
+        _onSlide = true;
+      }
     } on Object {
       _problem = 'quire cannot open the slides in this file to edit them.';
     }
@@ -338,6 +353,7 @@ class SlideEditorState extends State<SlideEditor> {
     String? problem;
     try {
       final steps = deck.steps;
+      widget.onPlace?.call(_current.clamp(0, deck.slides.length - 1));
       problem = await widget.onSave(
         deck.write(),
         steps == 1 ? 'One change to the slides' : '$steps changes to the slides',

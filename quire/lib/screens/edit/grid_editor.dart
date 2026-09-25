@@ -71,12 +71,26 @@ class GridEditor extends StatefulWidget {
     required this.bytes,
     required this.onSave,
     required this.onBack,
+    this.openAt,
+    this.openRow = 0,
+    this.onPlace,
   });
 
   final String title;
   final Uint8List bytes;
   final SaveEdit onSave;
   final VoidCallback onBack;
+
+  /// The cell the reader had picked, picked again here.
+  final CellPick? openAt;
+
+  /// The row at the top of the reader, at the top here too when no cell
+  /// was picked.
+  final int openRow;
+
+  /// Told, when the file is saved, the row being edited and the column of
+  /// the cell picked in it, if one is.
+  final void Function(int row, int? column)? onPlace;
 
   @override
   State<GridEditor> createState() => GridEditorState();
@@ -169,6 +183,30 @@ class GridEditorState extends State<GridEditor> with WidgetsBindingObserver {
       // The bar grows with long words; the cell stays in sight above it.
       if (_focus.hasFocus) _revealSoon();
     });
+    final open = widget.openAt;
+    if (open != null) {
+      _pick = open;
+      _load();
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (open != null) {
+        _reveal(open.row, open.column);
+      } else if (widget.openRow > _first && _down.hasClients) {
+        _down.jumpTo(((widget.openRow - _first) * kGridRowHeight).clamp(0.0, _down.position.maxScrollExtent));
+      }
+    });
+  }
+
+  /// The row being edited, and the column of the cell picked in it.
+  (int, int?) get _place {
+    final last = math.max(0, _doc.rowCount - 1);
+    final top = _first + (_down.hasClients ? (_down.offset / kGridRowHeight).floor() : 0);
+    return switch (_pick) {
+      CellPick(:final row, :final column) when row <= last && column < _doc.columnCount => (row, column),
+      CellPick(:final row) || RowPick(:final row) => (math.min(row, last), null),
+      _ => (math.min(top, last), null),
+    };
   }
 
   /// Works out which columns are in sight, and a few either side.
@@ -667,6 +705,8 @@ class GridEditorState extends State<GridEditor> with WidgetsBindingObserver {
   Future<void> _save() async {
     commit();
     setState(() => _saving = true);
+    final (row, column) = _place;
+    widget.onPlace?.call(row, column);
     final problem = await widget.onSave(
       _doc.write(),
       _undo.length == 1 ? 'One change' : '${_undo.length} changes',

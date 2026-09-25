@@ -127,6 +127,8 @@ class DocEditor extends StatefulWidget {
     required this.bytes,
     required this.onSave,
     required this.onBack,
+    this.openAt,
+    this.onPlace,
   });
 
   final String title;
@@ -134,8 +136,23 @@ class DocEditor extends StatefulWidget {
   final SaveEdit onSave;
   final VoidCallback onBack;
 
+  /// Where the reader was, to open the page there.
+  final DocPlace? openAt;
+
+  /// Told where the page is when it is saved, for the reader to go there.
+  final ValueChanged<DocPlace>? onPlace;
+
   @override
   State<DocEditor> createState() => DocEditorState();
+}
+
+/// A place in a flowing document, carried between the reader and the
+/// editor, which lay it out apart: the words of the paragraph there, and
+/// how far through the document it is.
+class DocPlace {
+  const DocPlace(this.words, this.fraction);
+  final String words;
+  final double fraction;
 }
 
 class DocEditorState extends State<DocEditor> {
@@ -194,6 +211,15 @@ class DocEditorState extends State<DocEditor> {
           !_skipsKept(index, len, data),
     )..addListener(_changed);
     _scroll.addListener(_placeMarks);
+    final openAt = widget.openAt;
+    if (openAt != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        final at = _offsetOf(openAt);
+        _quietly(() => _controller.updateSelection(TextSelection.collapsed(offset: at), ChangeSource.local));
+        reveal(at, top: true);
+      });
+    }
     final lists = _source?.numberedLists ?? const <String?>[];
     final lines = _linesOf(document);
     for (var i = 0; i < lines.length && i < lists.length; i++) {
@@ -255,6 +281,49 @@ class DocEditorState extends State<DocEditor> {
       painter.dispose();
     }
     return widest;
+  }
+
+  /// Where [place] is on the page: the paragraph with its words nearest
+  /// its share of the way through, or the line at that share.
+  int _offsetOf(DocPlace place) {
+    final text = _controller.document.toPlainText();
+    if (text.isEmpty) return 0;
+    final estimate = (place.fraction * text.length).round().clamp(0, text.length - 1);
+    final words = place.words.trim();
+    if (words.isNotEmpty) {
+      final probe = words.length > 48 ? words.substring(0, 48) : words;
+      int? best;
+      for (var at = text.indexOf(probe); at >= 0; at = text.indexOf(probe, at + 1)) {
+        if (best == null || (at - estimate).abs() < (best - estimate).abs()) best = at;
+      }
+      if (best != null) return best;
+    }
+    var at = estimate;
+    while (at > 0 && text[at - 1] != '\n') {
+      at--;
+    }
+    return at;
+  }
+
+  /// The paragraph at the top of the page as it is scrolled, or the first
+  /// one with words below it.
+  @visibleForTesting
+  DocPlace get place {
+    final document = _controller.document;
+    final length = math.max(1, document.length);
+    var offset = _controller.selection.baseOffset;
+    final render = _editorKey.currentState?.renderEditor;
+    if (render != null && render.hasSize && _scroll.hasClients) {
+      offset = render.getPositionForOffset(Offset(24, _scroll.offset + 24)).offset;
+    }
+    offset = offset.clamp(0, length - 1);
+    Node? node = document.queryChild(offset).node;
+    for (var i = 0; i < 8 && node != null; i++) {
+      final words = node.toPlainText().replaceAll('\n', '').replaceAll('\uFFFC', '').trim();
+      if (words.isNotEmpty) return DocPlace(words, node.documentOffset / length);
+      node = node.next;
+    }
+    return DocPlace('', offset / length);
   }
 
   @override
@@ -364,6 +433,7 @@ class DocEditorState extends State<DocEditor> {
       final ops = <Map<String, Object?>>[
         for (final op in _controller.document.toDelta().toJson()) Map<String, Object?>.from(op as Map),
       ];
+      widget.onPlace?.call(place);
       problem = await widget.onSave(source.write(ops), 'Edited in place');
     } on Object {
       problem = 'The file could not be written. Nothing was saved.';

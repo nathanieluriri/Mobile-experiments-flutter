@@ -7,9 +7,12 @@ import 'package:quire/edit/xlsx_patch.dart';
 import 'package:quire/format/xlsx_parser.dart' show XlsxParser;
 import 'package:quire/pdf/display_list.dart';
 import 'package:quire/pdf/objects.dart';
+import 'package:quire/model/document.dart';
 import 'package:quire/screens/edit/doc_editor.dart';
+import 'package:quire/screens/edit/grid_editor.dart';
 import 'package:quire/screens/edit/markup_screen.dart';
 import 'package:quire/screens/edit/revisions_sheet.dart';
+import 'package:quire/screens/edit/slides/slide_editor.dart';
 import 'package:quire/screens/edit/text_editor.dart';
 import 'package:quire/screens/reader/bodies/sheet_body.dart';
 import 'package:quire/screens/reader/bodies/spine_table.dart';
@@ -295,6 +298,123 @@ void main() {
       expect(snapToLines([turned], const Offset(60, 95), const Offset(70, 99)), [
         const Rect.fromLTRB(60, 95, 70, 99),
       ]);
+    });
+  });
+  group('after the integration critic', () {
+    String words(DocBlock block) => switch (block) {
+      ParagraphBlock() => block.text,
+      HeadingBlock() => block.text,
+      ListItemBlock() => block.text,
+      _ => '',
+    }.trim();
+
+    testWidgets('a deck is edited on the slide being read, and read again on the slide edited', (tester) async {
+      final (_, store) = await open(tester, kPressDayBriefing);
+      store.position = 3;
+      await settle(tester);
+      await _openMenu(tester);
+      await tester.tap(find.text('Edit'));
+      await settle(tester);
+      final editor = tester.state<SlideEditorState>(find.byType(SlideEditor));
+      expect(editor.current, 3);
+      expect(editor.onSlide, isTrue);
+      final deck = editor.deck!;
+      final thumb = find.byKey(ValueKey<String>('thumb-${deck.slides[4]}'));
+      await tester.ensureVisible(thumb);
+      await settle(tester);
+      await tester.tap(thumb);
+      await settle(tester);
+      expect(editor.current, 4);
+      final title = deck.objects(deck.slides[4]).first;
+      final canvas = tester.getTopLeft(find.byKey(const ValueKey<String>('slide-canvas')));
+      final middle = Offset(title.box.left + title.box.width / 2, title.box.top + title.box.height / 2);
+      await tester.timedDragFrom(canvas + editor.onCanvas(middle), const Offset(0, 40), const Duration(milliseconds: 300));
+      await settle(tester);
+      expect(deck.changed, isTrue);
+      await tester.tap(find.text('SAVE'));
+      await _disk(tester);
+      expect(find.byType(SlideEditor), findsNothing);
+      expect(store.position, 4);
+    });
+
+    testWidgets('a Word document is edited where it is being read, and read again where it was edited', (tester) async {
+      final (_, store) = await open(tester, kHouseStyle);
+      final blocks = <DocBlock>[for (final section in store.document!.sections) ...section.blocks];
+      var at = (blocks.length * 0.6).round();
+      while (words(blocks[at]).length < 12) {
+        at++;
+      }
+      store.position = at;
+      await settle(tester);
+      // A little way back up brings the band back, as it does for a reader.
+      await tester.dragFrom(const Offset(200, 500), const Offset(0, 40));
+      await settle(tester);
+      at = store.position;
+      while (words(blocks[at]).length < 12) {
+        at++;
+      }
+      await _openMenu(tester);
+      await tester.tap(find.text('Edit'));
+      await settle(tester);
+      final editor = tester.state<DocEditorState>(find.byType(DocEditor));
+      expect(editor.scroll.offset, greaterThan(0));
+      expect(editor.place.words, startsWith(words(blocks[at]).substring(0, 12)));
+      editor.scroll.jumpTo(editor.scroll.position.maxScrollExtent);
+      await settle(tester);
+      final text = editor.controller.document.toPlainText();
+      final last = text.lastIndexOf(RegExp(r'[a-z]'));
+      editor.controller.replaceText(last + 1, 0, ' more', null);
+      await settle(tester);
+      await tester.tap(find.text('SAVE'));
+      await _disk(tester);
+      expect(find.byType(DocEditor), findsNothing);
+      expect(store.position, greaterThan(store.unitCount * 0.8));
+    });
+
+    testWidgets('a CSV is edited from the cell picked in the reader, and read again on the row edited', (tester) async {
+      final (_, store) = await open(tester, kSubscribers);
+      final sheets = SheetController.of(store);
+      sheets.selected = const SheetCell(4, 1);
+      await settle(tester);
+      await _openMenu(tester);
+      await tester.tap(find.text('Edit'));
+      await settle(tester);
+      final grid = tester.state<GridEditorState>(find.byType(GridEditor));
+      expect(grid.pick, const CellPick(4, 1));
+      grid.select(const CellPick(60, 0), edit: true);
+      await settle(tester);
+      await tester.enterText(find.byType(EditableText).first, 'CHANGED');
+      await settle(tester);
+      await tester.tap(find.text('SAVE'));
+      await _disk(tester);
+      expect(find.byType(GridEditor), findsNothing);
+      // The row edited is in sight, and its cell ringed.
+      expect(store.position, inInclusiveRange(40, 60));
+      expect(sheets.selected, const SheetCell(60, 0));
+    });
+
+    testWidgets('marks saved on a later page leave the reader on that page', (tester) async {
+      final (_, store) = await open(tester, kFieldGuide);
+      await _openMenu(tester);
+      await tester.tap(find.text('Mark up'));
+      await settle(tester);
+      for (var i = 0; i < 2; i++) {
+        await tester.tap(find.bySemanticsLabel('The page after'));
+        await _disk(tester);
+      }
+      expect(tester.state<MarkupScreenState>(find.byType(MarkupScreen)).page, 2);
+      await tester.tap(find.bySemanticsLabel('Highlight'));
+      await settle(tester);
+      final page = tester.getRect(find.byKey(const ValueKey<String>('markup-page')));
+      await tester.dragFrom(
+        page.topLeft + Offset(page.width * 0.1, page.height * 0.2),
+        Offset(page.width * 0.6, page.height * 0.05),
+      );
+      await settle(tester);
+      await tester.tap(find.text('SAVE'));
+      await _disk(tester);
+      expect(find.byType(MarkupScreen), findsNothing);
+      expect(store.position, 2);
     });
   });
 }

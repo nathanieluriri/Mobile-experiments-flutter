@@ -9,7 +9,8 @@ import 'package:share_plus/share_plus.dart';
 
 import '../../painting/signature_painter.dart';
 import '../../painting/overflow_dots_painter.dart';
-import '../../model/document.dart' show TableBlock;
+import '../../model/document.dart'
+    show CodeBlock, DocBlock, HeadingBlock, ListItemBlock, ParagraphBlock, TableBlock;
 import '../../pdf/pdf_search.dart';
 import '../../pdf/writer.dart' show PdfAnnotator, PdfWriteError;
 import '../../data/library.dart' show DocFormat, DocSource;
@@ -348,10 +349,13 @@ class _ReaderHostState extends State<ReaderHost> with TickerProviderStateMixin {
     return null;
   }
 
+  /// Opens an editor over the reader, and once it has saved, calls
+  /// [landed] to take the reader to what was edited.
   Future<void> _openEditor(
     Widget Function(BuildContext context, SaveEdit save, VoidCallback back)
-    build,
-  ) async {
+    build, {
+    VoidCallback? landed,
+  }) async {
     final saved = await Navigator.of(context).push<bool>(
       PageRouteBuilder<bool>(
         transitionDuration: kPadArrival,
@@ -377,41 +381,72 @@ class _ReaderHostState extends State<ReaderHost> with TickerProviderStateMixin {
             ),
       ),
     );
-    if (saved == true && mounted) _say(kEditSaved);
+    if (saved == true && mounted) {
+      landed?.call();
+      _say(kEditSaved);
+    }
   }
 
   /// The words of a Word document or a deck, or the text of Markdown or a
-  /// CSV.
+  /// CSV, each opened where the reader is, and the reader taken to what was
+  /// edited once it is saved.
   void _edit() {
     final store = widget.store;
     final bytes = store.bytes;
     switch (store.entry.format) {
       case DocFormat.docx:
+        DocPlace? place;
         _openEditor(
           (context, save, back) => DocEditor(
             title: store.entry.title,
             bytes: bytes,
             onSave: save,
             onBack: back,
+            openAt: _docPlace(),
+            onPlace: (at) => place = at,
           ),
+          landed: () {
+            final at = place;
+            if (at != null) store.position = _blockOf(at);
+          },
         );
       case DocFormat.pptx:
+        int? slide;
         _openEditor(
           (context, save, back) => SlideEditor(
             title: store.entry.title,
             bytes: bytes,
             onSave: save,
             onBack: back,
+            openAt: store.position,
+            onPlace: (at) => slide = at,
           ),
+          landed: () {
+            final at = slide;
+            if (at != null) store.position = at;
+          },
         );
       case DocFormat.csv:
+        final sheets = SheetController.of(store);
+        final picked = sheets.selected;
+        (int, int?)? cell;
         _openEditor(
           (context, save, back) => GridEditor(
             title: store.entry.title,
             bytes: bytes,
             onSave: save,
             onBack: back,
+            openAt: picked == null ? null : CellPick(picked.row, picked.column),
+            openRow: store.position,
+            onPlace: (row, column) => cell = (row, column),
           ),
+          landed: () {
+            final at = cell;
+            if (at == null) return;
+            store.position = at.$1;
+            final column = at.$2;
+            sheets.selected = column == null ? null : SheetCell(at.$1, column);
+          },
         );
       case DocFormat.md:
         _openEditor(
@@ -439,11 +474,17 @@ class _ReaderHostState extends State<ReaderHost> with TickerProviderStateMixin {
     final pages = _pages;
     final file = widget.store.pdf;
     if (pages == null || file == null) return;
+    int? page;
     _openEditor(
+      landed: () {
+        final at = page;
+        if (at != null) widget.store.position = at;
+      },
       (context, save, back) => MarkupScreen(
         title: widget.store.entry.title,
         pages: pages,
         openAt: widget.store.position,
+        onPlace: (at) => page = at,
         onBack: back,
         onSave: (changes) async {
           final Uint8List bytes;
@@ -464,6 +505,51 @@ class _ReaderHostState extends State<ReaderHost> with TickerProviderStateMixin {
         },
       ),
     );
+  }
+
+  /// The blocks of a flowing document, in the order the reader counts them.
+  List<DocBlock> get _blocks => <DocBlock>[
+    for (final section in widget.store.document?.sections ?? const []) ...section.blocks,
+  ];
+
+  static String _wordsOf(DocBlock block) => switch (block) {
+    ParagraphBlock() => block.text,
+    HeadingBlock() => block.text,
+    ListItemBlock() => block.text,
+    CodeBlock() => block.text,
+    _ => '',
+  }.trim();
+
+  /// Where the reader is in a flowing document, as words the editor can
+  /// find: the block at the top, or the first one with words after it.
+  DocPlace _docPlace() {
+    final blocks = _blocks;
+    if (blocks.isEmpty) return const DocPlace('', 0);
+    final at = widget.store.position.clamp(0, blocks.length - 1);
+    for (var i = at; i < blocks.length && i < at + 8; i++) {
+      final words = _wordsOf(blocks[i]);
+      if (words.isNotEmpty) return DocPlace(words, i / blocks.length);
+    }
+    return DocPlace('', at / blocks.length);
+  }
+
+  /// The block of the document as read again that [place] names: the one
+  /// its words begin nearest its share of the way through, or the block at
+  /// that share.
+  int _blockOf(DocPlace place) {
+    final blocks = _blocks;
+    if (blocks.isEmpty) return 0;
+    final estimate = (place.fraction * blocks.length).round().clamp(0, blocks.length - 1);
+    final words = place.words.trim();
+    if (words.isEmpty) return estimate;
+    final probe = words.length > 48 ? words.substring(0, 48) : words;
+    int? best;
+    for (var i = 0; i < blocks.length; i++) {
+      final text = _wordsOf(blocks[i]);
+      if (text.isEmpty || !(text.startsWith(probe) || probe.startsWith(text))) continue;
+      if (best == null || (i - estimate).abs() < (best - estimate).abs()) best = i;
+    }
+    return best ?? estimate;
   }
 
   /// The ringed cell of a workbook, or its first cell when none is.

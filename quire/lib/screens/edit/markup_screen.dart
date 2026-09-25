@@ -520,11 +520,15 @@ class MarkupScreen extends StatefulWidget {
     required this.openAt,
     required this.onSave,
     required this.onBack,
+    this.onPlace,
   });
 
   final String title;
   final PdfPages pages;
   final int openAt;
+
+  /// Told which page is being marked up when the marks are saved.
+  final ValueChanged<int>? onPlace;
 
   /// Writes the marks, and says why not when it could not.
   final Future<String?> Function(MarkupChanges changes) onSave;
@@ -1801,6 +1805,7 @@ class MarkupScreenState extends State<MarkupScreen> {
     final font = _font ?? await _fontLoad;
     final changes = await _withDrawnWords(changesFor(_marks, _removed, font: font));
     if (!mounted) return;
+    widget.onPlace?.call(_page);
     final problem = await widget.onSave(changes);
     if (!mounted) return;
     setState(() {
