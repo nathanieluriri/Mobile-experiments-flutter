@@ -42,6 +42,15 @@ class ContentInterpreter {
   int unknownOps = 0;
   final Set<String> unsupported = {};
 
+  /// Font resources a page named that could not be found or read, and how
+  /// many text showing operators were lost to them.
+  final Set<String> missingFonts = {};
+  int droppedShows = 0;
+
+  /// Glyphs shown that decoded to no character at all, which is text a page
+  /// draws and this reader cannot.
+  int unmappedGlyphs = 0;
+
   PageDisplayList run(Map<String, Object?> page) {
     final mb = doc.mediaBox(page);
     final cropRaw = doc.resolve(page['CropBox']);
@@ -145,12 +154,18 @@ class ContentInterpreter {
 
     void showText(Uint8List bytes) {
       final f = font;
-      if (f == null) return;
+      if (f == null) {
+        droppedShows++;
+        return;
+      }
       // Render modes 3 and 7 are the invisible OCR layer laid over a scan.
       // The glyphs must not be painted, but they must still advance the text
       // matrix, or every visible run after them lands in the wrong place.
       final invisible = renderMode == 3 || renderMode == 7;
       final runs = f.decode(bytes);
+      for (final r in runs) {
+        if (r.text.isEmpty || r.text == '\uFFFD') unmappedGlyphs++;
+      }
       if (f.vertical) {
         // Each glyph hangs below the one before it, centred on the pen, so
         // each is its own run: the lines a person reads run down the page.
@@ -494,10 +509,14 @@ class ContentInterpreter {
   PdfFont? _loadFont(Map<String, Object?> res, String key) {
     final fonts = doc.dict(res['Font']);
     final f = doc.dict(fonts?[key]);
-    if (f == null) return null;
+    if (f == null) {
+      missingFonts.add(key);
+      return null;
+    }
     try {
       return PdfFont.load(doc, f);
     } catch (_) {
+      missingFonts.add(key);
       return null;
     }
   }
