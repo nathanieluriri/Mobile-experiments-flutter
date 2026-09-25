@@ -106,11 +106,8 @@ class MainActivity : FlutterActivity() {
     }
 
     /**
-     * Tells Dart, before its first frame, that Android owns the splash.
-     *
-     * It is the one thing the first frame cannot wait to be told: on Android
-     * 12 and later the splash may have no mark at all, so the first frame is
-     * drawn bare until the splash has said what it showed.
+     * Tells Dart before its first frame that Android owns the splash, which
+     * may have no mark, so the first frame stays bare until it reports.
      */
     override fun getDartEntrypointArgs(): List<String>? {
         val given = super.getDartEntrypointArgs() ?: emptyList()
@@ -118,10 +115,8 @@ class MainActivity : FlutterActivity() {
     }
 
     /**
-     * Android 12's splash without an icon, and a relaunch with no splash at
-     * all, never reach the exit listener. Whatever is up is bare ground then,
-     * so once the first frame has been up long enough for the listener to
-     * have come, Dart is told so and lifts off quietly.
+     * A splash without an icon, and a relaunch without a splash, never reach
+     * the exit listener, so after a grace period Dart is told it was bare.
      */
     override fun onFlutterUiDisplayed() {
         super.onFlutterUiDisplayed()
@@ -140,12 +135,9 @@ class MainActivity : FlutterActivity() {
 
     override fun onPostResume() {
         super.onPostResume()
-        // The engine puts its own system ui flags back on every resume, and
-        // below Android 11 those flags are what lets the app under the
-        // navigation bar. The first time, Dart has not yet asked for edge to
-        // edge, so the first frame would be laid out short of the splash it
-        // replaces. Below Android 10 the engine never honours edge to edge,
-        // so every later resume would bring the app back short as well.
+        // The engine resets the system ui flags on every resume. The first
+        // comes before Dart asks for edge to edge, and below Android 10 the
+        // engine ignores edge to edge, so the flags go back on here.
         if (!resumedOnce || Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
             resumedOnce = true
             reachTheEdges()
@@ -153,11 +145,8 @@ class MainActivity : FlutterActivity() {
     }
 
     /**
-     * Lays the app out under both system bars, as the splash is.
-     *
-     * The splash covers the whole screen and centres the mark on it. An app
-     * that stopped above the navigation bar would centre its first frame a
-     * few points higher, and the mark would jump as one gave way to the other.
+     * Lays the app out under both bars, as the splash is, so the first frame
+     * centres the mark on the same screen the splash did.
      */
     @Suppress("DEPRECATION")
     private fun reachTheEdges() {
@@ -170,8 +159,8 @@ class MainActivity : FlutterActivity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             window.setDecorFitsSystemWindows(false)
         } else {
-            // Added to the engine's flags rather than put in their place, so
-            // a presentation's hidden bars stay hidden.
+            // Added to the engine's flags so a presentation's hidden bars stay
+            // hidden.
             window.decorView.systemUiVisibility =
                 window.decorView.systemUiVisibility or
                     View.SYSTEM_UI_FLAG_LAYOUT_STABLE or
@@ -181,23 +170,14 @@ class MainActivity : FlutterActivity() {
     }
 
     /**
-     * Hands Android 12's splash over to the first frame.
-     *
-     * The system has kept its splash up until the first frame was drawn, and
-     * gives it to the app to take away. Before it goes, Dart is sent the
-     * splash's mark and name exactly as they are on the screen: their pixels,
-     * where they sit, and where the mark's ink is. The system draws its icon
-     * from a small bitmap scaled up, so it is a shade softer than a vector
-     * would be, and a first frame that drew the vector would sharpen in front
-     * of the reader. Only once Dart says a frame of those same pixels is up
-     * does the splash go, from over an identical picture.
+     * Sends Dart the splash's mark and name as they are on the screen, pixels
+     * and all, since the system's upscaled icon is softer than the vector,
+     * and removes the splash only once Dart has a matching frame up.
      */
     @TargetApi(Build.VERSION_CODES.S)
     private fun handOver(splash: SplashScreenView) {
         if (!splashUp) {
-            // The listener came after Dart was told there was no splash to
-            // wait for, and the app under it has moved on. It goes softly
-            // rather than being cut away.
+            // Dart was already told the splash was bare and has moved on.
             splash.animate()
                 .alpha(0f)
                 .setDuration(LATE_FADE_MS)

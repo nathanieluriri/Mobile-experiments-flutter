@@ -8,10 +8,9 @@ import '../theme/springs.dart';
 import 'arrival_geometry.dart';
 import 'quire_mark.dart';
 
-/// How long the reveal takes, from the resting mark to the live desk.
 const kArrivalReveal = Duration(milliseconds: 1100);
 
-/// When the window starts to swell past the screen, in milliseconds.
+/// When the window starts to swell, in milliseconds.
 const kArrivalSwellFrom = 420.0;
 
 /// How far into the swell the window has passed every corner of the screen.
@@ -19,7 +18,6 @@ const kArrivalSwellFrom = 420.0;
 /// be taken away at the end without a pixel changing.
 const kArrivalCovered = 0.86;
 
-/// How far the desk stands forward while the mark is still over it.
 const kArrivalDeskScale = 1.05;
 
 /// One frame of the reveal. Lengths are in the mark's own units unless their
@@ -48,7 +46,6 @@ class ArrivalPose {
     required this.deskScale,
   });
 
-  /// The pose the native splash hands over.
   static const rest = ArrivalPose(
     nameOpacity: 1,
     nameDrop: 0,
@@ -72,7 +69,6 @@ class ArrivalPose {
     deskScale: kArrivalDeskScale,
   );
 
-  /// The pose once the window has passed every edge of the screen.
   static const gone = ArrivalPose(
     nameOpacity: 0,
     nameDrop: 0,
@@ -148,7 +144,6 @@ class ArrivalPose {
   final double deskScale;
 }
 
-/// Where one pane has gone.
 class PanePose {
   const PanePose({
     required this.shift,
@@ -241,13 +236,9 @@ ArrivalPose arrivalPoseAt(double ms, ArrivalGeometry geometry, Size size) {
   );
 }
 
-/// How long the exact mark takes to hand over to the goo, and when the goo
-/// starts to move.
 const _handOver = 80.0;
 const _moveFrom = 60.0;
 
-/// When the holes' inner corners meet in the middle, and how wide the
-/// opening there grows, and by when.
 const _metAt = 300.0;
 const _openTo = 20.0;
 const _openBy = 450.0;

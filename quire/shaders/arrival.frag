@@ -33,15 +33,14 @@ float segment(vec2 p, vec2 a, vec2 b) {
   return length(pa - ba * clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0));
 }
 
-// Distance to the quarter circle about c of radius r from its left to its top.
+// The quarter circle from its left point to its top point.
 float topLeftArc(vec2 p, vec2 c, float r) {
   vec2 d = p - c;
   if (d.x <= 0.0 && d.y <= 0.0) return abs(length(d) - r);
   return min(length(d + vec2(r, 0.0)), length(d + vec2(0.0, r)));
 }
 
-// Distance to the quadratic from a through c to b, as four chords that stay
-// within a thirtieth of a unit of it.
+// The quadratic from a through c to b, as four chords within 0.034 units of it.
 float bevel(vec2 p, vec2 a, vec2 c, vec2 b) {
   vec2 q1 = 0.5625 * a + 0.375 * c + 0.0625 * b;
   vec2 q2 = 0.25 * a + 0.5 * c + 0.25 * b;
@@ -52,10 +51,9 @@ float bevel(vec2 p, vec2 a, vec2 c, vec2 b) {
   );
 }
 
-// Positive left of a side that runs straight down at x = b.x, bends along the
-// quadratic from b through c to a, and runs on straight down at x = a.x.
-// Along the curve x only grows as y shrinks, so the curve's x at p's height
-// can be solved for directly.
+// Positive left of a side running down at x = b.x, along the quadratic from b
+// through c to a, then down at x = a.x. The curve's x only grows as y shrinks,
+// so its x at p's height is solved for directly.
 float leftOf(vec2 p, vec2 a, vec2 c, vec2 b) {
   if (p.y >= a.y) return a.x - p.x;
   if (p.y <= b.y) return b.x - p.x;
@@ -80,7 +78,6 @@ float roundBox(vec2 p, vec2 lo, vec2 hi, float r) {
   return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r;
 }
 
-// A box whose top right corner alone is rounded.
 float topRightBox(vec2 p, vec2 lo, vec2 hi, float r) {
   vec2 d = p - (lo + hi) * 0.5;
   float k = (d.x > 0.0 && d.y < 0.0) ? r : 0.0;
@@ -88,8 +85,7 @@ float topRightBox(vec2 p, vec2 lo, vec2 hi, float r) {
   return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - k;
 }
 
-// The convex hull of a circle of radius ra about a and one of radius rb
-// about b, where the second is not inside the first.
+// The convex hull of two circles, the second not inside the first.
 float taper(vec2 p, vec2 a, vec2 b, float ra, float rb) {
   vec2 pb = b - a;
   float h = dot(pb, pb);
@@ -108,7 +104,6 @@ float smin(float a, float b, float k) {
   return min(a, b) - h * h * k * 0.25;
 }
 
-// The first pane's dog ear: a box whose top left corner is a quarter circle.
 float flap(vec2 p) {
   const vec2 c = vec2(85.49, 76.91);
   float d = min(
@@ -121,17 +116,15 @@ float flap(vec2 p) {
   return inside ? -d : d;
 }
 
-// A smooth union whose blending is only felt within about six units of at,
-// for filling one inside corner and nothing else.
+// A smooth union felt only within about six units of at, to fill one inside
+// corner without bulging the edges the two shapes share.
 float fillet(float a, float b, float k, vec2 p, vec2 at) {
   vec2 off = p - at;
   return smin(a, b, k * exp(-dot(off, off) / 36.0));
 }
 
-// The first pane below its dog ear, with the bevel at the foot of its left
-// side. The box and the foot are true distances each, so the pane's corners
-// soften like every other, and the inside corner where the bevel meets the
-// box softens with them.
+// True distances throughout, so the offset that softens the other panes'
+// corners softens these the same way instead of stepping.
 float body0(vec2 p, float soft) {
   const vec2 a = vec2(67.06, 98.36);
   const vec2 c = vec2(67.06, 93.69);
@@ -145,10 +138,8 @@ float body0(vec2 p, float soft) {
   return fillet(pane, foot, soft, p, b);
 }
 
-// Where the dog ear melts down to: the middle of its foot, on the pane.
 const vec2 kFlapFoot = vec2(83.655, 86.0);
 
-// A point seen from inside a dog ear that has shrunk to s about its foot.
 vec2 melted(vec2 p, float s) {
   return kFlapFoot + (p - kFlapFoot) / s;
 }
@@ -169,8 +160,6 @@ float flapHole(vec2 p) {
   return inside ? -d : d;
 }
 
-// The first pane's hole, stepped down under the dog ear's own: a box beside
-// the step and the body below it, whose inside corner softens with the rest.
 float paneHole0(vec2 p, float soft) {
   const vec2 a = vec2(74.63, 98.36);
   const vec2 c = vec2(74.63, 93.69);
@@ -202,14 +191,13 @@ const float kPaneHalf = 17.605;
 const float kFlapHalf = 7.005;
 const float kOutlineHalf = 25.175;
 
-// Each hole's corner nearest the middle.
 const vec2 kInner0 = vec2(109.84, 118.42);
 const vec2 kInner1 = vec2(130.16, 118.42);
 const vec2 kInner2 = vec2(109.84, 136.72);
 const vec2 kInner3 = vec2(130.16, 136.72);
 
-// Each outline's corner nearest the middle, as the circle it is rounded by,
-// or would be for the two that are square.
+// The circles the outlines' inner corners are rounded by, or would be for the
+// two that are square.
 const float kOutlineCorner = 5.05;
 const vec2 kNear0 = vec2(117.41, 125.99) - kOutlineCorner;
 const vec2 kNear1 = vec2(122.59 + kOutlineCorner, 125.99 - kOutlineCorner);
@@ -223,7 +211,7 @@ vec2 into(vec2 p, vec2 c, vec2 m, float s) {
   return c + (p - m - c) / s;
 }
 
-// A shape grown by s about its centre, then rounded by r without growing.
+// Grown by s about its centre, then rounded by r without growing.
 float grown(float d, float s, float shrink, float r) {
   return d * s * shrink - r;
 }
@@ -232,17 +220,14 @@ float holeShrink(float s, float extent, float r) {
   return max(0.05, 1.0 - r / (s * extent));
 }
 
-// A corner rounded by the circle of radius r about at, drawn out toward the
-// middle into a finger that tapers to a fingertip. At reach 1 the tip has
-// come to the middle.
+// A corner rounded by the circle of radius r about at, drawn out into a
+// finger whose tip reaches the middle at reach 1.
 float finger(vec2 p, vec2 at, float r, float reach) {
   vec2 end = at + (uMiddle - at) * reach;
   if (length(end - at) <= abs(r - kFingertip) + 1e-3) return 1e3;
   return taper(p, at, end, r, kFingertip);
 }
 
-// Where a point of a pane lands once it has been scaled by s about c and
-// moved by m.
 vec2 placed(vec2 x, vec2 c, vec2 m, float s) {
   return c + (x - c) * s + m;
 }
@@ -252,10 +237,9 @@ float zipAt(vec2 p) {
   return 1.0 + uNeck.w * exp(-dot(fromMiddle, fromMiddle) / 576.0);
 }
 
-// The mark's outer edge and its holes, as distances at p.
+// The outer edge in x, the holes in y.
 vec2 scene(vec2 p) {
-  // The outlines are drawn together harder near the middle, so the gaps
-  // between the panes close from there outwards.
+  // Pulled together harder near the middle, so the gaps close from there out.
   vec2 fromMiddle = p - uMiddle;
   float zip = zipAt(p);
 
@@ -270,9 +254,8 @@ vec2 scene(vec2 p) {
   float o3 = grown(outline3(into(p, kCentre3, uPane3.xy * zip, uPane3.z * t3)), uPane3.z, t3, uSoft.w);
   float kOutline = uGlobal.z;
   float outlines = smin(smin(o0, o1, kOutline), smin(o2, o3, kOutline), kOutline);
-  // Before that, their inner corners reach across and meet in the middle, so
-  // the gap between them is closed there first and never shuts round a
-  // speck. Each finger joins only its own pane until they meet.
+  // The inner corners meet in the middle first, so the gaps never shut round
+  // a speck of ground there. Fingers join only their own pane until they meet.
   if (uNeck.x > 0.0) {
     float z0 = zipAt(kNear0);
     float fingers = min(
@@ -298,9 +281,8 @@ vec2 scene(vec2 p) {
   float kHole = uGlobal.w;
   float holes = smin(smin(smin(hf, h0, kHole), smin(h1, h2, kHole), kHole), h3, kHole);
 
-  // The holes' inner corners reach for the middle and meet there, which
-  // parts the bars between them at the crossing. Each finger joins only its
-  // own hole's corner, so no two meet anywhere but at the middle.
+  // The holes part the bars by meeting at the crossing. Fingers join only
+  // their own hole, so no two meet anywhere but at the middle.
   if (uNeck.y > 0.0) {
     float fingers = min(
       min(finger(p, placed(kInner0, kCentre0, uPane0.xy, uPane0.w * s0), uRound.x, uNeck.y),
@@ -310,12 +292,9 @@ vec2 scene(vec2 p) {
     );
     holes = min(holes, fingers);
   }
-  // Once they have met, the opening there widens and draws the bars' ends
-  // back, rounded.
   if (uNeck.z > 0.0) {
     holes = smin(holes, length(fromMiddle) - uNeck.z, uTension.z);
   }
-  // Surface tension: the holes, run together, settle into one soft window.
   if (uTension.y > 0.0) {
     float corner = min(uBlob.z, uBlob.w) * uTension.x;
     float blob = roundBox(p, uBlob.xy - uBlob.zw, uBlob.xy + uBlob.zw, corner);
@@ -334,10 +313,9 @@ void main() {
   // One device pixel, in the units the distances are measured in.
   float pixel = uFrame.w / (unit * swell);
   vec2 d = scene(p);
-  // Where the goo runs together or pulls apart its distances fall off more
-  // slowly than true ones, and an edge measured as if they did would smear
-  // over several pixels. Near an edge each is measured against how fast it
-  // really changes, so every edge stays one pixel wide.
+  // Where the goo runs together its distances fall off slower than true ones,
+  // which would smear edges over pixels, so near an edge each is measured
+  // against its real rate of change. SkSL has no derivatives to do this.
   vec2 rate = vec2(1.0);
   if (min(abs(d.x), abs(d.y)) < 3.0 * pixel) {
     vec2 across = scene(p + vec2(pixel, 0.0)) - d;

@@ -26,13 +26,10 @@ const kArrivalHandoffBackstop = Duration(milliseconds: 2000);
 /// came up without the mark: the ground simply lifts off the screen.
 const kArrivalQuietReveal = Duration(milliseconds: 240);
 
-/// How long the goo may keep the arrival waiting once everything else is
-/// ready. It is read off the app's own bundle and is there within a frame on
-/// any phone, so a load still running after this has gone wrong, and the
-/// ground lifts off instead.
+/// How long the goo may keep a ready arrival waiting. It loads from the app's
+/// own bundle within a frame, so a load still running after this has failed.
 const kArrivalShaderLimit = Duration(milliseconds: 300);
 
-/// The asset the goo is drawn with.
 const kArrivalShader = 'shaders/arrival.frag';
 
 /// The app's first moments: the splash's own mark, held where the platform
@@ -57,7 +54,6 @@ class Arrival extends StatefulWidget {
 
   final ArrivalHandoff? handoff;
 
-  /// The app.
   final Widget child;
 
   @override
@@ -121,8 +117,7 @@ class _ArrivalState extends State<Arrival> with SingleTickerProviderStateMixin {
       if (!mounted) return;
       setState(() => _shader = program.fragmentShader());
     } on Object {
-      // Without the goo the ground lifts off instead. A reader who never sees
-      // the window open has lost a flourish, not the app.
+      // Without the goo the ground lifts off instead.
     }
     _shaderSettled = true;
     _maybeStart();

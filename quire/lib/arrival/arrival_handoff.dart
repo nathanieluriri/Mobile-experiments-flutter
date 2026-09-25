@@ -38,10 +38,8 @@ class SplashReport {
   /// too short to fit it under the mark.
   final bool showedName;
 
-  /// The splash's mark exactly as it was on the screen, and the rect it was
-  /// drawn in. Android 12 draws it from a small bitmap scaled up, a shade
-  /// softer than the vector, so the first frame shows these pixels rather
-  /// than sharpen in front of the reader.
+  /// The splash's mark as it was on the screen, and where. Android 12 upscales
+  /// a small bitmap, softer than the vector, so these are shown instead.
   final ui.Image? markPixels;
   final Rect? markPixelsRect;
 
@@ -54,17 +52,9 @@ class SplashReport {
   }
 }
 
-/// The Flutter side of the handover.
-///
-/// On Android 12 and later the system keeps its splash over the app until it
-/// is told to take it away, and tells the app what it drew and where first.
-/// So the frame under it can be made to match, drawn, and only then can the
-/// splash go: it goes from over an identical picture. A splash that showed
-/// nothing is reported as bare.
-///
-/// Everywhere else there is nothing to be told. The launch screen is laid out
-/// to match the standard place, and it goes on its own once the first frame
-/// is up.
+/// The Flutter side of Android 12's handover: the splash reports what it drew
+/// and where, and goes only once a matching frame is up. Other launch screens
+/// are laid out to match the standard place and go on their own.
 class ArrivalHandoff {
   ArrivalHandoff([this._channel = const MethodChannel(kArrivalChannel)]);
 
