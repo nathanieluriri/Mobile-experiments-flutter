@@ -91,7 +91,7 @@ class ReaderHost extends StatefulWidget {
 }
 
 /// What the band says once a change has been kept.
-const kEditSaved = 'Saved. Revisions has every earlier version.';
+const kEditSaved = 'Saved as a new revision.';
 
 /// Whether the line about tapping a slide has been said.
 ///

@@ -67,16 +67,11 @@ const kReaderTitleWidth = 170.0;
 
 /// How wide a line the band is saying may run.
 ///
-/// Wider than the title, because a notice is a sentence and a title is a
-/// name, and narrower than the band: the two buttons at the right end and the
-/// one at the left are still there, and a line that ran under them would be a
-/// line half of which cannot be read.
+/// Centred like the title, it stops a gap short of the two buttons at the
+/// right end, which reach further in than the one at the left: a line that
+/// ran under them would be a line half of which cannot be read.
 const kBandLabelWidth =
-    kScreenWidth -
-    (kScreenPadding + kHeaderButtonSize) * 2 -
-    kHeaderButtonSize -
-    kChromeButtonGap -
-    kSpace12 * 2;
+    2 * (kScreenWidth / 2 - (kScreenPadding + kHeaderButtonSize * 2 + kChromeButtonGap + kSpace12));
 
 /// The head band: the way back, the document's name, and what can be done to
 /// it, on an opaque band floating over the top of the page.
@@ -369,7 +364,7 @@ class _BandLabel extends StatelessWidget {
       child: Text(
         text,
         textAlign: TextAlign.center,
-        maxLines: 2,
+        maxLines: 3,
         overflow: TextOverflow.ellipsis,
         style: AppText.label.copyWith(color: AppColors.ink),
       ),

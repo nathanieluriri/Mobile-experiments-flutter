@@ -419,5 +419,19 @@ void main() {
       expect(find.byType(MarkupScreen), findsNothing);
       expect(store.position, 2);
     });
+      testWidgets('the saved notice is one line, clear of the search button', (tester) async {
+      await open(tester, kBinderyNotes);
+      await _openMenu(tester);
+      await tester.tap(find.text('Edit'));
+      await settle(tester);
+      await tester.enterText(find.byType(EditableText), '# Changed\n\nNew words here.');
+      await settle(tester);
+      await tester.tap(find.text('SAVE'));
+      await _disk(tester);
+      final notice = tester.getRect(find.text(kEditSaved));
+      final search = tester.getRect(find.bySemanticsLabel('Find in document'));
+      expect(notice.overlaps(search), isFalse);
+      expect(notice.height, lessThan(20));
+    });
   });
 }
