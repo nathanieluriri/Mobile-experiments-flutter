@@ -875,6 +875,8 @@ class PptxDeck {
       final el = _object(doc, id);
       if (el == null) return;
       _place(doc, el, was.box, box, rotation, flipH: flipH, flipV: flipV);
+      final table = el.name.local == 'graphicFrame' ? _table(el) : null;
+      if (table != null) _scaleTable(table, was.box, box);
       if (el.name.local == 'cxnSp') {
         // A line moved on its own lets go of the shapes it was glued to.
         _unglue(el, null);
@@ -883,6 +885,26 @@ class PptxDeck {
       }
       _put(slide, doc);
     });
+  }
+
+  /// Scales [table]'s columns and rows with its frame, from [from] to [to],
+  /// so they fill it as they did.
+  static void _scaleTable(XmlElement table, SlideBox from, SlideBox to) {
+    void scale(List<XmlElement> items, String attribute, double was, double now) {
+      if (items.isEmpty || was <= 0 || (now - was).abs() < 0.01) return;
+      final total = _emu(now);
+      var sum = 0;
+      for (var i = 0; i < items.length; i++) {
+        final size = int.tryParse(_at(items[i], attribute) ?? '') ?? 0;
+        final scaled = i == items.length - 1 ? math.max(0, total - sum) : (size * now / was).round();
+        _setAttr(items[i], attribute, '$scaled');
+        sum += scaled;
+      }
+    }
+
+    final grid = _kid(table, 'tblGrid');
+    scale(<XmlElement>[...?grid?.childElements.where((e) => e.name.local == 'gridCol')], 'w', from.width, to.width);
+    scale(<XmlElement>[...table.childElements.where((e) => e.name.local == 'tr')], 'h', from.height, to.height);
   }
 
   static XmlElement? _glue(XmlElement line) {

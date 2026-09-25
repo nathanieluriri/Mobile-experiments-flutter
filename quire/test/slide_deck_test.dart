@@ -1341,4 +1341,20 @@ void main() {
       expect(tester.getTopLeft(find.byType(Image)).dx, closeTo(tester.getTopLeft(find.ancestor(of: find.byType(Image), matching: find.byType(ClipRect)).first).dx - frame.width / 2, 0.5));
     });
   });
+
+  group('after the round two critic, tables', () {
+    test('sizing a table by its handles sizes its columns and rows with it', () {
+      final deck = PptxDeck(bytes);
+      final slide = deck.slides[2];
+      final table = deck.objects(slide).firstWhere((o) => o.kind == 'graphicFrame');
+      final to = SlideBox(table.box.left, table.box.top, table.box.width * 0.6, table.box.height * 2);
+      deck.place(slide, table.id, to);
+      final (columns, rows) = deck.tableGrid(slide, table.id)!;
+      expect(columns.reduce((a, b) => a + b), closeTo(to.width, 0.05));
+      expect(rows.reduce((a, b) => a + b), closeTo(to.height, 0.05));
+      final again = _reopen(deck);
+      final (againColumns, _) = again.tableGrid(again.slides[2], table.id)!;
+      expect(againColumns.first, closeTo(columns.first, 0.01));
+    });
+  });
 }
