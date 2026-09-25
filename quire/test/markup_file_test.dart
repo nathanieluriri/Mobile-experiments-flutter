@@ -505,6 +505,23 @@ void main() {
   });
 
   group('after round three', () {
+    test('a sticky note\'s words open, and a change to them is written with its move', () {
+      final bytes = _pageWith('4 0 R', [
+        obj('<< /Type /Annot /Subtype /Text /Rect [250 290 270 310] /Contents (Check the gutter) /AP << /N 5 0 R >> >>'),
+        _form('250 290 270 310', '1 1 0 rg 250 290 20 20 re f'),
+      ]);
+      final file = PdfFile.open(bytes);
+      final found = readMarks(file, 0).single;
+      expect(found.note, 'Check the gutter');
+      final mark = EditorMark(id: 1, edit: found.edit, found: found).movedBy(const Offset(10, 0)).copyWith(noted: 'Check the gutter and the head');
+      final changes = changesFor(<EditorMark>[mark], const <FoundMark>[]);
+      expect(changes.updates.single, isA<MarkNoted>());
+      final again = PdfFile.open(PdfAnnotator.apply(file, updates: changes.updates));
+      final kept = readMarks(again, 0).single;
+      expect(kept.note, 'Check the gutter and the head');
+      expect(kept.edit.bounds.left, closeTo(found.edit.bounds.left + 10, 0.01));
+    });
+
     List<String> wordsOf(PdfFile file, int annot) =>
         [for (final t in ContentInterpreter(file).run(file.pages[0], onlyAnnotation: annot).texts) t.text];
 

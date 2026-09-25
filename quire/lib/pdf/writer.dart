@@ -1014,6 +1014,14 @@ class MarkRewritten extends MarkUpdate {
   final PageEdit edit;
 }
 
+/// A sticky note given the words [text], moved [by] as well where it was
+/// moved, keeping everything else it says.
+class MarkNoted extends MarkUpdate {
+  const MarkNoted(super.origin, this.text, {this.by = Offset.zero});
+  final String text;
+  final Offset by;
+}
+
 /// Taken off the page, with the note window it opens.
 class MarkRemoved extends MarkUpdate {
   const MarkRemoved(super.origin);
@@ -1389,6 +1397,14 @@ class PdfAnnotator extends PdfUpdate {
           listChanged |= _replace(annots, at, dict);
         case MarkRewritten():
           listChanged |= _replace(annots, at, _rewrittenDict(annots[at], update.edit, ref, place));
+        case MarkNoted():
+          final dict = update.by == Offset.zero
+              ? Map<String, Object?>.of(file.dict(annots[at])!)
+              : _movedDict(annots[at], update.by, place);
+          dict
+            ..['Contents'] = _utf16(update.text)
+            ..['M'] = _now();
+          listChanged |= _replace(annots, at, dict);
       }
     }
     final remove = removed.isEmpty ? const <int>{} : annotationThread(file, annots, removed);

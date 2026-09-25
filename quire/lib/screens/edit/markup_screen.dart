@@ -380,7 +380,15 @@ class EditorMark {
     this.found,
     this.shift = Offset.zero,
     this.reshaped = false,
+    this.noted,
   });
+
+  /// A sticky note's words as changed here, or null while they are the
+  /// file's.
+  final String? noted;
+
+  /// A sticky note's words as they stand.
+  String? get note => noted ?? found?.note;
 
   final int id;
 
@@ -419,12 +427,13 @@ class EditorMark {
     return !reshaped || edit is KeptEdit;
   }
 
-  EditorMark copyWith({PageEdit? edit, Offset? shift, bool? reshaped}) => EditorMark(
+  EditorMark copyWith({PageEdit? edit, Offset? shift, bool? reshaped, String? noted}) => EditorMark(
         id: id,
         edit: edit ?? this.edit,
         found: found,
         shift: shift ?? this.shift,
         reshaped: reshaped ?? this.reshaped,
+        noted: noted ?? this.noted,
       );
 
   EditorMark movedBy(Offset by) => copyWith(edit: edit.moved(by), shift: shift + by);
@@ -442,7 +451,10 @@ MarkupChanges changesFor(List<EditorMark> marks, List<FoundMark> removed, {TrueT
       added.add(mark.edit);
       continue;
     }
-    if (mark.reshaped) {
+    final noted = mark.noted;
+    if (noted != null && noted != found.note) {
+      updates.add(MarkNoted(found.origin, noted, by: mark.shift));
+    } else if (mark.reshaped) {
       final edit = mark.edit;
       updates.add(
         edit is KeptEdit ? MarkRefitted(found.origin, edit.rect) : MarkRewritten(found.origin, edit),
@@ -1533,6 +1545,24 @@ class MarkupScreenState extends State<MarkupScreen> {
     setState(() => _replaceMark(mark.changedTo(_fitted(mark, edit.copyWith(text: words)))));
   }
 
+  /// Opens the sticky note picked up, to read its words or change them.
+  Future<void> openNote() async {
+    final mark = _selection;
+    final was = mark?.note;
+    if (mark == null || was == null) return;
+    _asking = true;
+    var typed = was;
+    final words = await showDeskSheet<String>(
+          context,
+          (context) => WordsSheet(words: was, onChanged: (t) => typed = t),
+        ) ??
+        typed;
+    _asking = false;
+    if (words == was || !mounted) return;
+    _remember();
+    setState(() => _replaceMark(mark.copyWith(noted: words)));
+  }
+
   MarkupTool? _toolFor(PageEdit edit) => switch (edit) {
         TextBoxEdit() => MarkupTool.text,
         InkEdit() => MarkupTool.ink,
@@ -1922,6 +1952,7 @@ class MarkupScreenState extends State<MarkupScreen> {
       ];
     }
     return <PillAction>[
+      if (mark.note != null) PillAction('Open', () => unawaited(openNote())),
       PillAction('Cut', cutSelected),
       PillAction('Copy', copySelected),
       if (_clipboard != null) PillAction('Paste', () => paste()),

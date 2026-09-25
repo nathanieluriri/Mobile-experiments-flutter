@@ -18,6 +18,7 @@ class FoundMark {
     bool? resizable,
     this.outline,
     this.anchored = false,
+    this.note,
   })  : movable = movable ?? (edit is! HighlightEdit && edit is! StrikeEdit),
         resizable = resizable ?? (edit is! HighlightEdit && edit is! StrikeEdit);
 
@@ -40,6 +41,9 @@ class FoundMark {
 
   /// False for a mark that is an icon of fixed size, such as a note.
   final bool resizable;
+
+  /// A sticky note's words, which open from its icon.
+  final String? note;
 
   /// The lines a mark is drawn with, in the reader's points, for one that
   /// is picked up by its lines rather than anywhere in its box: an outline
@@ -120,6 +124,7 @@ List<FoundMark> readMarks(PdfFile file, int index) {
       resizable: text || icon ? false : null,
       outline: _outline(file, annot, subtype.value, place, bounds),
       anchored: subtype.value == 'FreeText' && _numbers(file, annot['CL']) != null,
+      note: subtype.value == 'Text' ? _noteWords(file, annot) : null,
     ));
   }
   return out;
@@ -165,6 +170,11 @@ List<List<Offset>>? _outline(
       return line.length < 2 ? null : <List<Offset>>[<Offset>[...line, line.first]];
   }
   return null;
+}
+
+String _noteWords(PdfFile file, Map<String, Object?> annot) {
+  final contents = file.resolve(annot['Contents']);
+  return contents is PdfString ? lineBreaks(pdfTextString(contents)) : '';
 }
 
 TextBoxEdit _words(

@@ -494,6 +494,12 @@ void main() {
     await tester.tapAt(at(tester, state, const Offset(260, 100)));
     await settle(tester);
     expect(state.selection?.found?.subtype, 'Text');
+    expect(find.text('Open'), findsOneWidget);
+    await tester.tap(find.text('Open'));
+    await settle(tester);
+    expect(find.byType(WordsSheet), findsOneWidget);
+    Navigator.of(tester.element(find.byType(WordsSheet))).pop();
+    await settle(tester);
     await tester.tapAt(at(tester, state, const Offset(250, 380)));
     await tester.pump(const Duration(milliseconds: 400));
     await tester.tapAt(at(tester, state, const Offset(90, 63)));
