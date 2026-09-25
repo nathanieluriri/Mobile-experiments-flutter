@@ -58,11 +58,15 @@ class SlideTextLook {
 /// How the words of one shape are set: the look each outline level has
 /// before a paragraph says anything, and each paragraph and run as it is.
 class SlideTextLooks {
-  const SlideTextLooks(this.levels, this.paragraphs);
+  const SlideTextLooks(this.levels, this.paragraphs, {this.scale = 1});
 
   /// Levels 0 to 8.
   final List<SlideTextLook> levels;
   final List<(SlideTextLook, List<SlideTextLook>)> paragraphs;
+
+  /// The share of their size the words are drawn at, where PowerPoint
+  /// shrinks them to fit their box; the looks' sizes are already scaled.
+  final double scale;
 }
 
 /// Something on a slide that can be picked up: a shape, a picture, a table
@@ -1099,9 +1103,9 @@ class PptxParser {
     final style = _kid(el, 'style');
     final body = _kid(el, 'txBody');
     if (body != null) {
-      blocks.addAll(
-        _textBody(body, colours, slot, role, master, _fontRefColour(style, colours)),
-      );
+      final words = _textBody(body, colours, slot, role, master, _fontRefColour(style, colours));
+      final scale = _fontScale(body);
+      blocks.addAll(scale == 1 ? words : _scaled(words, scale));
     }
 
     final fillAsset = _ln(el) == 'pic' ? null : _pictureFill(el, part);
@@ -1466,8 +1470,9 @@ class PptxParser {
     final fontColour = headingLook
         ? colours['lt1'] ?? colours['bg1']
         : _fontRefColour(_kid(found, 'style'), colours);
+    final scale = cell == null ? _fontScale(body) : 1.0;
     SlideTextLook look(_Level level, int depth) => SlideTextLook(
-      size: level.size ?? kSlideTextSize,
+      size: (level.size ?? kSlideTextSize) * scale,
       bold: level.bold ?? false,
       italic: level.italic ?? false,
       underline: level.underline ?? false,
@@ -1504,7 +1509,39 @@ class PptxParser {
         ));
       }
     }
-    return SlideTextLooks(levels, paragraphs);
+    return SlideTextLooks(levels, paragraphs, scale: scale);
+  }
+
+  /// The share of their size a text body's words are drawn at: PowerPoint
+  /// shrinks the words of a box they overflow, and says by how much.
+  static double _fontScale(XmlElement? body) {
+    final properties = body == null ? null : _kid(body, 'bodyPr');
+    final fit = properties == null ? null : _kid(properties, 'normAutofit');
+    final scale = double.tryParse((fit == null ? null : _at(fit, 'fontScale')) ?? '');
+    return scale == null ? 1 : (scale / 100000).clamp(0.05, 1.0);
+  }
+
+  /// [blocks] with every word at [scale] of its size.
+  static List<DocBlock> _scaled(List<DocBlock> blocks, double scale) {
+    List<DocSpan> spans(List<DocSpan> from) => <DocSpan>[
+      for (final span in from) span.fontSize == null ? span : span.copyWith(fontSize: span.fontSize! * scale),
+    ];
+    return <DocBlock>[
+      for (final block in blocks)
+        switch (block) {
+          ParagraphBlock() => ParagraphBlock(spans(block.spans), align: block.align, indent: block.indent, quote: block.quote, styleId: block.styleId),
+          HeadingBlock() => HeadingBlock(block.level, spans(block.spans), anchor: block.anchor, align: block.align),
+          ListItemBlock() => ListItemBlock(
+            spans(block.spans),
+            level: block.level,
+            ordered: block.ordered,
+            marker: block.marker,
+            checked: block.checked,
+            align: block.align,
+          ),
+          _ => block,
+        },
+    ];
   }
 
   /// A level's defaults, weakest first: the master's own list style, then

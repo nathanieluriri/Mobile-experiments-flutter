@@ -503,6 +503,25 @@ Uint8List _unwrapped(Uint8List bytes) {
   return ZipEncoder().encodeBytes(out);
 }
 
+/// The sample deck with slide 2's body shrunk to 55% by PowerPoint.
+Uint8List _shrunk(Uint8List bytes) {
+  final archive = ZipDecoder().decodeBytes(bytes);
+  final out = Archive();
+  for (final f in archive.files) {
+    if (f.name == 'ppt/slides/slide2.xml') {
+      final xml = utf8.decode(f.content);
+      final at = xml.indexOf('<a:bodyPr/>', xml.indexOf('name="Content 2"'));
+      out.addFile(ArchiveFile.string(
+        f.name,
+        xml.replaceRange(at, at + '<a:bodyPr/>'.length, '<a:bodyPr><a:normAutofit fontScale="55000" lnSpcReduction="20000"/></a:bodyPr>'),
+      ));
+    } else {
+      out.addFile(ArchiveFile.bytes(f.name, f.content));
+    }
+  }
+  return ZipEncoder().encodeBytes(out);
+}
+
 void main() {
   late Uint8List bytes;
 
@@ -1400,6 +1419,25 @@ void main() {
       final untouched = PptxDeck(_unwrapped(bytes));
       untouched.setText(slide, caption.id, SlideText.read(untouched.textBody(slide, caption.id), untouched.looks(slide, caption.id)!).write(untouched.slideDoc(slide), text.ops));
       expect(untouched.shape(slide, caption.id)!.wrap, isFalse);
+    });
+  });
+
+  group('after the round two critic, shrunk words', () {
+    test('words PowerPoint shrank to fit their box are drawn and typed shrunk, and written as the file states them', () {
+      final plain = PptxDeck(bytes);
+      final deck = PptxDeck(_shrunk(bytes));
+      final slide = deck.slides[1];
+      final body = deck.objects(slide).firstWhere((o) => o.placeholder == 'body');
+      double first(PptxDeck d) => d.shape(d.slides[1], body.id)!.blocks.whereType<ListItemBlock>().first.spans.first.fontSize!;
+      expect(first(deck), closeTo(first(plain) * 0.55, 0.01));
+      final looks = deck.looks(slide, body.id)!;
+      expect(looks.scale, closeTo(0.55, 1e-9));
+      expect(looks.levels.first.size, closeTo(plain.looks(slide, body.id)!.levels.first.size * 0.55, 0.01));
+      final text = SlideText.read(deck.textBody(slide, body.id), looks);
+      final words = (text.ops.first['insert'] as String).length;
+      final bigger = Delta.fromJson(text.ops).compose(Delta()..retain(words, <String, dynamic>{'size': '22'}));
+      deck.setText(slide, body.id, text.write(deck.slideDoc(slide), bigger.toJson()));
+      expect(_parts(deck.write())['ppt/slides/slide2.xml'], contains('sz="4000"'));
     });
   });
 }

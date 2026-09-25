@@ -798,7 +798,9 @@ class SlideText {
     }
     final size = double.tryParse('${attrs['size'] ?? ''}') ?? base.size;
     if ((size - was.size).abs() > 0.01) {
-      _set(rPr, 'sz', (size - base.size).abs() < 0.01 ? null : '${(size * 100).round()}');
+      // Sizes are shown shrunk as PowerPoint shrinks the box's words, and
+      // written as the file states them.
+      _set(rPr, 'sz', (size - base.size).abs() < 0.01 ? null : '${(size / looks.scale * 100).round()}');
     }
     final colour = attrs['color'] is String ? int.tryParse((attrs['color'] as String).replaceFirst('#', ''), radix: 16) : null;
     final wasColour = (was.colour ?? 0xFF000000) & 0xFFFFFF;

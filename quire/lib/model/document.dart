@@ -59,7 +59,7 @@ class DocSpan {
 
   /// Replaces the text and keeps every property, which is what a search
   /// highlighter needs when it splits one span into three.
-  DocSpan copyWith({String? text}) => DocSpan(
+  DocSpan copyWith({String? text, double? fontSize}) => DocSpan(
     text ?? this.text,
     bold: bold,
     italic: italic,
@@ -68,7 +68,7 @@ class DocSpan {
     mono: mono,
     color: color,
     highlight: highlight,
-    fontSize: fontSize,
+    fontSize: fontSize ?? this.fontSize,
     href: href,
     script: script,
   );
