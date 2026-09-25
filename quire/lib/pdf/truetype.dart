@@ -1,5 +1,7 @@
 import 'dart:typed_data';
 
+import 'encodings.dart';
+
 /// Enough of a TrueType file to set type with it and to embed it in a PDF.
 ///
 /// This is the reading half of writing a PDF. A page file names glyphs, not
@@ -131,13 +133,61 @@ class TrueTypeFont {
   /// The character each glyph draws, for reading text back out of a page
   /// whose font came without a map of its own. Codes from a symbol table are
   /// not text and are left out.
+  ///
+  /// Where the character map says nothing, the glyph's own name in the
+  /// `post` table is read instead.
   Map<int, String> textByGlyph() {
     final out = <int, String>{};
     for (final e in _cmap.entries) {
       if (e.key >= 0xF000 && e.key <= 0xF0FF) continue;
       out.putIfAbsent(e.value, () => String.fromCharCode(e.key));
     }
+    final names = glyphNames;
+    if (names != null) {
+      for (var gid = 0; gid < names.length; gid++) {
+        if (out.containsKey(gid)) continue;
+        final name = names[gid];
+        final text = name == null ? null : textForGlyphName(name);
+        if (text != null && text.trim().isNotEmpty) out[gid] = text;
+      }
+    }
     return out;
+  }
+
+  /// Each glyph's name from the font's `post` table, or null when it names
+  /// none. A subset embedded without a character map often still carries
+  /// the names, and a name is enough to know the character.
+  late final List<String?>? glyphNames = _readPostNames();
+
+  List<String?>? _readPostNames() {
+    final post = _tables['post'];
+    if (post == null || post.length < 34) return null;
+    final data = ByteData.sublistView(bytes);
+    if (data.getUint32(post.offset) != 0x00020000) return null;
+    final end = post.offset + post.length;
+    if (end > bytes.length) return null;
+    final count = data.getUint16(post.offset + 32);
+    var at = post.offset + 34;
+    if (at + count * 2 > end) return null;
+    final indices = <int>[
+      for (var i = 0; i < count; i++) data.getUint16(at + i * 2),
+    ];
+    at += count * 2;
+    final own = <String>[];
+    while (at < end) {
+      final length = bytes[at++];
+      if (at + length > end) break;
+      own.add(String.fromCharCodes(bytes, at, at + length));
+      at += length;
+    }
+    return <String?>[
+      for (final index in indices)
+        index < _macGlyphNames.length
+            ? _macGlyphNames[index]
+            : (index - _macGlyphNames.length < own.length
+                ? own[index - _macGlyphNames.length]
+                : null),
+    ];
   }
 
   /// True when the font has a glyph of its own for [rune].
@@ -461,3 +511,45 @@ class _Table {
   final int offset;
   final int length;
 }
+
+/// The 258 glyph names a `post` table of format 2 numbers without spelling
+/// them out, in Apple's order.
+const _macGlyphNames = <String>[
+  '.notdef', '.null', 'nonmarkingreturn', 'space', 'exclam', 'quotedbl',
+  'numbersign', 'dollar', 'percent', 'ampersand', 'quotesingle', 'parenleft',
+  'parenright', 'asterisk', 'plus', 'comma', 'hyphen', 'period', 'slash',
+  'zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight',
+  'nine', 'colon', 'semicolon', 'less', 'equal', 'greater', 'question', 'at',
+  'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O',
+  'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', 'bracketleft',
+  'backslash', 'bracketright', 'asciicircum', 'underscore', 'grave', 'a',
+  'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p',
+  'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z', 'braceleft', 'bar',
+  'braceright', 'asciitilde', 'Adieresis', 'Aring', 'Ccedilla', 'Eacute',
+  'Ntilde', 'Odieresis', 'Udieresis', 'aacute', 'agrave', 'acircumflex',
+  'adieresis', 'atilde', 'aring', 'ccedilla', 'eacute', 'egrave',
+  'ecircumflex', 'edieresis', 'iacute', 'igrave', 'icircumflex', 'idieresis',
+  'ntilde', 'oacute', 'ograve', 'ocircumflex', 'odieresis', 'otilde',
+  'uacute', 'ugrave', 'ucircumflex', 'udieresis', 'dagger', 'degree', 'cent',
+  'sterling', 'section', 'bullet', 'paragraph', 'germandbls', 'registered',
+  'copyright', 'trademark', 'acute', 'dieresis', 'notequal', 'AE', 'Oslash',
+  'infinity', 'plusminus', 'lessequal', 'greaterequal', 'yen', 'mu',
+  'partialdiff', 'summation', 'product', 'pi', 'integral', 'ordfeminine',
+  'ordmasculine', 'Omega', 'ae', 'oslash', 'questiondown', 'exclamdown',
+  'logicalnot', 'radical', 'florin', 'approxequal', 'Delta', 'guillemotleft',
+  'guillemotright', 'ellipsis', 'nonbreakingspace', 'Agrave', 'Atilde',
+  'Otilde', 'OE', 'oe', 'endash', 'emdash', 'quotedblleft', 'quotedblright',
+  'quoteleft', 'quoteright', 'divide', 'lozenge', 'ydieresis', 'Ydieresis',
+  'fraction', 'currency', 'guilsinglleft', 'guilsinglright', 'fi', 'fl',
+  'daggerdbl', 'periodcentered', 'quotesinglbase', 'quotedblbase',
+  'perthousand', 'Acircumflex', 'Ecircumflex', 'Aacute', 'Edieresis',
+  'Egrave', 'Iacute', 'Icircumflex', 'Idieresis', 'Igrave', 'Oacute',
+  'Ocircumflex', 'apple', 'Ograve', 'Uacute', 'Ucircumflex', 'Ugrave',
+  'dotlessi', 'circumflex', 'tilde', 'macron', 'breve', 'dotaccent', 'ring',
+  'cedilla', 'hungarumlaut', 'ogonek', 'caron', 'Lslash', 'lslash', 'Scaron',
+  'scaron', 'Zcaron', 'zcaron', 'brokenbar', 'Eth', 'eth', 'Yacute',
+  'yacute', 'Thorn', 'thorn', 'minus', 'multiply', 'onesuperior',
+  'twosuperior', 'threesuperior', 'onehalf', 'onequarter', 'threequarters',
+  'franc', 'Gbreve', 'gbreve', 'Idotaccent', 'Scedilla', 'scedilla',
+  'Cacute', 'cacute', 'Ccaron', 'ccaron', 'dcroat',
+];

@@ -44,6 +44,13 @@ class _GState {
   }
 }
 
+/// How many points one unit of [page] is: its /UserUnit, or 1.
+double userUnitOf(PdfFile doc, Map<String, Object?> page) {
+  final raw = doc.resolve(page['UserUnit']);
+  if (raw is! num || raw <= 0 || raw > 100000) return 1;
+  return raw.toDouble();
+}
+
 /// [text] with each Latin ligature character spelt out as its letters.
 ///
 /// A file that draws `fi` with one ligature glyph says so with U+FB01, which
@@ -92,6 +99,9 @@ class ContentInterpreter {
     final y0 = box[1] < box[3] ? box[1] : box[3];
     final w = (box[2] - box[0]).abs();
     final h = (box[3] - box[1]).abs();
+    // A page with a /UserUnit measures in that many points to its unit, which
+    // is how a file states a page larger than 200 inches.
+    final unit = userUnitOf(doc, page);
     var rot = ((doc.resolve(page['Rotate']) as num?)?.toInt() ?? 0) % 360;
     if (rot < 0) rot += 360;
     // Rotate is stated in whole quarter turns; anything else is not a turn
@@ -102,8 +112,8 @@ class ContentInterpreter {
     // page that is taller than it is wide once it has been turned upright.
     final turned = quarter.isOdd;
     final out = PageDisplayList(
-      widthPts: turned ? h : w,
-      heightPts: turned ? w : h,
+      widthPts: (turned ? h : w) * unit,
+      heightPts: (turned ? w : h) * unit,
       rotation: rot,
     );
 
@@ -111,12 +121,13 @@ class ContentInterpreter {
     // turn the page by what /Rotate says, which is what a scanner writes when
     // it feeds a sheet in sideways. Without this the page is drawn as it is
     // stored rather than as it is meant to be read.
-    final base = switch (quarter) {
+    final turn = switch (quarter) {
       1 => Mat(0, 1, 1, 0, -y0, -x0),
       2 => Mat(-1, 0, 0, 1, x0 + w, -y0),
       3 => Mat(0, -1, -1, 0, y0 + h, x0 + w),
       _ => Mat(1, 0, 0, -1, -x0, y0 + h),
     };
+    final base = unit == 1 ? turn : turn.mul(Mat(unit, 0, 0, unit, 0, 0));
     final content = doc.pageContent(page);
     final res = doc.dict(page['Resources']) ?? const {};
     _exec(content, res, base, out, 0);
@@ -334,7 +345,14 @@ class ContentInterpreter {
           if (nameObj is PdfName) {
             fontKey = nameObj.value;
             if (!fontCache.containsKey(fontKey)) {
-              fontCache[fontKey] = _loadFont(res, fontKey);
+              final loaded = _loadFont(res, fontKey);
+              fontCache[fontKey] = loaded;
+              if (loaded != null && loaded.drawnGlyphs) {
+                unsupported.add('font:Type3');
+              }
+              if (loaded != null && loaded.substituted) {
+                unsupported.add('font:substituted');
+              }
             }
             font = fontCache[fontKey];
           }

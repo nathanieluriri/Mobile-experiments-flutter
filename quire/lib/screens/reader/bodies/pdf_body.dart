@@ -302,9 +302,12 @@ class PdfPages extends ChangeNotifier {
     final width = (box[2] - box[0]).abs();
     final height = (box[3] - box[1]).abs();
     final rot = ((file.resolve(dict['Rotate']) as num?)?.toInt() ?? 0) % 180;
+    final unit = userUnitOf(file, dict);
     // A page the file says is turned is as wide as it is tall and the other
     // way about, the same swap the interpreter makes.
-    return rot.abs() == 90 ? Size(height, width) : Size(width, height);
+    return rot.abs() == 90
+        ? Size(height * unit, width * unit)
+        : Size(width * unit, height * unit);
   });
 
   /// True when [page]'s display list is still in the cache.

@@ -75,7 +75,27 @@ int decodeSingleByte(int code, String baseEncoding) {
   }
 }
 
+/// The text a glyph named [name] stands for, by the Adobe Glyph List's own
+/// rules: a variant after a full stop is the same letter, and parts joined
+/// by underscores are a ligature of each.
+String? textForGlyphName(String name) {
+  final base = name.split('.').first;
+  if (base.isEmpty) return null;
+  final parts = base.split('_');
+  final out = StringBuffer();
+  for (final part in parts) {
+    final code = unicodeForGlyphName(part);
+    if (code == null) return null;
+    out.writeCharCode(code);
+  }
+  return out.toString();
+}
+
 int? unicodeForGlyphName(String name) {
+  if (name.length == 1) {
+    final c = name.codeUnitAt(0);
+    if ((c >= 0x41 && c <= 0x5A) || (c >= 0x61 && c <= 0x7A)) return c;
+  }
   final direct = glyphNameToUnicode[name];
   if (direct != null) return direct;
   if (name.startsWith('uni') && name.length >= 7) {

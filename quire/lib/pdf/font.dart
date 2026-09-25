@@ -46,7 +46,31 @@ class PdfFont {
     this.vertical = false,
     this.verticalAdvance = -1000,
     this.sizeScale = 1,
+    this.subtype = '',
   });
+
+  /// The font's /Subtype, such as `Type1`, `TrueType`, `Type0` or `Type3`.
+  final String subtype;
+
+  /// True when a Type3 font's glyphs are drawings of its own, which quire
+  /// does not run: its text is set in the app's type instead.
+  bool get drawnGlyphs => subtype == 'Type3';
+
+  /// True when nothing in the file says how wide this font's letters are:
+  /// no /Widths, no embedded program to measure, and a name that is not one
+  /// of the standard fourteen. Its widths are then Helvetica's, or Times's
+  /// for a serif, which is a stated substitute rather than a silent one.
+  bool get substituted {
+    if (twoByte || drawnGlyphs || widths.isNotEmpty) return false;
+    var n = baseFont.toLowerCase();
+    if (n.indexOf('+') == 6) n = n.substring(7);
+    for (final standard in const [
+      'helvetica', 'arial', 'times', 'courier', 'symbol', 'zapfdingbats',
+    ]) {
+      if (n.startsWith(standard)) return false;
+    }
+    return true;
+  }
 
   final String baseFont;
   final bool twoByte;
@@ -326,6 +350,7 @@ class PdfFont {
           lower.contains('garamond'),
       hasToUnicode: toUni.isNotEmpty,
       sizeScale: sizeScale,
+      subtype: subtype,
     );
     // /Widths is required, but a producer that leaves it out still embedded
     // the font, and the font knows how wide its glyphs are. The standard
