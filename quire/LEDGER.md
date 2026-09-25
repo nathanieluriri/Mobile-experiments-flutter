@@ -10,6 +10,14 @@ in the same change, with the reason.
   so no dependency can reach the network even by accident.
 - Data collected: none. Data shared: none.
 
+## Dependencies that bring native code
+
+- `flutter_quill` (MIT) sets a Word document in the editor. It brings
+  `url_launcher`, which adds a WebView activity to the manifest, not
+  exported, so no other app can start it. quire never opens a link in a
+  document: the editor's link handler does nothing, and with no `INTERNET`
+  permission nothing could load in it anyway. No permission is added.
+
 ## Permissions (release APK)
 
 | Permission | Visible to users | Why |
@@ -47,7 +55,14 @@ network and no data collected": neither of these reaches the network.
   elsewhere, and quire shows the formula as written until then.
 - PDF edits are annotations with their own appearance, added in an
   incremental update. The page's content stream is not rewritten, and a
-  sealed file stays sealed under its own key.
+  sealed file stays sealed under its own key. Words a standard PDF font
+  cannot set are written in Inter, cut down to the letters used, and words
+  in scripts Inter lacks are written as a picture of what the editor drew.
+  Taking a comment off takes its replies with it, as Acrobat does.
+- A Word document is edited in place. Paragraphs nobody touched, tables,
+  pictures, fields and section breaks are written back as they were; a
+  changed paragraph keeps its own properties and each character's run
+  properties.
 - Revisions sit in the same storage as the library, so the backup rules
   below cover them.
 

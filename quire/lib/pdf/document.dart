@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 import 'crypt.dart';
+import 'encodings.dart' show decodePdfText;
 import 'filters.dart';
 import 'lexer.dart';
 import 'objects.dart';
@@ -87,15 +88,7 @@ class PdfFile {
   String get producer {
     final value = resolve(dict(trailer['Info'])?['Producer']);
     if (value is! PdfString) return '';
-    final b = value.bytes;
-    if (b.length >= 2 && b[0] == 0xFE && b[1] == 0xFF) {
-      final units = <int>[];
-      for (var i = 2; i + 1 < b.length; i += 2) {
-        units.add((b[i] << 8) | b[i + 1]);
-      }
-      return String.fromCharCodes(units);
-    }
-    return value.asLatin1;
+    return decodePdfText(value.bytes);
   }
 
   /// True when the trailer carries an /Encrypt dictionary, whether or not the
@@ -200,9 +193,16 @@ class PdfFile {
 
   PdfCrypt? _tryPassword(PdfSecurity security, Uint8List id, String password) {
     final bytes = _passwordBytes(password);
-    return PdfCrypt.unlock(security, id, padPassword(bytes)) ??
-        PdfCrypt.unlockAsOwner(security, id, bytes);
+    final user = PdfCrypt.unlock(security, id, padPassword(bytes));
+    if (user != null) return user;
+    final owner = PdfCrypt.unlockAsOwner(security, id, bytes);
+    if (owner != null) openedAsOwner = true;
+    return owner;
   }
+
+  /// True when the file was opened with its owner password, which the
+  /// permissions it carries do not bind.
+  bool openedAsOwner = false;
 
   /// A password is bytes, not text: the handler pads Latin-1 code units, so a
   /// character past 255 is taken a byte at a time rather than silently

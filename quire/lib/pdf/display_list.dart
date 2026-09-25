@@ -156,6 +156,7 @@ class PathCmd {
     required this.evenOdd,
     required this.seq,
     this.clip = kNoClip,
+    this.blend = PdfBlend.normal,
   });
   final List<PathSeg> segs;
   final bool fill, stroke, evenOdd;
@@ -163,6 +164,51 @@ class PathCmd {
   final double lineWidth;
   final int seq;
   final int clip;
+
+  /// How the path mixes with what is under it, from the /BM of an
+  /// /ExtGState: a highlight is usually multiplied, so the words stay dark.
+  final PdfBlend blend;
+}
+
+/// The blend modes a PDF names, in the order ISO 32000 lists them.
+enum PdfBlend {
+  normal,
+  multiply,
+  screen,
+  overlay,
+  darken,
+  lighten,
+  colorDodge,
+  colorBurn,
+  hardLight,
+  softLight,
+  difference,
+  exclusion,
+  hue,
+  saturation,
+  color,
+  luminosity;
+
+  /// The mode named [name] in a file, or null for one it does not know.
+  static PdfBlend? named(String name) => switch (name) {
+        'Normal' || 'Compatible' => normal,
+        'Multiply' => multiply,
+        'Screen' => screen,
+        'Overlay' => overlay,
+        'Darken' => darken,
+        'Lighten' => lighten,
+        'ColorDodge' => colorDodge,
+        'ColorBurn' => colorBurn,
+        'HardLight' => hardLight,
+        'SoftLight' => softLight,
+        'Difference' => difference,
+        'Exclusion' => exclusion,
+        'Hue' => hue,
+        'Saturation' => saturation,
+        'Color' => color,
+        'Luminosity' => luminosity,
+        _ => null,
+      };
 }
 
 /// A smooth shading: an axial or radial blend of [colors], evenly spread

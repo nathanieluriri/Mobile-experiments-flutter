@@ -1,14 +1,17 @@
 import 'dart:convert';
+import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' show Offset, Rect;
 
 import 'package:archive/archive.dart';
 
 import 'document.dart';
-import 'encodings.dart' show winAnsiHigh;
-import 'standard_metrics.dart' show kHelvetica;
-import 'lexer.dart' show PdfKeyword;
+import 'encodings.dart' show decodePdfText, winAnsiHigh;
+import 'interpreter.dart' show userUnitOf;
+import 'standard_metrics.dart' show kHelvetica, standardWidths;
+import 'lexer.dart' show PdfKeyword, PdfLexer, isWhite;
 import 'objects.dart';
+import 'truetype.dart';
 
 /// A picture on its way into a page: colour and opacity kept apart, which is
 /// how the format wants them.
@@ -682,6 +685,65 @@ abstract class PdfUpdate {
 sealed class PageEdit {
   const PageEdit(this.pageIndex);
   final int pageIndex;
+
+  /// The box the mark covers.
+  Rect get bounds;
+
+  /// The same mark stretched from [bounds] into [to].
+  PageEdit fitted(Rect to);
+
+  /// The same mark put down [by] further on.
+  PageEdit moved(Offset by) => fitted(bounds.shift(by));
+
+  /// The same mark on page [page].
+  PageEdit onPage(int page);
+}
+
+Offset _mapPoint(Offset p, Rect from, Rect to) {
+  final sx = from.width == 0 ? 1.0 : to.width / from.width;
+  final sy = from.height == 0 ? 1.0 : to.height / from.height;
+  return Offset(
+    to.left + (p.dx - from.left) * sx,
+    to.top + (p.dy - from.top) * sy,
+  );
+}
+
+Rect _mapRect(Rect r, Rect from, Rect to) => Rect.fromPoints(
+      _mapPoint(r.topLeft, from, to),
+      _mapPoint(r.bottomRight, from, to),
+    );
+
+Rect _span(Iterable<Offset> points) {
+  var l = double.infinity, t = double.infinity;
+  var r = double.negativeInfinity, b = double.negativeInfinity;
+  for (final p in points) {
+    if (p.dx < l) l = p.dx;
+    if (p.dx > r) r = p.dx;
+    if (p.dy < t) t = p.dy;
+    if (p.dy > b) b = p.dy;
+  }
+  if (l > r) return Rect.zero;
+  return Rect.fromLTRB(l, t, r, b);
+}
+
+/// How far in from each side of a box its words start, in points.
+class BoxInsets {
+  const BoxInsets(this.left, this.top, this.right, this.bottom);
+  final double left, top, right, bottom;
+
+  static const BoxInsets zero = BoxInsets(0, 0, 0, 0);
+
+  bool get isZero => left == 0 && top == 0 && right == 0 && bottom == 0;
+
+  BoxInsets scaled(double sx, double sy) =>
+      BoxInsets(left * sx, top * sy, right * sx, bottom * sy);
+
+  Rect inside(Rect box) => Rect.fromLTRB(
+        box.left + left,
+        box.top + top,
+        math.max(box.left + left, box.right - right),
+        math.max(box.top + top, box.bottom - bottom),
+      );
 }
 
 /// Words typed onto the page, in a box.
@@ -692,11 +754,74 @@ class TextBoxEdit extends PageEdit {
     required this.text,
     this.size = 12,
     this.color = 0xFF111111,
+    this.inset = BoxInsets.zero,
+    this.drawn,
+    this.family,
   });
   final Rect rect;
   final String text;
   final double size;
   final int color;
+
+  /// The standard PDF typeface another program set the words in, such as
+  /// Courier or Times-Roman, which a rewrite keeps; null for the app's own.
+  final String? family;
+
+  /// Where in [rect] the words go, for a box another program drew with a
+  /// border, a callout or room of its own around them.
+  final BoxInsets inset;
+
+  /// The words as the editor drew them, for letters no font here can set.
+  /// Only a save fills it in, and any change to the box drops it.
+  final PdfImage? drawn;
+
+  /// The box the words are set in.
+  Rect get wordsBox => inset.inside(rect);
+
+  @override
+  Rect get bounds => rect;
+
+  @override
+  TextBoxEdit fitted(Rect to) => copyWith(
+        rect: to,
+        inset: inset.scaled(
+          rect.width == 0 ? 1 : to.width / rect.width,
+          rect.height == 0 ? 1 : to.height / rect.height,
+        ),
+      );
+
+  @override
+  TextBoxEdit moved(Offset by) => copyWith(rect: rect.shift(by));
+
+  @override
+  TextBoxEdit onPage(int page) => TextBoxEdit(
+        page,
+        rect: rect,
+        text: text,
+        size: size,
+        color: color,
+        inset: inset,
+        family: family,
+      );
+
+  TextBoxEdit copyWith({
+    Rect? rect,
+    String? text,
+    double? size,
+    int? color,
+    BoxInsets? inset,
+    PdfImage? drawn,
+  }) =>
+      TextBoxEdit(
+        pageIndex,
+        rect: rect ?? this.rect,
+        text: text ?? this.text,
+        size: size ?? this.size,
+        color: color ?? this.color,
+        inset: inset ?? this.inset,
+        drawn: drawn,
+        family: family,
+      );
 }
 
 /// A picture laid onto the page.
@@ -704,6 +829,18 @@ class ImageEdit extends PageEdit {
   const ImageEdit(super.pageIndex, {required this.rect, required this.image});
   final Rect rect;
   final PdfImage image;
+
+  @override
+  Rect get bounds => rect;
+
+  @override
+  ImageEdit fitted(Rect to) => ImageEdit(pageIndex, rect: to, image: image);
+
+  @override
+  ImageEdit moved(Offset by) => fitted(bounds.shift(by));
+
+  @override
+  ImageEdit onPage(int page) => ImageEdit(page, rect: rect, image: image);
 }
 
 /// Lines drawn by hand.
@@ -713,39 +850,414 @@ class InkEdit extends PageEdit {
     required this.strokes,
     this.width = 2,
     this.color = 0xFF1F4FD8,
+    this.opacity = 1,
   });
   final List<List<Offset>> strokes;
   final double width;
   final int color;
+
+  /// How much of what is under the lines shows through them: 1 for none.
+  final double opacity;
+
+  @override
+  Rect get bounds => _span([for (final s in strokes) ...s]);
+
+  @override
+  InkEdit fitted(Rect to) {
+    final from = bounds;
+    return copyWith(strokes: [
+      for (final s in strokes) [for (final p in s) _mapPoint(p, from, to)],
+    ]);
+  }
+
+  @override
+  InkEdit moved(Offset by) => fitted(bounds.shift(by));
+
+  @override
+  InkEdit onPage(int page) =>
+      InkEdit(page, strokes: strokes, width: width, color: color, opacity: opacity);
+
+  InkEdit copyWith({List<List<Offset>>? strokes, double? width, int? color, double? opacity}) =>
+      InkEdit(
+        pageIndex,
+        strokes: strokes ?? this.strokes,
+        width: width ?? this.width,
+        color: color ?? this.color,
+        opacity: opacity ?? this.opacity,
+      );
 }
 
-/// Words marked over, one box per line of them.
+/// Words marked over, one box per line of them, multiplied onto the page so
+/// the words stay dark.
 class HighlightEdit extends PageEdit {
-  const HighlightEdit(super.pageIndex, {required this.rects, this.color = 0xFFFFD84D});
+  const HighlightEdit(super.pageIndex, {required this.rects, this.color = 0xFFFFD84D, this.opacity = 1});
   final List<Rect> rects;
   final int color;
+  final double opacity;
+
+  @override
+  Rect get bounds => _span([for (final r in rects) ...[r.topLeft, r.bottomRight]]);
+
+  @override
+  HighlightEdit fitted(Rect to) {
+    final from = bounds;
+    return HighlightEdit(
+      pageIndex,
+      rects: [for (final r in rects) _mapRect(r, from, to)],
+      color: color,
+      opacity: opacity,
+    );
+  }
+
+  @override
+  HighlightEdit moved(Offset by) => fitted(bounds.shift(by));
+
+  @override
+  HighlightEdit onPage(int page) => HighlightEdit(page, rects: rects, color: color, opacity: opacity);
+
+  HighlightEdit copyWith({int? color, double? opacity}) =>
+      HighlightEdit(pageIndex, rects: rects, color: color ?? this.color, opacity: opacity ?? this.opacity);
 }
 
 /// Words struck through, one box per line of them.
 class StrikeEdit extends PageEdit {
-  const StrikeEdit(super.pageIndex, {required this.rects, this.color = 0xFFD23B3B});
+  const StrikeEdit(super.pageIndex, {required this.rects, this.color = 0xFFD23B3B, this.opacity = 1});
   final List<Rect> rects;
   final int color;
+  final double opacity;
+
+  @override
+  Rect get bounds => _span([for (final r in rects) ...[r.topLeft, r.bottomRight]]);
+
+  @override
+  StrikeEdit fitted(Rect to) {
+    final from = bounds;
+    return StrikeEdit(
+      pageIndex,
+      rects: [for (final r in rects) _mapRect(r, from, to)],
+      color: color,
+      opacity: opacity,
+    );
+  }
+
+  @override
+  StrikeEdit moved(Offset by) => fitted(bounds.shift(by));
+
+  @override
+  StrikeEdit onPage(int page) => StrikeEdit(page, rects: rects, color: color, opacity: opacity);
+
+  StrikeEdit copyWith({int? color, double? opacity}) =>
+      StrikeEdit(pageIndex, rects: rects, color: color ?? this.color, opacity: opacity ?? this.opacity);
 }
 
-/// Lays [PageEdit]s onto a PDF as annotations, in an update appended to it.
+/// A mark already in the file that quire cannot draw again from scratch, a
+/// stamp or a box another program made, kept with its own appearance and
+/// fitted to [rect]. Added as new, it is a copy of the annotation at
+/// [origin].
+class KeptEdit extends PageEdit {
+  const KeptEdit(super.pageIndex, {required this.rect, this.origin});
+  final Rect rect;
+  final MarkOrigin? origin;
+
+  @override
+  Rect get bounds => rect;
+
+  @override
+  KeptEdit fitted(Rect to) => KeptEdit(pageIndex, rect: to, origin: origin);
+
+  @override
+  KeptEdit moved(Offset by) => fitted(bounds.shift(by));
+
+  @override
+  KeptEdit onPage(int page) => KeptEdit(page, rect: rect, origin: origin);
+}
+
+/// Where an annotation already in a file is: its page, and its place in that
+/// page's /Annots as the file stands.
+class MarkOrigin {
+  const MarkOrigin(this.page, this.index);
+  final int page;
+  final int index;
+
+  @override
+  bool operator ==(Object other) =>
+      other is MarkOrigin && other.page == page && other.index == index;
+
+  @override
+  int get hashCode => Object.hash(page, index);
+
+  @override
+  String toString() => 'MarkOrigin($page, $index)';
+}
+
+/// What happens to one annotation already in the file.
+sealed class MarkUpdate {
+  const MarkUpdate(this.origin);
+  final MarkOrigin origin;
+}
+
+/// Moved [by], in the reader's points, keeping its own appearance.
+class MarkMoved extends MarkUpdate {
+  const MarkMoved(super.origin, this.by);
+  final Offset by;
+}
+
+/// Stretched into [rect], keeping its own appearance.
+class MarkRefitted extends MarkUpdate {
+  const MarkRefitted(super.origin, this.rect);
+  final Rect rect;
+}
+
+/// Written again from [edit], keeping who made it and what it answers.
+class MarkRewritten extends MarkUpdate {
+  const MarkRewritten(super.origin, this.edit);
+  final PageEdit edit;
+}
+
+/// Taken off the page, with the note window it opens.
+class MarkRemoved extends MarkUpdate {
+  const MarkRemoved(super.origin);
+}
+
+/// How a page's reader points map onto its user space, which has its origin
+/// at the bottom left and its y running up, turned by the page's /Rotate and
+/// scaled by its /UserUnit.
+class PagePlace {
+  PagePlace(this.m, [this.unit = 1]);
+
+  factory PagePlace.of(PdfFile file, Map<String, Object?> page) {
+    var box = file.mediaBox(page);
+    final crop = file.resolve(page['CropBox']);
+    if (crop is List && crop.length == 4) {
+      final values = <double>[];
+      for (final value in crop) {
+        final n = file.resolve(value);
+        values.add(n is num ? n.toDouble() : 0);
+      }
+      box = values;
+    }
+    final raw = file.resolve(page['Rotate']);
+    var rot = (raw is num ? raw.toInt() : 0) % 360;
+    if (rot < 0) rot += 360;
+    final quarter = rot % 90 == 0 ? rot ~/ 90 : 0;
+    final x0 = box[0] < box[2] ? box[0] : box[2];
+    final y0 = box[1] < box[3] ? box[1] : box[3];
+    final width = (box[2] - box[0]).abs();
+    final height = (box[3] - box[1]).abs();
+    final m = switch (quarter) {
+      1 => <double>[0, 1, 1, 0, x0, y0],
+      2 => <double>[-1, 0, 0, 1, x0 + width, y0],
+      3 => <double>[0, -1, -1, 0, x0 + width, y0 + height],
+      _ => <double>[1, 0, 0, -1, x0, y0 + height],
+    };
+    final unit = userUnitOf(file, page);
+    if (unit != 1) {
+      for (var i = 0; i < 4; i++) {
+        m[i] /= unit;
+      }
+    }
+    return PagePlace(m, unit);
+  }
+
+  /// The matrix from the reader's points to user space, as `a b c d e f`.
+  final List<double> m;
+
+  /// How many of the reader's points one unit of user space is: the page's
+  /// /UserUnit, which sizes stated in user space, a font size in /DA or a
+  /// line width in /BS, are scaled by.
+  final double unit;
+
+  (double, double) user(Offset p) =>
+      (m[0] * p.dx + m[2] * p.dy + m[4], m[1] * p.dx + m[3] * p.dy + m[5]);
+
+  /// How far a step of [d] in the reader's points goes in user space.
+  (double, double) userVector(Offset d) =>
+      (m[0] * d.dx + m[2] * d.dy, m[1] * d.dx + m[3] * d.dy);
+
+  /// The reader's point at user space ([x], [y]).
+  Offset reader(double x, double y) {
+    final det = m[0] * m[3] - m[1] * m[2];
+    if (det == 0) return Offset.zero;
+    final dx = x - m[4], dy = y - m[5];
+    return Offset(
+      (m[3] * dx - m[2] * dy) / det,
+      (-m[1] * dx + m[0] * dy) / det,
+    );
+  }
+
+  /// The user space box around [points], as `left bottom right top`.
+  List<double> userRect(Iterable<Offset> points) {
+    var left = double.infinity, bottom = double.infinity;
+    var right = double.negativeInfinity, top = double.negativeInfinity;
+    for (final p in points) {
+      final (x, y) = user(p);
+      if (x < left) left = x;
+      if (x > right) right = x;
+      if (y < bottom) bottom = y;
+      if (y > top) top = y;
+    }
+    return <double>[left, bottom, right, top];
+  }
+
+  /// The reader's box around the user space box [r].
+  Rect readerRect(List<double> r) => _span([
+        reader(r[0], r[1]),
+        reader(r[2], r[1]),
+        reader(r[0], r[3]),
+        reader(r[2], r[3]),
+      ]);
+}
+
+/// How a box of words is written into a file.
+enum WordsFace {
+  /// Helvetica, which every reader has, for words it can set.
+  standard,
+
+  /// The app's own typeface, put into the file, for letters Helvetica has
+  /// not got.
+  embedded,
+
+  /// A picture of the words as the editor drew them, for scripts that need
+  /// shaping or a typeface the app does not carry.
+  drawn,
+}
+
+/// [from] and every annotation of [annots] that goes with them: the replies
+/// and review states that answer them, at every depth, the members of
+/// their groups, and the note windows of all of these.
+Set<int> annotationThread(PdfFile file, List<Object?> annots, Set<int> from) {
+  final out = <int>{...from};
+  var grew = true;
+  while (grew) {
+    grew = false;
+    final numbers = <int>{
+      for (final j in out)
+        if (annots[j] case final PdfRef ref) ref.number,
+    };
+    final popups = <int>{
+      for (final j in out)
+        if (file.dict(annots[j])?['Popup'] case final PdfRef ref) ref.number,
+    };
+    for (var j = 0; j < annots.length; j++) {
+      if (out.contains(j)) continue;
+      final raw = annots[j];
+      final dict = file.dict(raw);
+      if (dict == null) continue;
+      final subtype = file.resolve(dict['Subtype']);
+      final popup = subtype is PdfName && subtype.value == 'Popup';
+      final irt = dict['IRT'], parent = dict['Parent'];
+      if ((irt is PdfRef && numbers.contains(irt.number)) ||
+          (popup && parent is PdfRef && numbers.contains(parent.number)) ||
+          (raw is PdfRef && popups.contains(raw.number))) {
+        out.add(j);
+        grew = true;
+      }
+    }
+  }
+  return out;
+}
+
+/// [content] with every text object taken out, which is the drawing of a
+/// box of words with its words gone: its border, fill and callout stay. A
+/// picture of words quire drew there is taken out too.
+Uint8List contentWithoutText(Uint8List content) {
+  final lx = PdfLexer(content);
+  final cuts = <(int, int)>[];
+  int? text;
+  (String, int)? name;
+  while (true) {
+    lx.skipWhitespace();
+    if (lx.atEnd) break;
+    final at = lx.pos;
+    final Object? token;
+    try {
+      token = lx.parseObject();
+    } on Object {
+      break;
+    }
+    if (lx.pos <= at) lx.pos = at + 1;
+    if (token is PdfName) {
+      name = (token.value, at);
+      continue;
+    }
+    if (token is! PdfKeyword) {
+      name = null;
+      continue;
+    }
+    switch (token.value) {
+      case 'BT':
+        text ??= at;
+      case 'ET':
+        final start = text;
+        if (start != null) {
+          cuts.add((start, lx.pos));
+          text = null;
+        }
+      case 'Do':
+        final shown = name;
+        if (shown != null && shown.$1 == kDrawnWords && text == null) cuts.add((shown.$2, lx.pos));
+      case 'BI':
+        // An inline image's data is bytes, not operators.
+        while (!lx.atEnd) {
+          final key = lx.parseObject();
+          if (key is PdfKeyword && key.value == 'ID') break;
+        }
+        var p = lx.pos;
+        while (p + 1 < content.length &&
+            !(content[p] == 0x45 &&
+                content[p + 1] == 0x49 &&
+                isWhite(content[p - 1]) &&
+                (p + 2 >= content.length || isWhite(content[p + 2])))) {
+          p++;
+        }
+        lx.pos = math.min(p + 2, content.length);
+    }
+    name = null;
+  }
+  if (text != null) cuts.add((text, content.length));
+  final keep = BytesBuilder(copy: false);
+  var from = 0;
+  for (final (start, end) in cuts) {
+    if (start > from) keep.add(Uint8List.sublistView(content, from, start));
+    from = math.max(from, end);
+  }
+  if (from < content.length) keep.add(Uint8List.sublistView(content, from));
+  return keep.takeBytes();
+}
+
+/// The name a picture of words is drawn under in an appearance.
+const String kDrawnWords = 'QuireDrawn';
+
+/// [text] with the line breaks a PDF text string may hold, CR LF and a
+/// lone CR as Acrobat stores Enter, all made LF.
+String lineBreaks(String text) => text.replaceAll('\r\n', '\n').replaceAll('\r', '\n');
+
+/// Lays [PageEdit]s onto a PDF as annotations, and moves, stretches,
+/// rewrites and removes the ones already there, in an update appended to it.
 ///
 /// Every edit is a proper annotation of its own kind, a text box, a stamp, ink,
 /// a highlight or a strike out, so another reader lists it as one and can
 /// remove it, and each carries an appearance of its own, so every reader
 /// draws it the way quire does rather than guessing at it. Nothing already in
-/// the file is changed but the list of annotations on the pages written to.
+/// the file is changed but the annotations asked about and the list of
+/// annotations on their pages.
 class PdfAnnotator extends PdfUpdate {
-  PdfAnnotator._(super.file);
+  PdfAnnotator._(super.file, this._font);
 
   /// The whole file with [edits] laid onto its pages.
-  static Uint8List annotated(PdfFile file, List<PageEdit> edits) {
-    if (edits.isEmpty) return file.bytes;
+  static Uint8List annotated(PdfFile file, List<PageEdit> edits, {TrueTypeFont? font}) =>
+      apply(file, added: edits, font: font);
+
+  /// The whole file with [added] laid onto its pages and [updates] made to
+  /// the annotations already there. Words Helvetica cannot set are set in
+  /// [font], which goes into the file with only the letters they use.
+  static Uint8List apply(
+    PdfFile file, {
+    List<PageEdit> added = const <PageEdit>[],
+    List<MarkUpdate> updates = const <MarkUpdate>[],
+    TrueTypeFont? font,
+  }) {
+    if (added.isEmpty && updates.isEmpty) return file.bytes;
     if (file.recoveredByScan) {
       throw const PdfWriteError(
         'This file is too damaged to add to without rewriting it.',
@@ -754,23 +1266,61 @@ class PdfAnnotator extends PdfUpdate {
     if (file.startxref <= 0) {
       throw const PdfWriteError('This file has no cross reference to add to.');
     }
-    return PdfAnnotator._(file)._write(edits);
+    if (!allowsComments(file)) {
+      throw const PdfWriteError('This file does not allow comments to be added or changed.');
+    }
+    return PdfAnnotator._(file, font)._write(added, updates);
   }
+
+  /// False when the file forbids comments: its security withholds changing
+  /// them from whoever opened it without the owner password, or it is
+  /// certified to allow no changes, or only forms and signatures.
+  static bool allowsComments(PdfFile file) {
+    final security = file.security;
+    if (security != null && !file.openedAsOwner && security.permissions & 32 == 0) return false;
+    final perms = file.dict(file.dict(file.trailer['Root'])?['Perms']);
+    final signature = file.dict(perms?['DocMDP']);
+    final references = file.resolve(signature?['Reference']);
+    if (references is List) {
+      for (final raw in references) {
+        final reference = file.dict(raw);
+        final method = file.resolve(reference?['TransformMethod']);
+        if (method is! PdfName || method.value != 'DocMDP') continue;
+        final p = file.resolve(file.dict(reference?['TransformParams'])?['P']);
+        final level = p is num ? p.toInt() : 2;
+        if (level == 1 || level == 2) return false;
+      }
+    }
+    return true;
+  }
+
+  final TrueTypeFont? _font;
+
+  /// The object the embedded typeface is written to, once some words need
+  /// it, and the letter each of its glyphs was used for.
+  int? _fontNumber;
+  final Map<int, int> _fontText = <int, int>{};
 
   int _named = 0;
 
-  Uint8List _write(List<PageEdit> edits) {
-    final byPage = <int, List<PageEdit>>{};
-    for (final edit in edits) {
-      byPage.putIfAbsent(edit.pageIndex, () => <PageEdit>[]).add(edit);
+  Uint8List _write(List<PageEdit> added, List<MarkUpdate> updates) {
+    final pages = <int>{
+      for (final e in added) e.pageIndex,
+      for (final u in updates) u.origin.page,
+    }.toList()
+      ..sort();
+    for (final page in pages) {
+      _editPage(
+        page,
+        [for (final e in added) if (e.pageIndex == page) e],
+        [for (final u in updates) if (u.origin.page == page) u],
+      );
     }
-    for (final entry in byPage.entries) {
-      _annotatePage(entry.key, entry.value);
-    }
+    _writeFont();
     return _finish();
   }
 
-  void _annotatePage(int index, List<PageEdit> edits) {
+  void _editPage(int index, List<PageEdit> added, List<MarkUpdate> updates) {
     final pages = file.pages;
     if (index < 0 || index >= pages.length) {
       throw PdfWriteError('Page ${index + 1} is not in this file.');
@@ -780,48 +1330,395 @@ class PdfAnnotator extends PdfUpdate {
       throw const PdfWriteError('This page cannot be found in the file.');
     }
     final page = pages[index];
-    final place = _placeFor(_boxOf(page), _quarterOf(page));
+    final place = PagePlace.of(file, page);
     final annots = <Object?>[];
     final had = file.resolve(page['Annots']);
     if (had is List) annots.addAll(had);
-    for (final edit in edits) {
+    var listChanged = added.isNotEmpty;
+    final removed = <int>{};
+    for (final update in updates) {
+      final at = update.origin.index;
+      if (at < 0 || at >= annots.length || file.dict(annots[at]) == null) {
+        throw PdfWriteError(
+          'A mark on page ${index + 1} is no longer in the file.',
+        );
+      }
+      switch (update) {
+        case MarkRemoved():
+          removed.add(at);
+          listChanged = true;
+        case MarkMoved():
+          listChanged |= _replace(annots, at, _movedDict(annots[at], update.by, place));
+        case MarkRefitted():
+          final dict = Map<String, Object?>.of(file.dict(annots[at])!)
+            ..['Rect'] = place.userRect([update.rect.topLeft, update.rect.bottomRight])
+            ..remove('RD')
+            ..['M'] = _now();
+          listChanged |= _replace(annots, at, dict);
+        case MarkRewritten():
+          listChanged |= _replace(annots, at, _rewrittenDict(annots[at], update.edit, ref, place));
+      }
+    }
+    final remove = removed.isEmpty ? const <int>{} : annotationThread(file, annots, removed);
+    for (final edit in added) {
       annots.add(PdfRef(_annotation(edit, ref, place), 0));
     }
-    final dict = Map<String, Object?>.of(page)..['Annots'] = annots;
+    if (!listChanged) return;
+    final kept = <Object?>[
+      for (var j = 0; j < annots.length; j++)
+        if (!remove.contains(j)) annots[j],
+    ];
+    final dict = Map<String, Object?>.of(page)..['Annots'] = kept;
     _objects[ref.number] = _writer.object(ref.number, ref.generation, dict);
     _generations[ref.number] = ref.generation;
   }
 
-  /// The matrix from the reader's points to the page's user space, as
-  /// `a b c d e f`.
-  static List<double> _placeFor(List<double> box, int quarter) {
-    final x0 = box[0] < box[2] ? box[0] : box[2];
-    final y0 = box[1] < box[3] ? box[1] : box[3];
-    final width = (box[2] - box[0]).abs();
-    final height = (box[3] - box[1]).abs();
-    return switch (quarter) {
-      1 => <double>[0, 1, 1, 0, x0, y0],
-      2 => <double>[-1, 0, 0, 1, x0 + width, y0],
-      3 => <double>[0, -1, -1, 0, x0 + width, y0 + height],
-      _ => <double>[1, 0, 0, -1, x0, y0 + height],
-    };
-  }
-
-  static (double, double) _user(List<double> m, Offset p) =>
-      (m[0] * p.dx + m[2] * p.dy + m[4], m[1] * p.dx + m[3] * p.dy + m[5]);
-
-  static List<double> _userRect(List<double> m, Iterable<Offset> points) {
-    var left = double.infinity, bottom = double.infinity;
-    var right = double.negativeInfinity, top = double.negativeInfinity;
-    for (final p in points) {
-      final (x, y) = _user(m, p);
-      if (x < left) left = x;
-      if (x > right) right = x;
-      if (y < bottom) bottom = y;
-      if (y > top) top = y;
+  /// Puts [dict] where the annotation at [at] was: into its own object when
+  /// it has one, which leaves the page's list as it is, or into the list
+  /// itself for one written inline, which returns true because the list
+  /// changed.
+  bool _replace(List<Object?> annots, int at, Map<String, Object?> dict) {
+    final raw = annots[at];
+    if (raw is PdfRef) {
+      _objects[raw.number] = _writer.object(raw.number, raw.generation, dict);
+      _generations[raw.number] = raw.generation;
+      return false;
     }
-    return <double>[left, bottom, right, top];
+    annots[at] = dict;
+    return true;
   }
+
+  List<double>? _numbers(Object? raw) {
+    final list = file.resolve(raw);
+    if (list is! List) return null;
+    return <double>[
+      for (final value in list)
+        switch (file.resolve(value)) {
+          final num n => n.toDouble(),
+          _ => 0.0,
+        },
+    ];
+  }
+
+  Map<String, Object?> _movedDict(Object? raw, Offset by, PagePlace place) {
+    final (dx, dy) = place.userVector(by);
+    List<Object?> shifted(Object? value) {
+      final list = _numbers(value);
+      if (list == null) return const <Object?>[];
+      return <Object?>[
+        for (var i = 0; i < list.length; i++) list[i] + (i.isEven ? dx : dy),
+      ];
+    }
+
+    final dict = Map<String, Object?>.of(file.dict(raw)!);
+    dict['Rect'] = shifted(dict['Rect']);
+    for (final key in const <String>['QuadPoints', 'CL', 'Vertices', 'L']) {
+      if (dict.containsKey(key)) dict[key] = shifted(dict[key]);
+    }
+    final ink = file.resolve(dict['InkList']);
+    if (ink is List) {
+      dict['InkList'] = <Object?>[for (final stroke in ink) shifted(stroke)];
+    }
+    dict['M'] = _now();
+    return dict;
+  }
+
+  /// The annotation at [raw] drawn again from [edit]: the new appearance and
+  /// the keys that describe it replace the old ones, and who made it, what it
+  /// answers and its note window stay.
+  Map<String, Object?> _rewrittenDict(
+    Object? raw,
+    PageEdit edit,
+    PdfRef page,
+    PagePlace place,
+  ) {
+    final old = file.dict(raw)!;
+    if (edit is KeptEdit) {
+      return Map<String, Object?>.of(old)
+        ..['Rect'] = place.userRect([edit.rect.topLeft, edit.rect.bottomRight])
+        ..remove('RD')
+        ..['M'] = _now();
+    }
+    final subtype = file.resolve(old['Subtype']);
+    if (edit is TextBoxEdit && subtype is PdfName && subtype.value == 'FreeText') {
+      return _reworded(old, edit, page, place);
+    }
+    final dict = Map<String, Object?>.of(old);
+    // What the new appearance says differently. The line's style and the
+    // opacity are kept and set from the edit, not dropped.
+    for (final key in const <String>['InkList', 'QuadPoints', 'AS', 'C', 'CA']) {
+      dict.remove(key);
+    }
+    final style = file.dict(old['BS']);
+    dict
+      ..addAll(_body(edit, place, dash: _dashOf(style)))
+      ..['P'] = page
+      ..['M'] = _now();
+    if (style != null && edit is InkEdit) {
+      dict['BS'] = Map<String, Object?>.of(style)..['W'] = edit.width / place.unit;
+    }
+    return dict;
+  }
+
+  /// The dash pattern a border style names, or null for a solid line.
+  List<double>? _dashOf(Map<String, Object?>? style) {
+    final kind = file.resolve(style?['S']);
+    if (kind is! PdfName || kind.value != 'D') return null;
+    return _numbers(style?['D']) ?? const <double>[3];
+  }
+
+  /// A box of words another program made, or quire made before, with new
+  /// words, colour, size or box. Its border, fill, callout and inner box
+  /// stay as they were, drawn from its own appearance with only the words
+  /// taken out, and the new words go where the old ones were.
+  Map<String, Object?> _reworded(
+    Map<String, Object?> old,
+    TextBoxEdit edit,
+    PdfRef page,
+    PagePlace place,
+  ) {
+    final dict = Map<String, Object?>.of(old);
+    final to = place.userRect([edit.rect.topLeft, edit.rect.bottomRight]);
+    final had = _numbers(old['Rect']);
+    if (had != null && had.length == 4) {
+      final from = <double>[
+        math.min(had[0], had[2]),
+        math.min(had[1], had[3]),
+        math.max(had[0], had[2]),
+        math.max(had[1], had[3]),
+      ];
+      final sx = from[2] == from[0] ? 1.0 : (to[2] - to[0]) / (from[2] - from[0]);
+      final sy = from[3] == from[1] ? 1.0 : (to[3] - to[1]) / (from[3] - from[1]);
+      final callout = _numbers(old['CL']);
+      if (callout != null) {
+        dict['CL'] = <Object?>[
+          for (var i = 0; i < callout.length; i++)
+            i.isEven ? to[0] + (callout[i] - from[0]) * sx : to[1] + (callout[i] - from[1]) * sy,
+        ];
+      }
+      final inner = _numbers(old['RD']);
+      if (inner != null && inner.length == 4) {
+        dict['RD'] = <Object?>[inner[0] * sx, inner[1] * sy, inner[2] * sx, inner[3] * sy];
+      }
+    }
+    dict['Rect'] = to;
+    final contents = file.resolve(old['Contents']);
+    if (contents is! PdfString || lineBreaks(decodePdfText(contents.bytes)) != edit.text) {
+      dict['Contents'] = _utf16(edit.text);
+    }
+    final da = file.resolve(old['DA']);
+    dict['DA'] = PdfString(latin1.encode(_restyledDa(
+      da is PdfString ? latin1.decode(da.bytes, allowInvalid: true) : '',
+      edit.size / place.unit,
+      edit.color,
+    )));
+    final ds = file.resolve(old['DS']);
+    if (ds is PdfString) {
+      dict['DS'] = _textString(_restyledDs(decodePdfText(ds.bytes), edit.size / place.unit, edit.color));
+    }
+    // Rich text a program prefers over the words would bring the old ones
+    // back.
+    dict.remove('RC');
+    final look = _normalAppearance(old);
+    if (look != null) {
+      dict['AP'] = <String, Object?>{'N': PdfRef(_rewordedLook(look, edit, place, to), 0)};
+      dict.remove('AS');
+    }
+    dict
+      ..['P'] = page
+      ..['M'] = _now();
+    return dict;
+  }
+
+  /// A copy of a mark the file already holds, as a new annotation where
+  /// [edit] puts it: the same dictionary, its points carried to the new
+  /// place, and an appearance that draws the original's as the editor
+  /// showed it, upright on a page turned another way.
+  Map<String, Object?> _copied(KeptEdit edit, PagePlace place) {
+    final origin = edit.origin;
+    final source = origin == null ? null : file.pages[origin.page];
+    final list = source == null ? null : file.resolve(source['Annots']);
+    final old = list is List && origin!.index < list.length ? file.dict(list[origin.index]) : null;
+    final rect = old == null ? null : _numbers(old['Rect']);
+    if (old == null || rect == null || rect.length != 4) {
+      throw const PdfWriteError('The mark being copied is no longer in the file.');
+    }
+    final from = PagePlace.of(file, source!);
+    final bounds = from.readerRect(rect);
+    final to = edit.rect;
+    final sx = bounds.width == 0 ? 1.0 : to.width / bounds.width;
+    final sy = bounds.height == 0 ? 1.0 : to.height / bounds.height;
+    // The source's user space, to the reader's points on its page, onto the
+    // new box, and into the user space of the page it lands on.
+    final carry = _mul(
+      _mul(_invert(from.m), <double>[sx, 0, 0, sy, to.left - bounds.left * sx, to.top - bounds.top * sy]),
+      place.m,
+    );
+    List<Object?> carried(List<double> values) => <Object?>[
+          for (var i = 0; i + 1 < values.length; i += 2) ...<Object?>[
+            values[i] * carry[0] + values[i + 1] * carry[2] + carry[4],
+            values[i] * carry[1] + values[i + 1] * carry[3] + carry[5],
+          ],
+        ];
+    final body = Map<String, Object?>.of(old);
+    for (final key in const <String>['Popup', 'IRT', 'RT', 'StructParent', 'NM', 'Type', 'RD', 'P', 'AP', 'AS']) {
+      body.remove(key);
+    }
+    final box = place.userRect([to.topLeft, to.bottomRight]);
+    body['Rect'] = box;
+    for (final key in const <String>['QuadPoints', 'CL', 'Vertices', 'L']) {
+      final values = _numbers(old[key]);
+      if (values != null) body[key] = carried(values);
+    }
+    final ink = file.resolve(old['InkList']);
+    if (ink is List) {
+      body['InkList'] = <Object?>[
+        for (final stroke in ink) carried(_numbers(stroke) ?? const <double>[]),
+      ];
+    }
+    final (ref, look) = _normalAppearanceOf(old);
+    if (ref != null && look != null) {
+      final bbox = _numbers(look.dict['BBox']) ?? rect;
+      final matrix = _numbers(look.dict['Matrix']) ?? const <double>[1, 0, 0, 1, 0, 0];
+      final fit = _fitOf(bbox, matrix, <double>[
+        math.min(rect[0], rect[2]),
+        math.min(rect[1], rect[3]),
+        math.max(rect[0], rect[2]),
+        math.max(rect[1], rect[3]),
+      ]);
+      final cm = _mul(fit, carry);
+      final number = _form(
+        box,
+        <String, Object?>{
+          'XObject': <String, Object?>{'Kept': ref},
+        },
+        ascii.encode('q ${cm.map(_r).join(' ')} cm /Kept Do Q\n'),
+      );
+      body['AP'] = <String, Object?>{'N': PdfRef(number, 0)};
+    }
+    return body;
+  }
+
+  /// The matrix a reader stretches an appearance with: its box, turned by
+  /// its matrix, onto the annotation's [rect].
+  static List<double> _fitOf(List<double> bbox, List<double> matrix, List<double> rect) {
+    final corners = <(double, double)>[
+      for (final (x, y) in [(bbox[0], bbox[1]), (bbox[2], bbox[1]), (bbox[0], bbox[3]), (bbox[2], bbox[3])])
+        (matrix[0] * x + matrix[2] * y + matrix[4], matrix[1] * x + matrix[3] * y + matrix[5]),
+    ];
+    final x0 = corners.map((c) => c.$1).reduce(math.min), x1 = corners.map((c) => c.$1).reduce(math.max);
+    final y0 = corners.map((c) => c.$2).reduce(math.min), y1 = corners.map((c) => c.$2).reduce(math.max);
+    final sx = x1 == x0 ? 1.0 : (rect[2] - rect[0]) / (x1 - x0);
+    final sy = y1 == y0 ? 1.0 : (rect[3] - rect[1]) / (y1 - y0);
+    return <double>[sx, 0, 0, sy, rect[0] - x0 * sx, rect[1] - y0 * sy];
+  }
+
+  /// The normal appearance of [annot], and the reference it is held under.
+  (PdfRef?, PdfStream?) _normalAppearanceOf(Map<String, Object?> annot) {
+    var raw = file.dict(annot['AP'])?['N'];
+    final normal = file.resolve(raw);
+    if (normal is Map<String, Object?>) {
+      final state = file.resolve(annot['AS']);
+      raw = state is PdfName ? normal[state.value] : null;
+    }
+    final look = file.resolve(raw);
+    return (raw is PdfRef ? raw : null, look is PdfStream ? look : null);
+  }
+
+  PdfStream? _normalAppearance(Map<String, Object?> annot) {
+    final normal = file.resolve(file.dict(annot['AP'])?['N']);
+    if (normal is PdfStream) return normal;
+    if (normal is Map<String, Object?>) {
+      final state = file.resolve(annot['AS']);
+      final chosen = file.resolve(state is PdfName ? normal[state.value] : null);
+      if (chosen is PdfStream) return chosen;
+    }
+    return null;
+  }
+
+  /// [look] with its words taken out and [edit]'s written in, fitted to
+  /// the annotation's new box [rect] the way a reader fits it.
+  int _rewordedLook(PdfStream look, TextBoxEdit edit, PagePlace place, List<double> rect) {
+    final bbox = _numbers(look.dict['BBox']) ?? rect;
+    final matrix = _numbers(look.dict['Matrix']) ?? const <double>[1, 0, 0, 1, 0, 0];
+    final resources = Map<String, Object?>.of(file.dict(look.dict['Resources']) ?? const <String, Object?>{});
+    final pictures = file.dict(resources['XObject']);
+    if (pictures != null && pictures.containsKey(kDrawnWords)) {
+      resources['XObject'] = Map<String, Object?>.of(pictures)..remove(kDrawnWords);
+    }
+    final words = _words(edit, resources);
+    final fit = _fitOf(bbox, matrix, rect);
+    final toForm = _mul(place.m, _invert(_mul(matrix, fit)));
+    final Uint8List before;
+    try {
+      before = contentWithoutText(file.decodeStream(look));
+    } on Object {
+      throw const PdfWriteError('This box of words is drawn in a way quire cannot change.');
+    }
+    final content = BytesBuilder(copy: false)
+      ..add(ascii.encode('q\n'))
+      ..add(before)
+      ..add(ascii.encode('\nQ\nq\n${toForm.map(_r).join(' ')} cm\n'))
+      ..add(latin1.encode(words))
+      ..add(ascii.encode('Q\n'));
+    return _form(bbox, resources, content.takeBytes(), matrix: matrix);
+  }
+
+  static List<double> _mul(List<double> m, List<double> n) => <double>[
+        m[0] * n[0] + m[1] * n[2],
+        m[0] * n[1] + m[1] * n[3],
+        m[2] * n[0] + m[3] * n[2],
+        m[2] * n[1] + m[3] * n[3],
+        m[4] * n[0] + m[5] * n[2] + n[4],
+        m[4] * n[1] + m[5] * n[3] + n[5],
+      ];
+
+  static List<double> _invert(List<double> m) {
+    final det = m[0] * m[3] - m[1] * m[2];
+    if (det == 0) return const <double>[1, 0, 0, 1, 0, 0];
+    final a = m[3] / det, b = -m[1] / det, c = -m[2] / det, d = m[0] / det;
+    return <double>[a, b, c, d, -(m[4] * a + m[5] * c), -(m[4] * b + m[5] * d)];
+  }
+
+  static final RegExp _number = RegExp(r'[+-]?(?:\d+\.?\d*|\.\d+)');
+
+  /// A default appearance string set to [size] and [argb], keeping the font
+  /// it names and anything else it says.
+  static String _restyledDa(String da, double size, int argb) {
+    final n = _number.pattern;
+    var out = da.replaceAllMapped(
+      RegExp('(/[^\\s/\\[\\]()<>{}%]+\\s+)$n(\\s+Tf)'),
+      (m) => '${m[1]}${_r(size)}${m[2]}',
+    );
+    if (!out.contains(RegExp(r'Tf(?![A-Za-z])'))) out = '/Helv ${_r(size)} Tf $out';
+    out = out
+        .replaceAll(RegExp('(?:$n\\s+){3}rg(?![A-Za-z])'), '')
+        .replaceAll(RegExp('(?:$n\\s+){4}k(?![A-Za-z])'), '')
+        .replaceAll(RegExp('$n\\s+g(?![A-Za-z])'), '');
+    return '${out.trim().replaceAll(RegExp(r'\s+'), ' ')} ${_colour(argb)}';
+  }
+
+  /// A default style string with its colour and type size set to [argb]
+  /// and [size].
+  static String _restyledDs(String ds, double size, int argb) {
+    final hex = '#${(argb & 0xFFFFFF).toRadixString(16).padLeft(6, '0')}';
+    var out = ds.replaceAllMapped(
+      RegExp(r'(\d+\.?\d*|\.\d+)pt'),
+      (m) => '${_r(size)}pt',
+    );
+    final colour = RegExp(r'(^|;)\s*color\s*:\s*[^;]*');
+    out = colour.hasMatch(out)
+        ? out.replaceAllMapped(colour, (m) => '${m[1]}color:$hex')
+        : '$out;color:$hex';
+    return out;
+  }
+
+  /// How tall a box of [text] at [size] and [width] must be for every line
+  /// of it to be written.
+  static double wordsHeight(String text, double size, double width, {TrueTypeFont? font, String? family}) =>
+      (wrapWords(text, size, width, font: font, family: family).length * 1.2 + 0.3) * size;
+
+  PdfString _now() => PdfString(ascii.encode(_pdfDate(DateTime.now().toUtc())));
 
   static String _r(double v) => PdfObjectWriter.real(v);
 
@@ -838,47 +1735,239 @@ class PdfAnnotator extends PdfUpdate {
         (argb & 0xff) / 255,
       ];
 
-  /// Writes [edit] as an annotation with its appearance, and returns its
+  /// Writes [edit] as a new annotation with its appearance, and returns its
   /// object number.
-  int _annotation(PageEdit edit, PdfRef page, List<double> place) {
+  int _annotation(PageEdit edit, PdfRef page, PagePlace place) {
+    final Map<String, Object?> body;
+    if (edit is KeptEdit) {
+      body = _copied(edit, place);
+    } else {
+      body = _body(edit, place);
+    }
+    final number = _next++;
+    final dict = <String, Object?>{
+      'Type': const PdfName('Annot'),
+      ...body,
+      'P': page,
+      'F': 4,
+      'NM': PdfString(ascii.encode('quire-${DateTime.now().microsecondsSinceEpoch}-${_named++}')),
+      'T': PdfString(ascii.encode('quire')),
+      'M': _now(),
+    };
+    _objects[number] = _writer.object(number, 0, dict);
+    _generations[number] = 0;
+    return number;
+  }
+
+  /// Which way [text] is written with [font] to hand. Words another program
+  /// set in a standard typeface, [family], stay in it while it can set them.
+  static WordsFace wordsFace(String text, TrueTypeFont? font, {String? family}) {
+    var plain = true;
+    for (final rune in text.runes) {
+      if (rune == 0x0A || rune == 0x0D || rune == 0x3F) continue;
+      if (_winAnsiCode(rune) == 0x3F) {
+        plain = false;
+        break;
+      }
+    }
+    if (family != null && plain) return WordsFace.standard;
+    if (font == null) return plain ? WordsFace.standard : WordsFace.drawn;
+    for (final rune in text.runes) {
+      if (rune == 0x0A || rune == 0x0D) continue;
+      if (!font.covers(rune) || font.glyphFor(rune) == 0 || _shaped(rune)) return WordsFace.drawn;
+    }
+    return WordsFace.embedded;
+  }
+
+  /// The name /DA gives the standard typeface [family], as forms name them.
+  static String _daName(String? family) => switch (family) {
+        'Helvetica-Bold' => 'HeBo',
+        'Helvetica-Oblique' => 'HeOb',
+        'Helvetica-BoldOblique' => 'HeBO',
+        'Times-Roman' => 'TiRo',
+        'Times-Bold' => 'TiBo',
+        'Times-Italic' => 'TiIt',
+        'Times-BoldItalic' => 'TiBI',
+        'Courier' => 'Cour',
+        'Courier-Bold' => 'CoBo',
+        'Courier-Oblique' => 'CoOb',
+        'Courier-BoldOblique' => 'CoBO',
+        _ => 'Helv',
+      };
+
+  /// True for a character that takes its place from the letters around it,
+  /// which setting one glyph after another cannot do: marks that sit on a
+  /// letter, joiners, variation selectors, and the scripts written right to
+  /// left.
+  static bool _shaped(int rune) =>
+      (rune >= 0x0300 && rune <= 0x036F) ||
+      (rune >= 0x0483 && rune <= 0x0489) ||
+      (rune >= 0x0590 && rune <= 0x08FF) ||
+      (rune >= 0x1AB0 && rune <= 0x1AFF) ||
+      (rune >= 0x1DC0 && rune <= 0x1DFF) ||
+      (rune >= 0x200B && rune <= 0x200F) ||
+      (rune >= 0x202A && rune <= 0x202E) ||
+      (rune >= 0x20D0 && rune <= 0x20FF) ||
+      (rune >= 0xFB1D && rune <= 0xFDFF) ||
+      (rune >= 0xFE00 && rune <= 0xFE0F) ||
+      (rune >= 0xFE20 && rune <= 0xFE2F) ||
+      (rune >= 0xFE70 && rune <= 0xFEFF);
+
+  /// The drawing of [edit]'s words in the reader's points, its fonts or
+  /// picture added to [resources].
+  String _words(TextBoxEdit edit, Map<String, Object?> resources) {
+    final box = edit.wordsBox;
+    final out = StringBuffer();
+    final drawn = edit.drawn;
+    if (drawn != null) {
+      final pictures = Map<String, Object?>.of(file.dict(resources['XObject']) ?? const <String, Object?>{})
+        ..[kDrawnWords] = PdfRef(_addImage(drawn), 0);
+      resources['XObject'] = pictures;
+      out.writeln(
+        'q ${_r(box.width)} 0 0 ${_r(-box.height)} ${_r(box.left)} ${_r(box.bottom)} cm /$kDrawnWords Do Q',
+      );
+      return out.toString();
+    }
+    final font = _font;
+    final face = wordsFace(edit.text, font, family: edit.family);
+    final embedded = font != null && face != WordsFace.standard;
+    final fonts = Map<String, Object?>.of(file.dict(resources['Font']) ?? const <String, Object?>{});
+    if (embedded) {
+      fonts['QuireWords'] = PdfRef(_fontNumber ??= _next++, 0);
+    } else {
+      fonts['QuireHelv'] = <String, Object?>{
+        'Type': const PdfName('Font'),
+        'Subtype': const PdfName('Type1'),
+        'BaseFont': PdfName(edit.family ?? 'Helvetica'),
+        'Encoding': const PdfName('WinAnsiEncoding'),
+      };
+    }
+    resources['Font'] = fonts;
+    out.writeln(_colour(edit.color));
+    final lines = wrapWords(edit.text, edit.size, box.width, font: embedded ? font : null, family: edit.family);
+    var baseline = box.top + edit.size;
+    for (final line in lines) {
+      if (baseline > box.bottom + edit.size * 0.3) break;
+      final shown = embedded ? _glyphString(font, line) : _winAnsiString(line);
+      // The reader's y runs down, so the text matrix flips it back up.
+      out.writeln(
+        'BT /${embedded ? 'QuireWords' : 'QuireHelv'} ${_r(edit.size)} Tf 1 0 0 -1 '
+        '${_r(box.left)} ${_r(baseline)} Tm $shown Tj ET',
+      );
+      baseline += edit.size * 1.2;
+    }
+    return out.toString();
+  }
+
+  String _glyphString(TrueTypeFont font, String line) {
+    final out = StringBuffer('<');
+    for (final rune in line.runes) {
+      final glyph = font.glyphFor(rune);
+      _fontText.putIfAbsent(glyph, () => rune);
+      out.write(glyph.toRadixString(16).padLeft(4, '0'));
+    }
+    out.write('>');
+    return out.toString();
+  }
+
+  /// The embedded typeface, cut down to the glyphs the words used.
+  void _writeFont() {
+    final number = _fontNumber;
+    final font = _font;
+    if (number == null || font == null) return;
+    final glyphs = <int>{0, ..._fontText.keys};
+    final text = Map<int, int>.of(_fontText)..remove(0);
+    var hash = 0;
+    for (final g in glyphs.toList()..sort()) {
+      hash = (hash * 31 + g) & 0x7FFFFFFF;
+    }
+    final tag = String.fromCharCodes([for (var i = 0; i < 6; i++) 0x41 + (hash >> (i * 4)) % 26]);
+    final name = PdfName('$tag+${font.postScriptName ?? 'Font'}');
+    final descendant = _next++, descriptor = _next++, embedded = _next++, map = _next++;
+    final scale = 1000 / font.unitsPerEm;
+    _objects[number] = _writer.object(number, 0, <String, Object?>{
+      'Type': const PdfName('Font'),
+      'Subtype': const PdfName('Type0'),
+      'BaseFont': name,
+      'Encoding': const PdfName('Identity-H'),
+      'DescendantFonts': <Object?>[PdfRef(descendant, 0)],
+      'ToUnicode': PdfRef(map, 0),
+    });
+    _generations[number] = 0;
+    _objects[descendant] = _writer.object(descendant, 0, <String, Object?>{
+      'Type': const PdfName('Font'),
+      'Subtype': const PdfName('CIDFontType2'),
+      'BaseFont': name,
+      'CIDSystemInfo': <String, Object?>{
+        'Registry': PdfString(ascii.encode('Adobe')),
+        'Ordering': PdfString(ascii.encode('Identity')),
+        'Supplement': 0,
+      },
+      'FontDescriptor': PdfRef(descriptor, 0),
+      'DW': 0,
+      'W': <Object?>[
+        for (final g in glyphs.toList()..sort()) ...<Object?>[g, <Object?>[font.widthOf(g)]],
+      ],
+      'CIDToGIDMap': const PdfName('Identity'),
+    });
+    _generations[descendant] = 0;
+    _objects[descriptor] = _writer.object(descriptor, 0, <String, Object?>{
+      'Type': const PdfName('FontDescriptor'),
+      'FontName': name,
+      'Flags': 32,
+      'FontBBox': <Object?>[for (final v in font.bbox) v * scale],
+      'ItalicAngle': 0,
+      'Ascent': font.ascender * scale,
+      'Descent': font.descender * scale,
+      'CapHeight': font.ascender * scale * 0.72,
+      'StemV': 80,
+      'FontFile2': PdfRef(embedded, 0),
+    });
+    _generations[descriptor] = 0;
+    final subset = font.subset(glyphs);
+    _streamObject(embedded, <String, Object?>{
+      'Length1': subset.length,
+      'Filter': const PdfName('FlateDecode'),
+    }, Uint8List.fromList(const ZLibEncoder().encodeBytes(subset)));
+    _streamObject(map, const <String, Object?>{}, latin1.encode(pdfToUnicode(text)));
+  }
+
+  /// The keys that make [edit] the annotation it is, its rectangle and its
+  /// appearance, with the appearance already written.
+  Map<String, Object?> _body(PageEdit edit, PagePlace place, {List<double>? dash}) {
     final draw = StringBuffer()
       ..writeln('q')
-      ..writeln('${place.map(_r).join(' ')} cm');
+      ..writeln('${place.m.map(_r).join(' ')} cm');
     final resources = <String, Object?>{};
+    void seeThrough(double opacity, {bool multiply = false}) {
+      if (opacity >= 1 && !multiply) return;
+      resources['ExtGState'] = <String, Object?>{
+        'Mark': <String, Object?>{
+          'Type': const PdfName('ExtGState'),
+          'CA': opacity,
+          'ca': opacity,
+          if (multiply) 'BM': const PdfName('Multiply'),
+        },
+      };
+      draw.writeln('/Mark gs');
+    }
+
     final Map<String, Object?> annot;
     final List<double> rect;
     switch (edit) {
+      case KeptEdit():
+        throw const PdfWriteError('A kept mark has no appearance of its own to write.');
       case TextBoxEdit():
-        rect = _userRect(place, [edit.rect.topLeft, edit.rect.bottomRight]);
-        resources['Font'] = <String, Object?>{
-          'Helv': <String, Object?>{
-            'Type': const PdfName('Font'),
-            'Subtype': const PdfName('Type1'),
-            'BaseFont': const PdfName('Helvetica'),
-            'Encoding': const PdfName('WinAnsiEncoding'),
-          },
-        };
-        draw.writeln(_colour(edit.color));
-        final lines = _wrap(edit.text, edit.size, edit.rect.width);
-        var baseline = edit.rect.top + edit.size;
-        for (final line in lines) {
-          if (baseline > edit.rect.bottom + edit.size * 0.3) break;
-          // The reader's y runs down, so the text matrix flips it back up.
-          draw.writeln(
-            'BT /Helv ${_r(edit.size)} Tf 1 0 0 -1 '
-            '${_r(edit.rect.left)} ${_r(baseline)} Tm '
-            '${_winAnsiString(line)} Tj ET',
-          );
-          baseline += edit.size * 1.2;
-        }
+        rect = place.userRect([edit.rect.topLeft, edit.rect.bottomRight]);
+        draw.write(_words(edit, resources));
         annot = <String, Object?>{
           'Subtype': const PdfName('FreeText'),
           'Contents': _utf16(edit.text),
-          'DA': PdfString(latin1.encode('/Helv ${_r(edit.size)} Tf ${_colour(edit.color)}')),
+          'DA': PdfString(latin1.encode('/${_daName(edit.family)} ${_r(edit.size / place.unit)} Tf ${_colour(edit.color)}')),
           'C': <Object?>[],
         };
       case ImageEdit():
-        rect = _userRect(place, [edit.rect.topLeft, edit.rect.bottomRight]);
+        rect = place.userRect([edit.rect.topLeft, edit.rect.bottomRight]);
         resources['XObject'] = <String, Object?>{
           'Img': PdfRef(_addImage(edit.image), 0),
         };
@@ -898,11 +1987,14 @@ class PdfAnnotator extends PdfUpdate {
           throw const PdfWriteError('A drawing has no lines to write.');
         }
         final pad = edit.width;
-        final box = _userRect(place, points);
-        rect = <double>[box[0] - pad, box[1] - pad, box[2] + pad, box[3] + pad];
+        final box = place.userRect(points);
+        final reach = pad / place.unit;
+        rect = <double>[box[0] - reach, box[1] - reach, box[2] + reach, box[3] + reach];
+        seeThrough(edit.opacity);
         draw
           ..writeln(_colour(edit.color, stroke: true))
           ..writeln('${_r(edit.width)} w 1 J 1 j');
+        if (dash != null) draw.writeln('[${dash.map((v) => _r(v * place.unit)).join(' ')}] 0 d');
         for (final stroke in edit.strokes) {
           if (stroke.isEmpty) continue;
           for (var i = 0; i < stroke.length; i++) {
@@ -919,31 +2011,24 @@ class PdfAnnotator extends PdfUpdate {
             for (final stroke in edit.strokes)
               <Object?>[
                 for (final p in stroke) ...() {
-                  final (x, y) = _user(place, p);
+                  final (x, y) = place.user(p);
                   return <Object?>[x, y];
                 }(),
               ],
           ],
-          'BS': <String, Object?>{'W': edit.width},
+          'BS': <String, Object?>{'W': edit.width / place.unit},
           'C': _colourArray(edit.color),
+          if (edit.opacity < 1) 'CA': edit.opacity,
         };
       case HighlightEdit():
         if (edit.rects.isEmpty) {
           throw const PdfWriteError('A highlight covers nothing.');
         }
-        rect = _userRect(place, [
+        rect = place.userRect([
           for (final r in edit.rects) ...[r.topLeft, r.bottomRight],
         ]);
-        resources['ExtGState'] = <String, Object?>{
-          'Mark': <String, Object?>{
-            'Type': const PdfName('ExtGState'),
-            'ca': 0.4,
-            'BM': const PdfName('Multiply'),
-          },
-        };
-        draw
-          ..writeln('/Mark gs')
-          ..writeln(_colour(edit.color));
+        seeThrough(edit.opacity, multiply: true);
+        draw.writeln(_colour(edit.color));
         for (final r in edit.rects) {
           draw.writeln('${_r(r.left)} ${_r(r.top)} ${_r(r.width)} ${_r(r.height)} re f');
         }
@@ -951,15 +2036,16 @@ class PdfAnnotator extends PdfUpdate {
           'Subtype': const PdfName('Highlight'),
           'QuadPoints': _quads(place, edit.rects),
           'C': _colourArray(edit.color),
-          'CA': 0.4,
+          if (edit.opacity < 1) 'CA': edit.opacity,
         };
       case StrikeEdit():
         if (edit.rects.isEmpty) {
           throw const PdfWriteError('A strike through covers nothing.');
         }
-        rect = _userRect(place, [
+        rect = place.userRect([
           for (final r in edit.rects) ...[r.topLeft, r.bottomRight],
         ]);
+        seeThrough(edit.opacity);
         draw.writeln(_colour(edit.color, stroke: true));
         for (final r in edit.rects) {
           final weight = r.height * 0.08 < 0.8 ? 0.8 : r.height * 0.08;
@@ -972,42 +2058,45 @@ class PdfAnnotator extends PdfUpdate {
           'Subtype': const PdfName('StrikeOut'),
           'QuadPoints': _quads(place, edit.rects),
           'C': _colourArray(edit.color),
+          if (edit.opacity < 1) 'CA': edit.opacity,
         };
     }
     draw.writeln('Q');
-    final appearance = _form(rect, resources, ascii.encode(draw.toString()));
-    final number = _next++;
-    final dict = <String, Object?>{
-      'Type': const PdfName('Annot'),
+    final appearance = _form(rect, resources, latin1.encode(draw.toString()));
+    return <String, Object?>{
       ...annot,
       'Rect': rect,
-      'P': page,
-      'F': 4,
-      'NM': PdfString(ascii.encode('quire-${DateTime.now().microsecondsSinceEpoch}-${_named++}')),
-      'T': PdfString(ascii.encode('quire')),
-      'M': PdfString(ascii.encode(_pdfDate(DateTime.now().toUtc()))),
       'AP': <String, Object?>{'N': PdfRef(appearance, 0)},
     };
-    _objects[number] = _writer.object(number, 0, dict);
-    _generations[number] = 0;
+  }
+
+  /// A form XObject drawing [content], its box the annotation's own, so the
+  /// appearance lands exactly where it was drawn.
+  int _form(
+    List<double> bbox,
+    Map<String, Object?> resources,
+    Uint8List content, {
+    List<double>? matrix,
+  }) {
+    final number = _next++;
+    _streamObject(number, <String, Object?>{
+      'Type': const PdfName('XObject'),
+      'Subtype': const PdfName('Form'),
+      'BBox': bbox,
+      'Matrix': ?matrix,
+      'Resources': resources,
+    }, content);
     return number;
   }
 
-  /// A form XObject drawing [content] in the page's user space, its box the
-  /// annotation's own, so the appearance lands exactly where it was drawn.
-  int _form(List<double> bbox, Map<String, Object?> resources, Uint8List content) {
-    final number = _next++;
-    final body = file.encryptForObject(content, number, 0);
+  /// Writes a stream object [number] with [dict] and [data], encrypted the
+  /// way the file's own streams are.
+  void _streamObject(int number, Map<String, Object?> dict, Uint8List data) {
+    final body = file.encryptForObject(data, number, 0);
     final buffer = StringBuffer()..write('$number 0 obj\n');
     _writer.write(
       buffer,
-      <String, Object?>{
-        'Type': const PdfName('XObject'),
-        'Subtype': const PdfName('Form'),
-        'BBox': bbox,
-        'Resources': resources,
-        'Length': body.length,
-      },
+      <String, Object?>{...dict, 'Length': body.length},
       number,
       0,
       encrypt: true,
@@ -1019,34 +2108,39 @@ class PdfAnnotator extends PdfUpdate {
           ..add(ascii.encode('\nendstream\nendobj\n')))
         .takeBytes();
     _generations[number] = 0;
-    return number;
   }
 
   /// Each box as the four corners a text markup names: top left, top right,
   /// bottom left, bottom right, in user space.
-  static List<Object?> _quads(List<double> m, List<Rect> rects) => <Object?>[
+  static List<Object?> _quads(PagePlace place, List<Rect> rects) => <Object?>[
         for (final r in rects)
           for (final p in [r.topLeft, r.topRight, r.bottomLeft, r.bottomRight])
             ...() {
-              final (x, y) = _user(m, p);
+              final (x, y) = place.user(p);
               return <Object?>[x, y];
             }(),
       ];
 
-  /// [text] broken into lines that fit [width] at [size] in Helvetica, at
-  /// the words where it can and inside a word where one is too long.
-  static List<String> _wrap(String text, double size, double width) {
+  /// [text] broken into lines that fit [width] at [size], at the words where
+  /// it can and inside a word where one is too long, which is how a box of
+  /// words is written and so how an editor must preview it. Measured in
+  /// Helvetica, or in [font] when the words are set in it.
+  static List<String> wrapWords(String text, double size, double width, {TrueTypeFont? font, String? family}) {
+    final face = wordsFace(text, font, family: family);
+    final set = font != null && face == WordsFace.embedded ? font : null;
+    final widths = (family == null ? null : standardWidths(family.toLowerCase())) ?? kHelvetica;
     double measure(String s) {
+      if (set != null) return set.measure(s, size);
       var total = 0.0;
       for (final rune in s.runes) {
         final code = _winAnsiCode(rune);
-        total += kHelvetica[code < kHelvetica.length ? code : 63] * size;
+        total += widths[code < widths.length ? code : 63] * size;
       }
       return total;
     }
 
     final out = <String>[];
-    for (final paragraph in text.split('\n')) {
+    for (final paragraph in lineBreaks(text).split('\n')) {
       var line = '';
       for (final word in paragraph.split(' ')) {
         final tried = line.isEmpty ? word : '$line $word';
@@ -1105,6 +2199,15 @@ class PdfAnnotator extends PdfUpdate {
         ..add(unit & 0xff);
     }
     return PdfString(Uint8List.fromList(out));
+  }
+
+  /// [text] as a text string: in PDFDocEncoding's Latin-1 half when it fits
+  /// there, and in UTF-16 otherwise.
+  static PdfString _textString(String text) {
+    if (text.codeUnits.every((u) => u < 0x7F && (u >= 0x20 || u == 0x0A || u == 0x0D || u == 0x09))) {
+      return PdfString(Uint8List.fromList(text.codeUnits));
+    }
+    return _utf16(text);
   }
 
   static String _pdfDate(DateTime t) {

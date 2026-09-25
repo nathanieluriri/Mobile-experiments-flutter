@@ -22,6 +22,8 @@ import '../../theme/feedback.dart';
 import '../../theme/easings.dart';
 import '../../theme/metrics.dart';
 import '../edit/cell_sheet.dart';
+import '../edit/doc_editor.dart';
+import '../edit/grid_editor.dart';
 import '../edit/markup_screen.dart';
 import '../edit/paragraph_editor.dart';
 import '../edit/revisions_sheet.dart';
@@ -260,7 +262,7 @@ class _ReaderHostState extends State<ReaderHost> with TickerProviderStateMixin {
 
   /// What this document can have done to it from inside itself.
   List<ReaderAction> get _actions => <ReaderAction>[
-    if (_editable && widget.store.isPdf) ReaderAction.markUp,
+    if (_editable && widget.store.isPdf && _commentable) ReaderAction.markUp,
     if (_editable && widget.store.isGrid &&
         widget.store.entry.format == DocFormat.xlsx)
       ReaderAction.editCell,
@@ -384,18 +386,34 @@ class _ReaderHostState extends State<ReaderHost> with TickerProviderStateMixin {
     final bytes = store.bytes;
     switch (store.entry.format) {
       case DocFormat.docx:
+        _openEditor(
+          (context, save, back) => DocEditor(
+            title: store.entry.title,
+            bytes: bytes,
+            onSave: save,
+            onBack: back,
+          ),
+        );
       case DocFormat.pptx:
         _openEditor(
           (context, save, back) => ParagraphEditor(
             title: store.entry.title,
             bytes: bytes,
-            deck: store.entry.format == DocFormat.pptx,
+            deck: true,
+            onSave: save,
+            onBack: back,
+          ),
+        );
+      case DocFormat.csv:
+        _openEditor(
+          (context, save, back) => GridEditor(
+            title: store.entry.title,
+            bytes: bytes,
             onSave: save,
             onBack: back,
           ),
         );
       case DocFormat.md:
-      case DocFormat.csv:
         _openEditor(
           (context, save, back) => TextEditor(
             entry: store.entry,
@@ -411,6 +429,12 @@ class _ReaderHostState extends State<ReaderHost> with TickerProviderStateMixin {
   }
 
   /// Words, ink, highlights, strikes and pictures on a PDF's pages.
+  /// False for a PDF whose own rules forbid adding or changing comments.
+  bool get _commentable {
+    final file = widget.store.pdf;
+    return file == null || PdfAnnotator.allowsComments(file);
+  }
+
   void _markUp() {
     final pages = _pages;
     final file = widget.store.pdf;
@@ -421,16 +445,22 @@ class _ReaderHostState extends State<ReaderHost> with TickerProviderStateMixin {
         pages: pages,
         openAt: widget.store.position,
         onBack: back,
-        onSave: (edits) async {
+        onSave: (changes) async {
           final Uint8List bytes;
           try {
-            bytes = PdfAnnotator.annotated(file, edits);
+            bytes = PdfAnnotator.apply(
+              file,
+              added: changes.added,
+              updates: changes.updates,
+              font: changes.font,
+            );
           } on PdfWriteError catch (error) {
             return error.message;
           } on Object {
             return 'The marks could not be written into this file.';
           }
-          return save(bytes, edits.length == 1 ? 'One mark' : '${edits.length} marks');
+          final count = changes.added.length + changes.updates.length;
+          return save(bytes, count == 1 ? 'One mark' : '$count marks');
         },
       ),
     );

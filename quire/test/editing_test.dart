@@ -7,11 +7,10 @@ import 'package:quire/edit/xlsx_patch.dart';
 import 'package:quire/format/xlsx_parser.dart' show XlsxParser;
 import 'package:quire/pdf/display_list.dart';
 import 'package:quire/pdf/objects.dart';
+import 'package:quire/screens/edit/doc_editor.dart';
 import 'package:quire/screens/edit/markup_screen.dart';
-import 'package:quire/screens/edit/paragraph_editor.dart';
 import 'package:quire/screens/edit/revisions_sheet.dart';
 import 'package:quire/screens/edit/text_editor.dart';
-import 'package:quire/screens/reader/bodies/pdf_body.dart' show PdfPageView;
 import 'package:quire/screens/reader/bodies/sheet_body.dart';
 import 'package:quire/screens/reader/bodies/spine_table.dart';
 import 'package:quire/screens/reader/reader_host.dart';
@@ -129,7 +128,7 @@ void main() {
     expect(after.revisions.map((r) => r.number), [1, 2]);
   });
 
-  testWidgets('a Word paragraph is changed and the rest of the file kept',
+  testWidgets('a Word document is edited in place and the rest of the file kept',
       (tester) async {
     final (_, store) = await open(tester, kHouseStyle);
     final was = DocxPatch(store.bytes).paragraphs;
@@ -137,24 +136,11 @@ void main() {
     await _openMenu(tester);
     await tester.tap(find.text('Edit'));
     await settle(tester);
-    expect(find.byType(ParagraphEditor), findsOneWidget);
-    final field = find.descendant(
-      of: find.byKey(ValueKey<String>('paragraph $at')),
-      matching: find.byType(EditableText),
-    );
-    await tester.scrollUntilVisible(
-      find.byKey(ValueKey<String>('paragraph $at')),
-      200,
-      scrollable: find
-          .descendant(
-            of: find.byType(ParagraphEditor),
-            matching: find.byType(Scrollable),
-          )
-          .first,
-    );
-    await tester.enterText(field, 'Rewritten in quire.');
+    expect(find.byType(DocEditor), findsOneWidget);
+    final editor = tester.state<DocEditorState>(find.byType(DocEditor));
+    final offset = editor.controller.document.toPlainText().indexOf(was[at]);
+    editor.controller.replaceText(offset, was[at].length, 'Rewritten in quire.', null);
     await settle(tester);
-    expect(find.text('One paragraph changed.'), findsOneWidget);
     await tester.tap(find.text('SAVE'));
     await _disk(tester);
     final now = DocxPatch(store.bytes).paragraphs;
@@ -193,13 +179,10 @@ void main() {
     await tester.tap(find.text('Mark up'));
     await settle(tester);
     expect(find.byType(MarkupScreen), findsOneWidget);
+    await tester.tap(find.bySemanticsLabel('Highlight'));
+    await settle(tester);
 
-    final page = tester.getRect(
-      find.descendant(
-        of: find.byType(MarkupScreen),
-        matching: find.byType(PdfPageView),
-      ),
-    );
+    final page = tester.getRect(find.byKey(const ValueKey<String>('markup-page')));
     await tester.dragFrom(
       page.topLeft + Offset(page.width * 0.1, page.height * 0.2),
       Offset(page.width * 0.6, page.height * 0.05),
@@ -268,40 +251,50 @@ void main() {
 
   group('snapping a drag to the lines of type', () {
     LaidOutRun line(double y) => LaidOutRun('a line of words', 50, y, 10, 200, 0, 0, 0);
+    // Each of the fifteen characters is 200 / 15 points wide.
+    double at(int index) => 50 + index * 200 / 15;
 
-    test('one line, from where the drag began to where it ended', () {
-      final rects = snapToLines([line(100)], const Rect.fromLTRB(80, 95, 150, 99));
-      expect(rects, [const Rect.fromLTRB(80, 91, 150, 102.5)]);
+    test('one line, from the start of the word the drag began in to the end of the one it ended in', () {
+      final rects = snapToLines([line(100)], const Offset(80, 97), const Offset(150, 97));
+      expect(rects, [Rect.fromLTRB(at(2), 91, at(9), 102.5)]);
     });
 
-    test('three lines: the middle one whole, the ends cut at the drag', () {
+    test('three lines: the middle one whole, the ends cut at the words', () {
       final rects = snapToLines(
         [line(100), line(120), line(140)],
-        const Rect.fromLTRB(120, 95, 90, 138).normalize(),
+        const Offset(120, 95),
+        const Offset(90, 138),
       );
       expect(rects, hasLength(3));
-      expect(rects[0].left, 90);
+      expect(rects[0].left, at(2));
       expect(rects[0].right, 250);
       expect(rects[1].left, 50);
       expect(rects[1].right, 250);
       expect(rects[2].left, 50);
-      expect(rects[2].right, 120);
+      expect(rects[2].right, at(6));
+    });
+
+    test('a drag that drifts under half a line stays on its line', () {
+      final rects = snapToLines([line(100), line(120)], const Offset(60, 97), const Offset(200, 101));
+      expect(rects, [Rect.fromLTRB(50, 91, 250, 102.5)]);
+    });
+
+    test('a tap marks the word under it', () {
+      final rects = snapToLines([line(100)], const Offset(100, 97), const Offset(100, 97));
+      expect(rects, [Rect.fromLTRB(at(2), 91, at(6), 102.5)]);
     });
 
     test('no type under it, which is a scan, is the drag itself', () {
-      const drag = Rect.fromLTRB(10, 10, 60, 30);
-      expect(snapToLines(const [], drag), [drag]);
+      expect(snapToLines(const [], const Offset(10, 10), const Offset(60, 30)), [
+        const Rect.fromLTRB(10, 10, 60, 30),
+      ]);
     });
 
     test('a turned line is left alone', () {
       final turned = LaidOutRun('sideways', 50, 100, 10, 200, 0, 0, 0, angle: 1.57);
-      expect(snapToLines([turned], const Rect.fromLTRB(60, 95, 70, 99)), [
+      expect(snapToLines([turned], const Offset(60, 95), const Offset(70, 99)), [
         const Rect.fromLTRB(60, 95, 70, 99),
       ]);
     });
   });
-}
-
-extension on Rect {
-  Rect normalize() => Rect.fromPoints(topLeft, bottomRight);
 }

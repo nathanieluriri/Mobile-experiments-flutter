@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
@@ -7,6 +9,7 @@ import '../../theme/edges.dart';
 import '../../theme/metrics.dart';
 import '../../theme/typography.dart';
 import '../../widgets/press_fade.dart';
+import '../desk/desk_sheet.dart';
 
 const double kEditFieldRadius = 12.0;
 const double kEditFieldPad = 12.0;
@@ -41,8 +44,55 @@ class EditFrame extends StatelessWidget {
   /// A line under the band, or a problem to show in its place.
   final String? note;
 
+  /// Leaving with changes not yet saved asks first: save them, throw them
+  /// away, or stay. Nothing a reader did is lost to a slip of the back
+  /// gesture.
+  Future<void> _leave(BuildContext context) async {
+    if (!canSave || saving) {
+      onBack();
+      return;
+    }
+    final choice = await showDeskSheet<String>(
+      context,
+      (context) => DeskSheet(
+        title: 'Keep your changes?',
+        note: 'They are not saved yet.',
+        children: <Widget>[
+          DeskSheetRow(
+            label: 'Save',
+            icon: LucideIcons.check,
+            onTap: () => Navigator.of(context).pop('save'),
+          ),
+          DeskSheetRow(
+            label: 'Discard changes',
+            icon: LucideIcons.trash2,
+            destructive: true,
+            onTap: () => Navigator.of(context).pop('discard'),
+          ),
+          DeskSheetRow(
+            label: 'Keep editing',
+            icon: LucideIcons.pencil,
+            onTap: () => Navigator.of(context).pop(),
+          ),
+        ],
+      ),
+    );
+    if (choice == 'save') onSave();
+    if (choice == 'discard') onBack();
+  }
+
   @override
   Widget build(BuildContext context) {
+    return PopScope(
+      canPop: !canSave || saving,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) unawaited(_leave(context));
+      },
+      child: _frame(context),
+    );
+  }
+
+  Widget _frame(BuildContext context) {
     final inset = MediaQuery.paddingOf(context);
     final note = this.note;
     return ColoredBox(
@@ -66,7 +116,7 @@ class EditFrame extends StatelessWidget {
                     EditButton(
                       icon: LucideIcons.cornerUpLeft,
                       label: 'Back to the document',
-                      onTap: onBack,
+                      onTap: () => unawaited(_leave(context)),
                     ),
                     const SizedBox(width: kEditGap),
                     Expanded(
@@ -103,7 +153,16 @@ class EditFrame extends StatelessWidget {
                   style: AppText.hint.copyWith(color: AppColors.inkFaint),
                 ),
               ),
-            Expanded(child: child),
+            // The insets are already taken care of above, so nothing inside
+            // pads itself for them a second time.
+            Expanded(
+              child: MediaQuery.removePadding(
+                context: context,
+                removeTop: true,
+                removeBottom: true,
+                child: child,
+              ),
+            ),
           ],
         ),
       ),
@@ -181,6 +240,7 @@ class EditField extends StatefulWidget {
     this.keyboardType = TextInputType.multiline,
     this.textInputAction = TextInputAction.newline,
     this.onSubmitted,
+    this.onEditingComplete,
   });
 
   final TextEditingController controller;
@@ -194,6 +254,10 @@ class EditField extends StatefulWidget {
   final TextInputType keyboardType;
   final TextInputAction textInputAction;
   final ValueChanged<String>? onSubmitted;
+
+  /// Replaces what the keyboard's action key does after [onSubmitted], which
+  /// by default takes the keyboard away.
+  final VoidCallback? onEditingComplete;
 
   @override
   State<EditField> createState() => _EditFieldState();
@@ -246,6 +310,7 @@ class _EditFieldState extends State<EditField> {
             textInputAction: widget.textInputAction,
             onChanged: widget.onChanged,
             onSubmitted: widget.onSubmitted,
+            onEditingComplete: widget.onEditingComplete,
             minLines: expands ? null : widget.minLines,
             maxLines: expands ? null : widget.maxLines,
             expands: expands,

@@ -9,7 +9,7 @@ import 'shading.dart';
 
 class _GState {
   _GState(this.ctm, this.fill, this.stroke, this.lineWidth,
-      [this.fillAlpha = 1.0, this.strokeAlpha = 1.0]);
+      [this.fillAlpha = 1.0, this.strokeAlpha = 1.0, this.blend = PdfBlend.normal]);
   Mat ctm;
   int fill;
   int stroke;
@@ -19,6 +19,9 @@ class _GState {
   /// `rg` or `g` inherits it instead of clearing it.
   double fillAlpha;
   double strokeAlpha;
+
+  /// The blend mode an /ExtGState set.
+  PdfBlend blend;
 
   int get fillColor => _withAlpha(fill, fillAlpha);
   int get strokeColor => _withAlpha(stroke, strokeAlpha);
@@ -33,7 +36,7 @@ class _GState {
   Mat? fillShadingMatrix;
 
   _GState clone() =>
-      _GState(ctm, fill, stroke, lineWidth, fillAlpha, strokeAlpha)
+      _GState(ctm, fill, stroke, lineWidth, fillAlpha, strokeAlpha, blend)
         ..clip = clip
         ..fillShading = fillShading
         ..fillShadingMatrix = fillShadingMatrix;
@@ -89,7 +92,15 @@ class ContentInterpreter {
   /// draws and this reader cannot.
   int unmappedGlyphs = 0;
 
-  PageDisplayList run(Map<String, Object?> page) {
+  /// Draws [page]: its content, then its annotations. [skipAnnotations]
+  /// leaves out the annotations at those places in the page's /Annots, and
+  /// [onlyAnnotation] draws that one annotation and nothing else, which is
+  /// how an editor lifts a mark off the page to move it.
+  PageDisplayList run(
+    Map<String, Object?> page, {
+    Set<int> skipAnnotations = const <int>{},
+    int? onlyAnnotation,
+  }) {
     final mb = doc.mediaBox(page);
     final cropRaw = doc.resolve(page['CropBox']);
     var box = mb;
@@ -131,8 +142,9 @@ class ContentInterpreter {
     final base = unit == 1 ? turn : turn.mul(Mat(unit, 0, 0, unit, 0, 0));
     final content = doc.pageContent(page);
     final res = doc.dict(page['Resources']) ?? const {};
-    _exec(content, res, base, out, 0);
-    _drawAnnotations(page, res, base, out);
+    if (onlyAnnotation == null) _exec(content, res, base, out, 0);
+    _drawAnnotations(page, res, base, out,
+        skip: skipAnnotations, only: onlyAnnotation);
     return out;
   }
 
@@ -148,12 +160,16 @@ class ContentInterpreter {
     Map<String, Object?> page,
     Map<String, Object?> res,
     Mat base,
-    PageDisplayList out,
-  ) {
+    PageDisplayList out, {
+    Set<int> skip = const <int>{},
+    int? only,
+  }) {
     final annots = doc.resolve(page['Annots']);
     if (annots is! List) return;
-    for (final raw in annots.take(2000)) {
-      final annot = doc.dict(raw);
+    final count = annots.length < 2000 ? annots.length : 2000;
+    for (var index = 0; index < count; index++) {
+      if (skip.contains(index) || (only != null && index != only)) continue;
+      final annot = doc.dict(annots[index]);
       if (annot == null) continue;
       final flags = (doc.resolve(annot['F']) as num?)?.toInt() ?? 0;
       if (flags & 2 != 0 || flags & 32 != 0) continue;
@@ -387,6 +403,7 @@ class ContentInterpreter {
           evenOdd: eo,
           seq: _seq++,
           clip: gs.clip,
+          blend: gs.blend,
         ));
       }
       // The path a W marks narrows the clip after it has been painted, which
@@ -738,6 +755,15 @@ class ContentInterpreter {
     if (upperCa is num) gs.strokeAlpha = upperCa.toDouble().clamp(0.0, 1.0);
     final lw = doc.resolve(ext['LW']);
     if (lw is num) gs.lineWidth = lw.toDouble();
+    // A list of modes asks for the first one the reader knows.
+    final bm = doc.resolve(ext['BM']);
+    for (final name in bm is List ? bm.map(doc.resolve) : <Object?>[bm]) {
+      final mode = name is PdfName ? PdfBlend.named(name.value) : null;
+      if (mode != null) {
+        gs.blend = mode;
+        break;
+      }
+    }
     // A soft mask is a whole compositing model, not a constant, so a page that
     // asks for one is recorded rather than approximated.
     final smask = doc.resolve(ext['SMask']);

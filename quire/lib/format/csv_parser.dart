@@ -1,7 +1,9 @@
 import 'dart:convert';
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import '../model/document.dart';
+import '../pdf/encodings.dart' show winAnsiHigh;
 
 /// A parsed CSV file, plus what the parser had to decide to read it.
 ///
@@ -70,33 +72,90 @@ const _lf = 0x0A;
   try {
     return (const Utf8Decoder(allowMalformed: false).convert(bytes), 'utf-8');
   } on FormatException {
-    return (latin1.decode(bytes), 'latin-1 fallback');
+    return (decodeWindows1252(bytes), 'windows-1252 fallback');
   }
 }
+
+/// Bytes as Windows-1252, the single-byte encoding Excel writes on Western
+/// Windows, and which the web reads any file labelled Latin-1 as. The five
+/// bytes it leaves undefined stand for themselves, so every byte comes back.
+String decodeWindows1252(List<int> bytes) =>
+    String.fromCharCodes(<int>[for (final b in bytes) winAnsiHigh[b] ?? b]);
+
+/// [text] in Windows-1252, or null when a character in it has no byte there.
+Uint8List? encodeWindows1252(String text) {
+  final out = Uint8List(text.length);
+  for (var i = 0; i < text.length; i++) {
+    final u = text.codeUnitAt(i);
+    final b = u < 0x80 || (u >= 0xA0 && u <= 0xFF) ? u : _windows1252Bytes[u];
+    if (b == null) {
+      // The five undefined bytes read back as themselves.
+      if (u == 0x81 || u == 0x8D || u == 0x8F || u == 0x90 || u == 0x9D) {
+        out[i] = u;
+        continue;
+      }
+      return null;
+    }
+    out[i] = b;
+  }
+  return out;
+}
+
+final Map<int, int> _windows1252Bytes = <int, int>{
+  for (final e in winAnsiHigh.entries) e.value: e.key,
+};
 
 /// Picks the delimiter that yields the most consistent field count over the
 /// first few rows, breaking ties towards more columns.
 ///
 /// Consistency beats frequency: a comma inside quoted prose is common, and
-/// counting occurrences would choose it over the real separator.
+/// counting occurrences would choose it over the real separator. A candidate
+/// is marked down for what reading with it makes odd: quotes that open or
+/// close in the middle of a field, and unquoted fields holding another
+/// candidate, which is what a row looks like split at the wrong character.
+/// A comma between digits, as in 1,50, is a decimal mark and not odd.
 String sniffDelimiter(String text, {List<String> candidates = const [',', ';', '\t', '|']}) {
   var best = ',';
-  var bestScore = -1.0;
+  var bestScore = double.negativeInfinity;
+  final sample = text.length > 20000 ? text.substring(0, 20000) : text;
   for (final d in candidates) {
-    final rows = parseCsv(text, delimiter: d, maxRows: 20);
+    final odd = CsvOddities(<String>[for (final c in candidates) if (c != d) c]);
+    final rows = <List<String>>[
+      for (final row in parseCsv(sample, delimiter: d, maxRows: 20, odd: odd))
+        if (!(row.length == 1 && row.first.isEmpty)) row,
+    ];
     if (rows.isEmpty) continue;
-    final counts = rows.map((r) => r.length).toList();
-    final first = counts.first;
+    final first = rows.first.length;
     if (first < 2) continue;
-    final consistent = counts.where((c) => c == first).length / counts.length;
-    // Prefer consistency, then more columns.
-    final score = consistent * 100 + first;
+    final consistent = rows.where((r) => r.length == first).length / rows.length;
+    final fields = rows.fold<int>(0, (a, r) => a + r.length);
+    final score = consistent * 100 + math.min(first, 20) - (odd.quotes * 3 + odd.split) * 100 / fields;
     if (score > bestScore) {
       bestScore = score;
       best = d;
     }
   }
   return best;
+}
+
+/// What reading with one delimiter found odd, for choosing between them.
+class CsvOddities {
+  CsvOddities(this.others);
+  final List<String> others;
+  int quotes = 0;
+  int split = 0;
+
+  static final RegExp _decimal = RegExp(r'^\s*[-+]?\d+,\d+\s*$');
+
+  void field(String value, bool quoted) {
+    if (quoted) return;
+    for (final other in others) {
+      if (value.contains(other) && !(other == ',' && _decimal.hasMatch(value))) {
+        split++;
+        return;
+      }
+    }
+  }
 }
 
 /// RFC 4180 field scanner.
@@ -108,6 +167,7 @@ List<List<String>> parseCsv(
   String text, {
   String delimiter = ',',
   int maxRows = -1,
+  CsvOddities? odd,
 }) {
   final d = delimiter.codeUnitAt(0);
   final rows = <List<String>>[];
@@ -119,6 +179,7 @@ List<List<String>> parseCsv(
   final n = text.length;
 
   void endField() {
+    odd?.field(field.toString(), fieldWasQuoted);
     row.add(field.toString());
     field.clear();
     fieldWasQuoted = false;
@@ -141,6 +202,11 @@ List<List<String>> parseCsv(
         }
         inQuotes = false;
         i++;
+        // A quote that closes anywhere but at the end of its field.
+        if (odd != null && i < n) {
+          final next = text.codeUnitAt(i);
+          if (next != d && next != _cr && next != _lf) odd.quotes++;
+        }
         continue;
       }
       field.writeCharCode(c);
@@ -153,6 +219,7 @@ List<List<String>> parseCsv(
       i++;
       continue;
     }
+    if (c == _quote && odd != null) odd.quotes++;
     if (c == d) {
       endField();
       i++;

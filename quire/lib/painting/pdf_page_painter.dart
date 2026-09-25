@@ -118,6 +118,7 @@ class PageListPainter extends CustomPainter {
     required this.serifFamily,
     required this.sansFamily,
     this.drawPaths = true,
+    this.ground = true,
   });
 
   final PageDisplayList list;
@@ -126,15 +127,21 @@ class PageListPainter extends CustomPainter {
   final String serifFamily, sansFamily;
   final bool drawPaths;
 
+  /// False to paint only what the list holds, with no paper under it, for a
+  /// mark lifted off its page.
+  final bool ground;
+
   @override
   void paint(Canvas canvas, Size size) {
     final scale = size.width / list.widthPts;
     canvas.save();
     canvas.scale(scale);
-    canvas.drawRect(
-      Rect.fromLTWH(0, 0, list.widthPts, list.heightPts),
-      Paint()..color = AppColors.page,
-    );
+    if (ground) {
+      canvas.drawRect(
+        Rect.fromLTWH(0, 0, list.widthPts, list.heightPts),
+        Paint()..color = AppColors.page,
+      );
+    }
 
     // One ordered pass. Painting images, then paths, then text in separate
     // passes destroys the z-order a PDF depends on, so every command carries
@@ -278,11 +285,13 @@ class PageListPainter extends CustomPainter {
 
   void _path(Canvas canvas, PathCmd p) {
     final path = _pathOf(p.segs, p.evenOdd);
+    final blend = _blendOf(p.blend);
     if (p.fill) {
       canvas.drawPath(
           path,
           Paint()
             ..color = Color(p.fillColor)
+            ..blendMode = blend
             ..style = PaintingStyle.fill);
     }
     if (p.stroke) {
@@ -290,11 +299,31 @@ class PageListPainter extends CustomPainter {
         path,
         Paint()
           ..color = Color(p.strokeColor)
+          ..blendMode = blend
           ..style = PaintingStyle.stroke
           ..strokeWidth = p.lineWidth <= 0 ? 0.6 : p.lineWidth,
       );
     }
   }
+
+  static BlendMode _blendOf(PdfBlend blend) => switch (blend) {
+        PdfBlend.normal => BlendMode.srcOver,
+        PdfBlend.multiply => BlendMode.multiply,
+        PdfBlend.screen => BlendMode.screen,
+        PdfBlend.overlay => BlendMode.overlay,
+        PdfBlend.darken => BlendMode.darken,
+        PdfBlend.lighten => BlendMode.lighten,
+        PdfBlend.colorDodge => BlendMode.colorDodge,
+        PdfBlend.colorBurn => BlendMode.colorBurn,
+        PdfBlend.hardLight => BlendMode.hardLight,
+        PdfBlend.softLight => BlendMode.softLight,
+        PdfBlend.difference => BlendMode.difference,
+        PdfBlend.exclusion => BlendMode.exclusion,
+        PdfBlend.hue => BlendMode.hue,
+        PdfBlend.saturation => BlendMode.saturation,
+        PdfBlend.color => BlendMode.color,
+        PdfBlend.luminosity => BlendMode.luminosity,
+      };
 
   void _text(Canvas canvas, LaidOutRun r) {
     final tp = setRun(r, serifFamily: serifFamily, sansFamily: sansFamily);

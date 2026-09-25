@@ -159,6 +159,33 @@ class TrueTypeFont {
   /// the names, and a name is enough to know the character.
   late final List<String?>? glyphNames = _readPostNames();
 
+  /// The font's PostScript name from its `name` table, or null.
+  late final String? postScriptName = _readPostScriptName();
+
+  String? _readPostScriptName() {
+    final table = _tables['name'];
+    if (table == null || table.offset + 6 > bytes.length) return null;
+    final data = ByteData.sublistView(bytes);
+    final count = data.getUint16(table.offset + 2);
+    final strings = table.offset + data.getUint16(table.offset + 4);
+    for (var i = 0; i < count; i++) {
+      final at = table.offset + 6 + i * 12;
+      if (at + 12 > bytes.length || data.getUint16(at + 6) != 6) continue;
+      final platform = data.getUint16(at);
+      final length = data.getUint16(at + 8);
+      final start = strings + data.getUint16(at + 10);
+      if (start + length > bytes.length) continue;
+      final name = String.fromCharCodes(<int>[
+        if (platform == 3 || platform == 0)
+          for (var j = 0; j + 1 < length; j += 2) data.getUint16(start + j)
+        else
+          for (var j = 0; j < length; j++) bytes[start + j],
+      ]);
+      if (RegExp(r'^[A-Za-z0-9_.+-]+$').hasMatch(name)) return name;
+    }
+    return null;
+  }
+
   List<String?>? _readPostNames() {
     final post = _tables['post'];
     if (post == null || post.length < 34) return null;
@@ -498,6 +525,57 @@ class TrueTypeFont {
 }
 
 /// A font this writer cannot set with, and why.
+/// A CIDFont's /W array for [glyphs] of [font], one entry per glyph.
+String pdfGlyphWidths(TrueTypeFont font, Set<int> glyphs) {
+  final sorted = glyphs.toList()..sort();
+  final out = StringBuffer();
+  for (final gid in sorted) {
+    out.write('$gid [${_number(font.widthOf(gid))}] ');
+  }
+  return out.toString().trimRight();
+}
+
+/// The map from glyph back to letter, which is what lets the words be found
+/// and copied out again.
+String pdfToUnicode(Map<int, int> text) {
+  final entries = text.entries.toList()..sort((a, b) => a.key.compareTo(b.key));
+  final out = StringBuffer()
+    ..writeln('/CIDInit /ProcSet findresource begin')
+    ..writeln('12 dict begin begincmap')
+    ..writeln('/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) '
+        '/Supplement 0 >> def')
+    ..writeln('/CMapName /Adobe-Identity-UCS def')
+    ..writeln('/CMapType 2 def')
+    ..writeln('1 begincodespacerange')
+    ..writeln('<0000> <FFFF>')
+    ..writeln('endcodespacerange');
+  // A bfchar run may hold at most a hundred entries.
+  for (var at = 0; at < entries.length; at += 100) {
+    final run = entries.sublist(at, at + 100 > entries.length ? entries.length : at + 100);
+    out.writeln('${run.length} beginbfchar');
+    for (final entry in run) {
+      out.writeln('<${entry.key.toRadixString(16).padLeft(4, '0')}> <${_utf16Hex(entry.value)}>');
+    }
+    out.writeln('endbfchar');
+  }
+  out
+    ..writeln('endcmap CMapName currentdict /CMap defineresource pop')
+    ..writeln('end end');
+  return out.toString();
+}
+
+String _utf16Hex(int rune) {
+  if (rune <= 0xFFFF) return rune.toRadixString(16).padLeft(4, '0');
+  final v = rune - 0x10000;
+  return (0xD800 + (v >> 10)).toRadixString(16).padLeft(4, '0') +
+      (0xDC00 + (v & 0x3FF)).toRadixString(16).padLeft(4, '0');
+}
+
+String _number(double value) {
+  if (value == value.roundToDouble()) return value.round().toString();
+  return value.toStringAsFixed(2).replaceFirst(RegExp(r'0+$'), '').replaceFirst(RegExp(r'\.$'), '');
+}
+
 class FontFormatError implements Exception {
   const FontFormatError(this.message);
   final String message;

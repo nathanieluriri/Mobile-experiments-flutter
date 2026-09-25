@@ -60,6 +60,7 @@ Uint8List sealedPdf(
   Uint8List bytes,
   String password, {
   String ownerPassword = '',
+  int permissions = kSealedPermissions,
 }) {
   // An empty password seals nothing. quire tries the empty password on every
   // protected file before it asks anybody anything, and so does every other
@@ -94,16 +95,17 @@ Uint8List sealedPdf(
   if (file.pageCount == 0) {
     throw const PdfWriteError('This document has no pages to protect.');
   }
-  return _PdfSeal(file, password, ownerPassword).write();
+  return _PdfSeal(file, password, ownerPassword, permissions).write();
 }
 
 /// One document on its way out under a password.
 class _PdfSeal {
-  _PdfSeal(this.file, String password, String ownerPassword)
+  _PdfSeal(this.file, String password, String ownerPassword, this.permissions)
     : _user = _passwordBytes(password),
       _owner = _passwordBytes(ownerPassword);
 
   final PdfFile file;
+  final int permissions;
   final Uint8List _user;
   final Uint8List _owner;
 
@@ -148,7 +150,7 @@ class _PdfSeal {
     final key = fileEncryptionKey(
       password32: padPassword(_user),
       ownerEntry: owner,
-      permissions: kSealedPermissions,
+      permissions: permissions,
       firstId: first,
       revision: kSealRevision,
       keyBytes: _keyBytes,
@@ -158,7 +160,7 @@ class _PdfSeal {
       'V': kSealVersion,
       'R': kSealRevision,
       'Length': kSealKeyBits,
-      'P': kSealedPermissions,
+      'P': permissions,
       'O': PdfString(owner),
       'U': PdfString(_userEntry(key, first)),
     };

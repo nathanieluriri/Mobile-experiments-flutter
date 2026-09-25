@@ -30,13 +30,91 @@ class OoxmlPackage {
   /// Marks [name] as changed, so [write] puts it back.
   void touch(String name) => _changed.add(name);
 
+  /// The bytes of the part at [name] as they are in the package, for one
+  /// that is not XML, such as a picture.
+  Uint8List? bytesOf(String name) {
+    final file = _zip.findFile(name);
+    if (file == null) return null;
+    return Uint8List.fromList(file.content as List<int>);
+  }
+
+  /// True when the package holds a part at [name], or one has been made.
+  bool has(String name) => _open.containsKey(name) || _zip.findFile(name) != null;
+
+  final Map<String, List<int>> _madeBytes = <String, List<int>>{};
+
+  /// Adds a new XML part at [name] and declares its [contentType].
+  void create(String name, XmlDocument doc, {required String contentType}) {
+    _open[name] = doc;
+    touch(name);
+    _declare(name, contentType);
+  }
+
+  /// Adds a new part at [name] holding [bytes], such as a picture, and
+  /// declares its [contentType] unless its extension already has one.
+  void createBytes(String name, List<int> bytes, {required String contentType}) {
+    _madeBytes[name] = bytes;
+    final types = part('[Content_Types].xml');
+    if (types == null) return;
+    final dot = name.lastIndexOf('.');
+    final extension = dot < 0 ? '' : name.substring(dot + 1).toLowerCase();
+    final known = types.rootElement.childElements.any(
+      (e) => e.name.local == 'Default' && (e.getAttribute('Extension') ?? '').toLowerCase() == extension,
+    );
+    if (!known) _declare(name, contentType);
+  }
+
+  void _declare(String name, String contentType) {
+    final types = part('[Content_Types].xml');
+    if (types == null) return;
+    final root = types.rootElement;
+    root.children.add(XmlElement(XmlName.parts('Override'), [
+      XmlAttribute(XmlName.parts('PartName'), '/$name'),
+      XmlAttribute(XmlName.parts('ContentType'), contentType),
+    ]));
+    touch('[Content_Types].xml');
+  }
+
+  /// Adds a relationship of [type] from the part [from] to [target] and
+  /// returns its new id. [target] is relative to [from]'s folder unless the
+  /// relationship is [external].
+  String relate(String from, String target, String type, {bool external = false}) {
+    final slash = from.lastIndexOf('/');
+    final rels = '${from.substring(0, slash + 1)}_rels/${from.substring(slash + 1)}.rels';
+    var doc = part(rels);
+    if (doc == null) {
+      doc = XmlDocument.parse(
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"/>',
+      );
+      _open[rels] = doc;
+    }
+    final taken = <String>{
+      for (final e in doc.rootElement.childElements) e.getAttribute('Id') ?? '',
+    };
+    var n = taken.length + 1;
+    while (taken.contains('rId$n')) {
+      n++;
+    }
+    final id = 'rId$n';
+    doc.rootElement.children.add(XmlElement(XmlName.parts('Relationship'), [
+      XmlAttribute(XmlName.parts('Id'), id),
+      XmlAttribute(XmlName.parts('Type'), type),
+      XmlAttribute(XmlName.parts('Target'), target),
+      if (external) XmlAttribute(XmlName.parts('TargetMode'), 'External'),
+    ]));
+    touch(rels);
+    return id;
+  }
+
   /// The package with every touched part written again, or the bytes that
   /// were read when nothing was touched.
   Uint8List write() {
-    if (_changed.isEmpty) return original;
+    if (_changed.isEmpty && _madeBytes.isEmpty) return original;
     return patchZip(original, <String, List<int>>{
       for (final name in _changed)
         name: utf8.encode(_open[name]!.toXmlString()),
+      ..._madeBytes,
     });
   }
 

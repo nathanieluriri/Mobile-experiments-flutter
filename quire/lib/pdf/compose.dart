@@ -508,7 +508,7 @@ class PdfComposer {
       '<< /Type /Font /Subtype /CIDFontType2 /BaseFont /$name '
       '/CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) '
       '/Supplement 0 >> /FontDescriptor $descriptor 0 R '
-      '/DW 0 /W [${_widths(font, glyphs)}] /CIDToGIDMap /Identity >>',
+      '/DW 0 /W [${pdfGlyphWidths(font, glyphs)}] /CIDToGIDMap /Identity >>',
     );
     final scale = 1000 / font.unitsPerEm;
     objects[descriptor] = latin1.encode(
@@ -534,68 +534,12 @@ class PdfComposer {
       ...latin1.encode('\nendstream'),
     ];
 
-    final cmap = _toUnicode(text);
+    final cmap = pdfToUnicode(text);
     objects[toUnicode] = <int>[
       ...latin1.encode('<< /Length ${cmap.length} >>\nstream\n'),
       ...latin1.encode(cmap),
       ...latin1.encode('\nendstream'),
     ];
-  }
-
-  /// The widths array, one entry per glyph the document actually used.
-  static String _widths(TrueTypeFont font, Set<int> glyphs) {
-    final sorted = glyphs.toList()..sort();
-    final out = StringBuffer();
-    for (final gid in sorted) {
-      out.write('$gid [${_n(font.widthOf(gid))}] ');
-    }
-    return out.toString().trimRight();
-  }
-
-  /// The map from glyph back to letter, which is what lets the words be found
-  /// and copied out again.
-  static String _toUnicode(Map<int, int> text) {
-    final entries = text.entries.toList()
-      ..sort((a, b) => a.key.compareTo(b.key));
-    final out = StringBuffer()
-      ..writeln('/CIDInit /ProcSet findresource begin')
-      ..writeln('12 dict begin begincmap')
-      ..writeln('/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) '
-          '/Supplement 0 >> def')
-      ..writeln('/CMapName /Adobe-Identity-UCS def')
-      ..writeln('/CMapType 2 def')
-      ..writeln('1 begincodespacerange')
-      ..writeln('<0000> <FFFF>')
-      ..writeln('endcodespacerange');
-    // A bfchar run may hold at most a hundred entries.
-    for (var at = 0; at < entries.length; at += 100) {
-      final run = entries.sublist(
-        at,
-        at + 100 > entries.length ? entries.length : at + 100,
-      );
-      out.writeln('${run.length} beginbfchar');
-      for (final entry in run) {
-        out.writeln(
-          '<${entry.key.toRadixString(16).padLeft(4, '0')}> '
-          '<${_utf16(entry.value)}>',
-        );
-      }
-      out.writeln('endbfchar');
-    }
-    out
-      ..writeln('endcmap CMapName currentdict /CMap defineresource pop')
-      ..writeln('end end');
-    return out.toString();
-  }
-
-  /// A rune as the big endian UTF-16 a bfchar states it in.
-  static String _utf16(int rune) {
-    if (rune <= 0xFFFF) return rune.toRadixString(16).padLeft(4, '0');
-    final v = rune - 0x10000;
-    final high = 0xD800 + (v >> 10);
-    final low = 0xDC00 + (v & 0x3FF);
-    return high.toRadixString(16).padLeft(4, '0') +
-        low.toRadixString(16).padLeft(4, '0');
   }
 
   /// The objects, an xref table and a trailer, in that order.
