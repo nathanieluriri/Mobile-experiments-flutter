@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
@@ -254,6 +255,65 @@ class SheetPlace {
   int get hashCode => Object.hash(sheet, across, down);
 }
 
+/// Everything reading one file produces, with nothing in it tied to the
+/// isolate that drew it, so it can be read anywhere and handed back.
+class ParsedDocument {
+  const ParsedDocument._({
+    required this.loaded,
+    this.pdf,
+    this.locked,
+    this.pdfPageCount = 0,
+  });
+
+  final LoadedDocument loaded;
+  final PdfFile? pdf;
+  final PdfLocked? locked;
+  final int pdfPageCount;
+
+  /// Reads [bytes] as the file [name].
+  ///
+  /// A PDF is opened here rather than in the reader so a PDF nobody has
+  /// opened still prints `6 PAGES` on its card. Only the count is taken: the
+  /// pages themselves are not run. The open file is kept, and that is what
+  /// makes the password flow work: a password opens a file, not a document,
+  /// and keeping the file means quire never holds on to what somebody typed.
+  static ParsedDocument read(Uint8List bytes, String name, String password) {
+    final loaded = DocumentLoader.load(bytes, name);
+    if (!loaded.isPdf || loaded.failed) return ParsedDocument._(loaded: loaded);
+    try {
+      final file = PdfFile.open(bytes, password: password);
+      return ParsedDocument._(
+        loaded: loaded,
+        pdf: file,
+        pdfPageCount: file.pageCount,
+      );
+    } on PdfLocked catch (locked) {
+      // Not a failure. The file is intact and this reader simply does not
+      // hold the key yet, which is a question rather than an error.
+      return ParsedDocument._(loaded: loaded, locked: locked);
+    } on Object {
+      // A file that opens as bytes but not as a page tree keeps no count, and
+      // the card prints its format and its size alone.
+      return ParsedDocument._(loaded: loaded);
+    }
+  }
+
+  /// This result holding [bytes], the caller's own copy of what was read,
+  /// rather than the copy the isolate was handed.
+  ParsedDocument withBytes(Uint8List bytes) => ParsedDocument._(
+        loaded: LoadedDocument(
+          name: loaded.name,
+          format: loaded.format,
+          bytes: bytes,
+          document: loaded.document,
+          error: loaded.error,
+        ),
+        pdf: pdf,
+        locked: locked,
+        pdfPageCount: pdfPageCount,
+      );
+}
+
 class DocumentStore extends ChangeNotifier {
   DocumentStore(this.entry);
 
@@ -320,12 +380,47 @@ class DocumentStore extends ChangeNotifier {
   }
 
   void _loadFrom(Uint8List bytes, {String password = ''}) {
-    _loaded = DocumentLoader.load(bytes, entry.fileName);
+    _apply(ParsedDocument.read(bytes, entry.fileName, password));
+  }
+
+  /// Parses [bytes] on a background isolate when [parseInBackground] is set,
+  /// and moves the store on exactly as [loadFrom] does.
+  ///
+  /// A 6.6 MB CSV took 2.66s to read on a desktop, all of it on the thread
+  /// that draws the app, and a phone is three to five times slower than that
+  /// while Android stops waiting at five seconds.
+  Future<void> loadInBackground(Uint8List bytes) async {
+    if (!parseInBackground) return loadFrom(bytes);
+    final name = entry.fileName;
+    final ParsedDocument parsed;
+    try {
+      parsed = await _readAway(bytes, name);
+    } on Object catch (error) {
+      fail(error, bytes: bytes);
+      return;
+    }
+    try {
+      _apply(parsed.withBytes(bytes));
+    } on Object catch (error) {
+      fail(error, bytes: bytes);
+    }
+  }
+
+  // Static, so the closure sent to the isolate cannot reach this store.
+  static Future<ParsedDocument> _readAway(Uint8List bytes, String name) =>
+      Isolate.run(() => ParsedDocument.read(bytes, name, ''));
+
+  /// Whether [loadInBackground] leaves the main isolate. Off under test, so
+  /// the suite checks a parser without spinning an isolate for it.
+  static bool parseInBackground = true;
+
+  void _apply(ParsedDocument parsed) {
+    _loaded = parsed.loaded;
     _search = null;
-    _locked = null;
-    _pdf = null;
+    _locked = parsed.locked;
+    _pdf = parsed.pdf;
+    _pdfPageCount = parsed.pdfPageCount;
     _state = _loaded!.failed ? ParseState.failed : ParseState.ready;
-    if (_loaded!.isPdf && !_loaded!.failed) _openPdf(bytes, password);
     // A place remembered from an earlier run was remembered against a
     // document that could be laid out. If this one has fewer units now, the
     // place is pulled back inside it; if it cannot be laid out at all, which
@@ -348,37 +443,6 @@ class DocumentStore extends ChangeNotifier {
     final bytes = _loaded?.bytes;
     if (bytes == null || bytes.isEmpty) return;
     loadFrom(bytes, password: password);
-  }
-
-  /// Opens a page file and reads its page count from its own page tree.
-  ///
-  /// It happens here rather than in the reader so a PDF nobody has opened
-  /// still prints `6 PAGES` on its card. Only the count is taken: the pages
-  /// themselves are not run, because six documents' worth of content streams
-  /// is not a price the first frame of the desk should pay.
-  ///
-  /// The open file is kept, and that is what makes the password flow work.
-  /// A password opens a file, not a document, and reopening the bytes later
-  /// would need the password again: keeping the file instead means quire
-  /// never has to hold on to what somebody typed.
-  void _openPdf(Uint8List bytes, String password) {
-    try {
-      final file = PdfFile.open(bytes, password: password);
-      _pdf = file;
-      _pdfPageCount = file.pageCount;
-    } on PdfLocked catch (locked) {
-      // Not a failure. The file is intact and this reader simply does not hold
-      // the key yet, which is a question rather than an error.
-      _locked = locked;
-      _pdf = null;
-      _pdfPageCount = 0;
-    } on Object {
-      // A file that opens as bytes but not as a page tree keeps no count, and
-      // the card prints its format and its size alone. The reader decides
-      // what a page nobody can lay out looks like.
-      _pdf = null;
-      _pdfPageCount = 0;
-    }
   }
 
   /// Records a failure that happened outside the loader, for instance a bundle
@@ -1118,12 +1182,26 @@ class LibraryStore extends ChangeNotifier {
   Future<void> _hydrateOne(LibraryEntry entry) async {
     final store = storeFor(entry);
     if (store.state != ParseState.loading) return;
+    // Two callers asking for the same document while it is being read share
+    // the one read rather than each starting their own.
+    final pending = _reading[entry.path];
+    if (pending != null) return pending;
+    final reading = () async {
+      try {
+        await store.loadInBackground(await _read(entry));
+      } on Object catch (error) {
+        store.fail(error);
+      }
+    }();
+    _reading[entry.path] = reading;
     try {
-      store.loadFrom(await _read(entry));
-    } on Object catch (error) {
-      store.fail(error);
+      await reading;
+    } finally {
+      _reading.remove(entry.path);
     }
   }
+
+  final Map<String, Future<void>> _reading = <String, Future<void>>{};
 
   /// The bytes behind [entry], from the bundle or from the phone.
   Future<Uint8List> _read(LibraryEntry entry) async {

@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:quire/services/document_store.dart';
 
 /// Every font a widget asks for that does not live under assets/fonts, keyed by
 /// the family name the engine resolves. A font shipped by a package carries a
@@ -40,5 +41,7 @@ Future<void> testExecutable(FutureOr<void> Function() testMain) async {
   for (final loader in loaders.values) {
     await loader.load();
   }
+  // A parse under test runs where the test can see it finish.
+  DocumentStore.parseInBackground = false;
   await testMain();
 }
