@@ -203,6 +203,7 @@ class _Contents extends StatelessWidget {
           previous: i == 0 ? null : shape.blocks[i - 1],
           scale: scale,
           assets: assets,
+          wrap: shape.wrap,
         ),
     ];
 
@@ -740,12 +741,16 @@ class _SlideBlockView extends StatelessWidget {
     required this.previous,
     required this.scale,
     required this.assets,
+    this.wrap = true,
   });
 
   final DocBlock block;
   final DocBlock? previous;
   final double scale;
   final Map<String, Uint8List> assets;
+
+  /// False for words set on one line each, running past the box.
+  final bool wrap;
 
   @override
   Widget build(BuildContext context) {
@@ -862,6 +867,8 @@ class _SlideBlockView extends StatelessWidget {
         for (final span in spans) TextSpan(text: span.text, style: _style(span)),
       ],
     ),
+    softWrap: wrap,
+    overflow: TextOverflow.visible,
     textAlign: switch (align) {
       DocAlign.center => TextAlign.center,
       DocAlign.end => TextAlign.right,

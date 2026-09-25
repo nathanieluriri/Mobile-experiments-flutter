@@ -292,6 +292,7 @@ class SlideShape {
     this.placeholder,
     this.own,
     this.textable = false,
+    this.wrap = true,
     this.chart,
     this.brightness = 0,
     this.contrast = 0,
@@ -313,6 +314,10 @@ class SlideShape {
 
   /// True for a shape words can be typed into.
   final bool textable;
+
+  /// False for a box whose words run on one line past its edges, as
+  /// PowerPoint's wrap="none" boxes do.
+  final bool wrap;
   final List<DocBlock> blocks;
   final SlideRole role;
 
@@ -398,6 +403,7 @@ class SlideShape {
     placeholder: placeholder,
     own: own,
     textable: textable,
+    wrap: wrap,
     chart: chart,
     brightness: brightness,
     contrast: contrast,

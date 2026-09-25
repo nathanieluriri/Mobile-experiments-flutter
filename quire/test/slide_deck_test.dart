@@ -483,6 +483,26 @@ Uint8List _cropped(Uint8List bytes) {
   return ZipEncoder().encodeBytes(out);
 }
 
+/// The sample deck with slide 4's caption set to run on one line, as
+/// PowerPoint's click-made boxes do.
+Uint8List _unwrapped(Uint8List bytes) {
+  final archive = ZipDecoder().decodeBytes(bytes);
+  final out = Archive();
+  for (final f in archive.files) {
+    if (f.name == 'ppt/slides/slide4.xml') {
+      final xml = utf8.decode(f.content);
+      final at = xml.indexOf('<a:bodyPr', xml.indexOf('name="Caption"'));
+      final end = xml.indexOf('>', at);
+      final tag = xml.substring(at, end + 1);
+      final unwrapped = tag.contains('wrap="') ? tag.replaceFirst(RegExp(r'wrap="[^"]*"'), 'wrap="none"') : tag.replaceFirst('<a:bodyPr', '<a:bodyPr wrap="none"');
+      out.addFile(ArchiveFile.string(f.name, xml.replaceRange(at, end + 1, unwrapped)));
+    } else {
+      out.addFile(ArchiveFile.bytes(f.name, f.content));
+    }
+  }
+  return ZipEncoder().encodeBytes(out);
+}
+
 void main() {
   late Uint8List bytes;
 
@@ -1355,6 +1375,31 @@ void main() {
       final again = _reopen(deck);
       final (againColumns, _) = again.tableGrid(again.slides[2], table.id)!;
       expect(againColumns.first, closeTo(columns.first, 0.01));
+    });
+  });
+
+  group('after the round two critic, boxes on one line', () {
+    testWidgets('a box that runs its words on one line is drawn that way', (tester) async {
+      final deck = PptxDeck(_unwrapped((await tester.runAsync(() => documentBytes(kPressDayBriefing)))!));
+      final slide = deck.slides[3];
+      final caption = deck.objects(slide).firstWhere((o) => o.name == 'Caption');
+      expect(deck.shape(slide, caption.id)!.wrap, isFalse);
+      await tester.pumpWidget(MaterialApp(home: SlideSheet(slide: deck.slide(slide), assets: deck.assets, width: 400)));
+      final words = find.byWidgetPredicate((w) => w is RichText && w.text.toPlainText().startsWith('The gutter'));
+      expect(tester.widget<RichText>(words).softWrap, isFalse);
+    });
+
+    test('words typed into such a box are saved wrapping as the editor showed them', () {
+      final deck = PptxDeck(_unwrapped(bytes));
+      final slide = deck.slides[3];
+      final caption = deck.objects(slide).firstWhere((o) => o.name == 'Caption');
+      final text = SlideText.read(deck.textBody(slide, caption.id), deck.looks(slide, caption.id)!);
+      final typed = Delta.fromJson(text.ops).compose(Delta()..insert('Note: '));
+      deck.setText(slide, caption.id, text.write(deck.slideDoc(slide), typed.toJson()));
+      expect(deck.shape(slide, caption.id)!.wrap, isTrue);
+      final untouched = PptxDeck(_unwrapped(bytes));
+      untouched.setText(slide, caption.id, SlideText.read(untouched.textBody(slide, caption.id), untouched.looks(slide, caption.id)!).write(untouched.slideDoc(slide), text.ops));
+      expect(untouched.shape(slide, caption.id)!.wrap, isFalse);
     });
   });
 }

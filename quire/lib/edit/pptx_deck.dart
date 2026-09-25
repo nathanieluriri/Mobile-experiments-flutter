@@ -1806,6 +1806,12 @@ class PptxDeck {
         if (holder == null) return;
         final old = _kid(holder, 'txBody');
         final fresh = body.copy();
+        // The editor sets typed words wrapped at the box's width, so a box
+        // whose words ran on one line is saved wrapping them as it showed.
+        final properties = _kid(fresh, 'bodyPr');
+        if (properties != null && _at(properties, 'wrap') == 'none' && _plain(old) != _plain(fresh)) {
+          _setAttr(properties, 'wrap', 'square');
+        }
         // A cell's words are a:txBody, a shape's p:txBody.
         final placed = cell == null ? fresh : _renamed(doc, fresh, kNsA, 'a');
         if (old != null) {
@@ -1826,6 +1832,12 @@ class PptxDeck {
         }
         _put(slide, doc);
       });
+
+  /// The words of a text body, a line per paragraph.
+  static String _plain(XmlElement? body) => <String>[
+    for (final p in body?.childElements ?? const <XmlElement>[])
+      if (p.name.local == 'p') p.descendantElements.where((e) => e.name.local == 't').map((e) => e.innerText).join(),
+  ].join('\n');
 
   /// [el] under the name [local] in the namespace [uri] of [doc].
   static XmlElement _renamed(XmlDocument doc, XmlElement el, String uri, String wanted) => XmlElement(

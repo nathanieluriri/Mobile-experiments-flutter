@@ -1160,6 +1160,11 @@ class PptxParser {
       placeholder: blocks.isEmpty ? ph?.type : null,
       own: idOf(el),
       textable: _ln(el) == 'sp',
+      wrap: () {
+        final body = _kid(el, 'txBody');
+        final properties = body == null ? null : _kid(body, 'bodyPr');
+        return properties == null || _at(properties, 'wrap') != 'none';
+      }(),
       chart: drawn,
       brightness: _lum(blip, 'bright'),
       contrast: _lum(blip, 'contrast'),
