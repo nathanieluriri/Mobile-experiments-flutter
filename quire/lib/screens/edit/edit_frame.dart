@@ -33,9 +33,16 @@ class EditFrame extends StatelessWidget {
     this.covered = false,
     this.onUncover,
     this.resizeForKeyboard = true,
+    this.onBackTap,
+    this.backLabel = 'Back to the document',
   });
 
   final String title;
+
+  /// What the back button does instead of leaving, for an editor with a
+  /// view of its own to go back to first.
+  final VoidCallback? onBackTap;
+  final String backLabel;
   final Widget child;
   final VoidCallback onBack;
   final VoidCallback onSave;
@@ -133,8 +140,8 @@ class EditFrame extends StatelessWidget {
                   children: <Widget>[
                     EditButton(
                       icon: LucideIcons.cornerUpLeft,
-                      label: 'Back to the document',
-                      onTap: () => unawaited(_leave(context)),
+                      label: backLabel,
+                      onTap: onBackTap ?? () => unawaited(_leave(context)),
                     ),
                     const SizedBox(width: kEditGap),
                     Expanded(

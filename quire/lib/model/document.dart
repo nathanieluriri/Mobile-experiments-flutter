@@ -238,11 +238,44 @@ class SlideShape {
     this.verticalAlign,
     this.rotation = 0,
     this.inherited = false,
+    this.id,
+    this.geometry = 'rect',
+    this.dash,
+    this.shadow = false,
+    this.opacity = 1,
+    this.flipH = false,
+    this.flipV = false,
+    this.placeholder,
   });
 
   final SlideBox box;
   final List<DocBlock> blocks;
   final SlideRole role;
+
+  /// The id the file gives the shape on its slide, or the id of the group it
+  /// sits in, so an editor can tell which thing on the slide was touched.
+  final int? id;
+
+  /// The preset outline the shape is drawn in: 'rect', 'ellipse', 'line',
+  /// 'roundRect', 'triangle' and the rest of PowerPoint's names.
+  final String geometry;
+
+  /// PowerPoint's name for the outline's dash, such as 'dash' or 'sysDot',
+  /// or null for a solid line.
+  final String? dash;
+
+  /// True for a shape drawn with a drop shadow.
+  final bool shadow;
+
+  /// How opaque a picture is drawn, 0 to 1.
+  final double opacity;
+
+  final bool flipH;
+  final bool flipV;
+
+  /// The placeholder type of an empty placeholder kept so an editor can show
+  /// where it is, such as 'title' or 'body'; null for any other shape.
+  final String? placeholder;
 
   /// True for a shape the slide does not own: the rule, the running foot and
   /// the panels the layout and the master put on every slide.
@@ -271,6 +304,35 @@ class SlideShape {
   /// Clockwise degrees. Almost always zero, and ruinous when it is not and
   /// nobody kept it.
   final double rotation;
+
+  SlideShape copyWith({
+    SlideBox? box,
+    List<DocBlock>? blocks,
+    double? rotation,
+    bool? inherited,
+    int? id,
+    bool? flipH,
+    bool? flipV,
+  }) => SlideShape(
+    box: box ?? this.box,
+    blocks: blocks ?? this.blocks,
+    role: role,
+    fill: fill,
+    fillAsset: fillAsset,
+    line: line,
+    lineWidth: lineWidth,
+    verticalAlign: verticalAlign,
+    rotation: rotation ?? this.rotation,
+    inherited: inherited ?? this.inherited,
+    id: id ?? this.id,
+    geometry: geometry,
+    dash: dash,
+    shadow: shadow,
+    opacity: opacity,
+    flipH: flipH ?? this.flipH,
+    flipV: flipV ?? this.flipV,
+    placeholder: placeholder,
+  );
 
   /// Every word the shape holds, in order.
   String get text => blocks
@@ -324,6 +386,16 @@ class SlideBlock extends DocBlock {
 
   /// The layout the slide was built on, kept for the back of the sheet.
   final String? layoutName;
+
+  SlideBlock withShapes(List<SlideShape> shapes) => SlideBlock(
+    width: width,
+    height: height,
+    shapes: shapes,
+    background: background,
+    backgroundAsset: backgroundAsset,
+    notes: notes,
+    layoutName: layoutName,
+  );
 
   /// The slide's own title, or null for one that has no title placeholder.
   String? get title {

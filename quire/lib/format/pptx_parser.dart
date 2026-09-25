@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
@@ -17,6 +18,98 @@ const double kEmuPerPoint = 12700.0;
 /// is rare and still better answered with a stage than with nothing.
 const double kDefaultSlideWidth = 720.0;
 const double kDefaultSlideHeight = 540.0;
+
+/// The size a run of slide text has when nothing in the file says.
+const double kSlideTextSize = 18.0;
+
+/// How a paragraph or a run of slide text is set, once everything up its
+/// chain of placeholder, layout, master and list style has been laid down.
+class SlideTextLook {
+  const SlideTextLook({
+    required this.size,
+    this.bold = false,
+    this.italic = false,
+    this.underline = false,
+    this.colour,
+    this.align = DocAlign.start,
+    this.bulleted = false,
+    this.ordered = false,
+    this.level = 0,
+    this.bullet,
+  });
+
+  /// Points.
+  final double size;
+  final bool bold;
+  final bool italic;
+  final bool underline;
+
+  /// 0xAARRGGBB, or null for the slide's ink.
+  final int? colour;
+  final DocAlign align;
+  final bool bulleted;
+  final bool ordered;
+  final int level;
+
+  /// The glyph a bulleted paragraph is drawn with.
+  final String? bullet;
+}
+
+/// How the words of one shape are set: the look each outline level has
+/// before a paragraph says anything, and each paragraph and run as it is.
+class SlideTextLooks {
+  const SlideTextLooks(this.levels, this.paragraphs);
+
+  /// Levels 0 to 8.
+  final List<SlideTextLook> levels;
+  final List<(SlideTextLook, List<SlideTextLook>)> paragraphs;
+}
+
+/// Something on a slide that can be picked up: a shape, a picture, a table
+/// or chart, a connector or a group, at the top level of the slide.
+class SlideObject {
+  const SlideObject({
+    required this.id,
+    required this.kind,
+    required this.box,
+    this.rotation = 0,
+    this.flipH = false,
+    this.flipV = false,
+    this.placeholder,
+    this.name = '',
+    this.hasText = false,
+  });
+
+  final int id;
+
+  /// 'sp', 'pic', 'graphicFrame', 'grpSp' or 'cxnSp'.
+  final String kind;
+  final SlideBox box;
+  final double rotation;
+  final bool flipH;
+  final bool flipV;
+
+  /// The placeholder type the object fills, such as 'title' or 'body'.
+  final String? placeholder;
+  final String name;
+
+  /// True for a shape whose words can be typed.
+  final bool hasText;
+
+  bool get isPicture => kind == 'pic';
+  bool get isLine => kind == 'cxnSp';
+}
+
+/// One layout a slide can be built on.
+class SlideLayoutInfo {
+  const SlideLayoutInfo(this.path, this.name, this.master, this.type);
+  final String path;
+  final String name;
+  final String master;
+
+  /// PowerPoint's name for what the layout is for, such as 'title' or 'obj'.
+  final String? type;
+}
 
 /// The defaults in force for one outline level of one text body.
 ///
@@ -132,10 +225,29 @@ class _Frame {
 /// [FormatException] when they are a zip with no presentation inside. Both are
 /// caught at the loader boundary and become a designed state.
 class PptxParser {
-  PptxParser(this.bytes);
+  PptxParser(
+    this.bytes, {
+    this.parts,
+    this.media = const <String, Uint8List>{},
+    Archive? archive,
+    this.loadMedia = true,
+  }) : _given = archive;
   final Uint8List bytes;
+  final Archive? _given;
+
+  /// False when [media] already holds every picture the deck has, so the
+  /// zip's pictures are not read again.
+  final bool loadMedia;
+
+  /// The text of a part as an editor holds it now, or null to read the one
+  /// in [bytes].
+  final String? Function(String path)? parts;
+
+  /// Media an editor has added, by path.
+  final Map<String, Uint8List> media;
 
   late Archive _zip;
+  bool _opened = false;
   final Map<String, Uint8List> _assets = <String, Uint8List>{};
   final Map<String, _Frame> _frames = <String, _Frame>{};
   final Map<String, Map<String, String>> _rels =
@@ -183,13 +295,21 @@ class PptxParser {
     return null;
   }
 
-  String? _text(String path) {
-    for (final f in _zip.files) {
-      if (f.name == path) {
-        return utf8.decode(f.content as List<int>, allowMalformed: true);
-      }
+  /// The relationship id an element names, as against its own `id`, which
+  /// a slide list entry carries too, bare, and first.
+  static String? _relId(XmlElement e) {
+    for (final a in e.attributes) {
+      if (a.name.local == 'id' && a.name.prefix != null) return a.value;
     }
     return null;
+  }
+
+  String? _text(String path) {
+    final over = parts?.call(path);
+    if (over != null) return over;
+    final file = _zip.find(path);
+    if (file == null) return null;
+    return utf8.decode(file.content, allowMalformed: true);
   }
 
   XmlElement? _root(String path) {
@@ -245,13 +365,40 @@ class PptxParser {
 
   // The parse.
 
-  QuireDocument parse({String title = 'Presentation'}) {
-    _zip = ZipDecoder().decodeBytes(bytes);
+  XmlElement _open() {
+    if (!_opened) {
+      _zip = _given ?? ZipDecoder().decodeBytes(bytes);
+      if (loadMedia) {
+        _loadMedia();
+      } else {
+        _assets.addAll(media);
+      }
+      _opened = true;
+    }
     final root = _root('ppt/presentation.xml');
     if (root == null) throw const FormatException('no ppt/presentation.xml');
-    _loadMedia();
     _readStage(root);
+    return root;
+  }
 
+  /// The deck's slide parts, in the order it presents them.
+  List<String> slideParts() => _slideOrder(_open());
+
+  /// The slide at [path], drawn as the reader draws it, with each shape
+  /// carrying the id it has in the file and empty placeholders kept.
+  SlideBlock slideAt(String path, {int index = 0}) {
+    _open();
+    return _slide(path, index).blocks.single as SlideBlock;
+  }
+
+  /// The deck's media, as the slides refer to it.
+  Map<String, Uint8List> get assets {
+    _open();
+    return _assets;
+  }
+
+  QuireDocument parse({String title = 'Presentation'}) {
+    final root = _open();
     final order = _slideOrder(root);
     if (order.isEmpty) throw const FormatException('a deck with no slides');
 
@@ -278,6 +425,7 @@ class PptxParser {
       if (!f.name.startsWith('ppt/media/')) continue;
       _assets[f.name] = Uint8List.fromList(f.content as List<int>);
     }
+    _assets.addAll(media);
   }
 
   /// The stage every slide is laid out on, in points.
@@ -301,7 +449,7 @@ class PptxParser {
     final out = <String>[];
     if (list != null) {
       for (final id in _kids(list, 'sldId')) {
-        final target = rels[_at(id, 'id') ?? ''];
+        final target = rels[_relId(id) ?? ''];
         if (target != null) out.add(target);
       }
     }
@@ -707,18 +855,8 @@ class PptxParser {
   }
 
   /// The same shape, marked as one the slide inherits rather than owns.
-  static SlideShape _asFurniture(SlideShape shape) => SlideShape(
-    box: shape.box,
-    blocks: shape.blocks,
-    role: shape.role,
-    fill: shape.fill,
-    fillAsset: shape.fillAsset,
-    line: shape.line,
-    lineWidth: shape.lineWidth,
-    verticalAlign: shape.verticalAlign,
-    rotation: shape.rotation,
-    inherited: true,
-  );
+  static SlideShape _asFurniture(SlideShape shape) =>
+      shape.copyWith(inherited: true);
 
   static String _nameOf(String path) {
     final cut = path.lastIndexOf('/');
@@ -731,20 +869,23 @@ class PptxParser {
     String part,
     Map<String, int> colours,
     _Frame? layout,
-    _Frame? master,
-  ) {
+    _Frame? master, {
+    int? group,
+  }) {
     final out = <SlideShape>[];
     for (final el in tree.childElements) {
       switch (_ln(el)) {
         case 'sp':
         case 'pic':
         case 'graphicFrame':
+        case 'cxnSp':
           final shape = _shape(
             el,
             part,
             colours,
             _slotFor(el, layout, master),
             master,
+            group ?? idOf(el),
           );
           if (shape != null) out.add(shape);
         case 'grpSp':
@@ -752,10 +893,68 @@ class PptxParser {
           // group's own coordinates, which is a transform this reader does not
           // carry. Taking the children at face value keeps their content and
           // their rough arrangement, and loses only the group's offset.
-          out.addAll(_shapesIn(el, part, colours, layout, master));
+          final inner = _shapesIn(
+            el,
+            part,
+            colours,
+            layout,
+            master,
+            group: group ?? idOf(el),
+          );
+          out.addAll(inner.map(_groupPlacer(el)));
       }
     }
     return out;
+  }
+
+  /// Where a group puts its children: from the group's own coordinates, its
+  /// child offset and extent, into the slide's, turned with the group.
+  static SlideShape Function(SlideShape) _groupPlacer(XmlElement group) {
+    final properties = _kid(group, 'grpSpPr');
+    final transform = properties == null ? null : _kid(properties, 'xfrm');
+    if (transform == null) return (shape) => shape;
+    double at(String kid, String name) =>
+        (double.tryParse(_at(_kid(transform, kid) ?? transform, name) ?? '') ??
+            0) /
+        kEmuPerPoint;
+    final x = at('off', 'x'), y = at('off', 'y');
+    final cx = at('ext', 'cx'), cy = at('ext', 'cy');
+    final hasChild = _kid(transform, 'chOff') != null;
+    final chX = hasChild ? at('chOff', 'x') : x;
+    final chY = hasChild ? at('chOff', 'y') : y;
+    final chCx = _kid(transform, 'chExt') != null ? at('chExt', 'cx') : cx;
+    final chCy = _kid(transform, 'chExt') != null ? at('chExt', 'cy') : cy;
+    final sx = chCx > 0 ? cx / chCx : 1.0;
+    final sy = chCy > 0 ? cy / chCy : 1.0;
+    final turn = (double.tryParse(_at(transform, 'rot') ?? '') ?? 0) / 60000;
+    final centreX = x + cx / 2, centreY = y + cy / 2;
+    return (shape) {
+      final b = shape.box;
+      var left = x + (b.left - chX) * sx;
+      var top = y + (b.top - chY) * sy;
+      final width = b.width * sx, height = b.height * sy;
+      if (turn != 0) {
+        final radians = turn * math.pi / 180;
+        final dx = left + width / 2 - centreX, dy = top + height / 2 - centreY;
+        final cos = math.cos(radians), sin = math.sin(radians);
+        left = centreX + dx * cos - dy * sin - width / 2;
+        top = centreY + dx * sin + dy * cos - height / 2;
+      }
+      return shape.copyWith(
+        box: SlideBox(left, top, width, height),
+        rotation: shape.rotation + turn,
+      );
+    };
+  }
+
+  /// The id a shape, picture, connector or group has on its slide.
+  static int? idOf(XmlElement el) {
+    for (final nv in el.childElements) {
+      if (!_ln(nv).startsWith('nv')) continue;
+      final properties = _kid(nv, 'cNvPr');
+      if (properties != null) return int.tryParse(_at(properties, 'id') ?? '');
+    }
+    return null;
   }
 
   /// The placeholder a shape claims, and therefore the slot it inherits from.
@@ -828,6 +1027,7 @@ class PptxParser {
     Map<String, int> colours,
     _Slot? slot, [
     _Frame? master,
+    int? id,
   ]) {
     final box = _boxOf(el) ?? slot?.box;
     // A shape with no box anywhere up the chain has nowhere to be drawn. It is
@@ -862,21 +1062,44 @@ class PptxParser {
         }
     }
 
+    final style = _kid(el, 'style');
     final body = _kid(el, 'txBody');
     if (body != null) {
-      blocks.addAll(_textBody(body, colours, slot, role, master));
+      blocks.addAll(
+        _textBody(body, colours, slot, role, master, _fontRefColour(style, colours)),
+      );
     }
 
-    final fill = properties == null ? null : _solidFill(properties, colours);
     final fillAsset = _ln(el) == 'pic' ? null : _pictureFill(el, part);
-    final line = _lineOf(properties, colours);
+    final fill = (properties == null ? null : _solidFill(properties, colours)) ??
+        (fillAsset == null && !_statesFill(properties)
+            ? _styleColour(style, 'fillRef', colours)
+            : null);
+    final ownLine = properties == null ? null : _kid(properties, 'ln');
+    final line = _lineOf(properties, colours) ??
+        (ownLine == null ||
+                (_kid(ownLine, 'noFill') == null &&
+                    _kid(ownLine, 'solidFill') == null &&
+                    _kid(ownLine, 'gradFill') == null)
+            ? _styleColour(style, 'lnRef', colours)
+            : null);
     // A shape holding nothing and filled with nothing is a spacer the file
     // keeps for its own reasons. Drawing it costs a layer and shows nothing.
-    if (blocks.isEmpty && fill == null && fillAsset == null && line == null) {
+    // An empty placeholder is kept, drawing nothing, so an editor can show
+    // where its words would go.
+    if (blocks.isEmpty && fill == null && fillAsset == null && line == null && ph == null) {
       return null;
     }
 
     final bodyProperties = body == null ? null : _kid(body, 'bodyPr');
+    final transform = properties == null ? null : _kid(properties, 'xfrm');
+    final geometry = properties == null ? null : _kid(properties, 'prstGeom');
+    final outline = properties == null ? null : _kid(properties, 'ln');
+    final dash = outline == null ? null : _kid(outline, 'prstDash');
+    final effects = properties == null ? null : _kid(properties, 'effectLst');
+    final blip = _find(el, 'blip');
+    final alpha = blip == null ? null : _kid(blip, 'alphaModFix');
+    final dashName = dash == null ? null : _at(dash, 'val');
     return SlideShape(
       box: box,
       blocks: blocks,
@@ -884,12 +1107,64 @@ class PptxParser {
       fill: fill,
       fillAsset: fillAsset,
       line: line,
-      lineWidth: _lineWidthOf(properties),
+      lineWidth: _lineWidthOf(properties) > 0
+          ? _lineWidthOf(properties)
+          : line == null
+          ? 0
+          : _styleLineWidth(style),
       verticalAlign: bodyProperties == null
           ? slot?.anchor
           : _anchorOf(bodyProperties) ?? slot?.anchor,
       rotation: _rotationOf(el) ?? slot?.rotation ?? 0,
+      id: id,
+      geometry: (geometry == null ? null : _at(geometry, 'prst')) ?? (_ln(el) == 'cxnSp' ? 'line' : 'rect'),
+      dash: dashName == null || dashName == 'solid' ? null : dashName,
+      shadow: effects != null && _kid(effects, 'outerShdw') != null,
+      opacity: alpha == null ? 1 : ((double.tryParse(_at(alpha, 'amt') ?? '') ?? 100000) / 100000).clamp(0.0, 1.0),
+      flipH: transform != null && (_at(transform, 'flipH') == '1' || _at(transform, 'flipH') == 'true'),
+      flipV: transform != null && (_at(transform, 'flipV') == '1' || _at(transform, 'flipV') == 'true'),
+      placeholder: blocks.isEmpty ? ph?.type : null,
     );
+  }
+
+  /// True when a shape's properties say how it is filled, even to say it is
+  /// not, so a style's fill does not fill it.
+  static bool _statesFill(XmlElement? properties) {
+    if (properties == null) return false;
+    for (final child in properties.childElements) {
+      switch (_ln(child)) {
+        case 'noFill' || 'solidFill' || 'gradFill' || 'blipFill' || 'pattFill' || 'grpFill':
+          return true;
+      }
+    }
+    return false;
+  }
+
+  /// The colour a shape's style gives its fill or its outline, where the
+  /// style names one of the theme's styles at all.
+  int? _styleColour(XmlElement? style, String ref, Map<String, int> colours) {
+    final el = style == null ? null : _kid(style, ref);
+    if (el == null) return null;
+    if ((int.tryParse(_at(el, 'idx') ?? '') ?? 0) <= 0) return null;
+    return _colourIn(el, colours);
+  }
+
+  /// The width of the theme line style a shape's style names, in points, as
+  /// Office's own themes set them.
+  static double _styleLineWidth(XmlElement? style) {
+    final el = style == null ? null : _kid(style, 'lnRef');
+    final idx = int.tryParse((el == null ? null : _at(el, 'idx')) ?? '') ?? 0;
+    return switch (idx) {
+      <= 0 => 0,
+      1 => 0.5,
+      2 => 1,
+      _ => 1.5,
+    };
+  }
+
+  int? _fontRefColour(XmlElement? style, Map<String, int> colours) {
+    final el = style == null ? null : _kid(style, 'fontRef');
+    return el == null ? null : _colourIn(el, colours);
   }
 
   static SlideRole _roleOf(XmlElement el, String? placeholder) {
@@ -1001,12 +1276,264 @@ class PptxParser {
 
   // Text.
 
+  /// The layout and master a slide or layout part stands on.
+  (_Frame?, _Frame?, Map<String, int>) _framesFor(String path) {
+    var layoutPath = '';
+    var masterPath = '';
+    for (final entry in _relsOf(path).entries) {
+      if (entry.value.contains('/slideLayouts/')) layoutPath = entry.value;
+      if (entry.value.contains('/slideMasters/')) masterPath = entry.value;
+    }
+    final layout = layoutPath.isEmpty ? null : _frame(layoutPath);
+    final parent = layout?.parent ?? (masterPath.isEmpty ? null : masterPath);
+    final master = parent == null ? null : _frame(parent);
+    final colours = layout?.colours ?? master?.colours ?? const <String, int>{};
+    return (layout, master, colours);
+  }
+
+  /// How the words of the shape [id] on the slide at [path] are set: each
+  /// outline level as the placeholder, the layout, the master and the
+  /// shape's own list style leave it, and each paragraph and run with its
+  /// own properties laid over that. Null when the slide has no such shape.
+  SlideTextLooks? textLooks(String path, int id) {
+    _open();
+    final root = _root(path);
+    if (root == null) return null;
+    final (layout, master, colours) = _framesFor(path);
+    XmlElement? found;
+    for (final el in root.descendantElements) {
+      final local = _ln(el);
+      if ((local == 'sp' || local == 'graphicFrame') && idOf(el) == id) {
+        found = el;
+        break;
+      }
+    }
+    if (found == null) return null;
+    final body = _kid(found, 'txBody');
+    final ph = _placeholderOf(found);
+    final slot = _slotFor(found, layout, master);
+    final role = _roleOf(found, ph?.type);
+    final fontColour = _fontRefColour(_kid(found, 'style'), colours);
+    SlideTextLook look(_Level level, int depth) => SlideTextLook(
+      size: level.size ?? kSlideTextSize,
+      bold: level.bold ?? false,
+      italic: level.italic ?? false,
+      underline: level.underline ?? false,
+      colour: level.colour,
+      align: level.align ?? DocAlign.start,
+      bulleted: level.plain != true && (level.bullet != null || level.ordered == true),
+      ordered: level.ordered == true,
+      level: depth,
+      bullet: level.bullet,
+    );
+    final bases = _bases(body, colours, slot, role, master, fontColour);
+    final levels = <SlideTextLook>[
+      for (var i = 0; i < 9; i++) look(bases(i), i),
+    ];
+    final paragraphs = <(SlideTextLook, List<SlideTextLook>)>[];
+    if (body != null) {
+      for (final p in _kids(body, 'p')) {
+        final pPr = _kid(p, 'pPr');
+        final depth = int.tryParse(pPr == null ? '' : _at(pPr, 'lvl') ?? '') ?? 0;
+        final style = bases(depth);
+        if (pPr != null) style.layer(_paragraphStyle(pPr, colours));
+        paragraphs.add((
+          look(style, depth),
+          <SlideTextLook>[
+            for (final child in p.childElements)
+              if (_ln(child) == 'r' || _ln(child) == 'fld')
+                () {
+                  final run = _kid(child, 'rPr');
+                  final over = style.copy();
+                  if (run != null) over.layer(_runStyle(run, colours));
+                  return look(over, depth);
+                }(),
+          ],
+        ));
+      }
+    }
+    return SlideTextLooks(levels, paragraphs);
+  }
+
+  /// A level's defaults, weakest first: the master's own list style, then
+  /// the layout placeholder's, then the style's font colour, then the
+  /// shape's own list style.
+  _Level Function(int) _bases(
+    XmlElement? body,
+    Map<String, int> colours,
+    _Slot? slot,
+    SlideRole role,
+    _Frame? master,
+    int? fontColour,
+  ) {
+    final own = body == null ? null : _kid(body, 'lstStyle');
+    final ownLevels = own == null ? const <int, _Level>{} : _listStyle(own, colours);
+    final fromMaster = master?.textStyles[switch (role) {
+          SlideRole.title => 'title',
+          SlideRole.body => 'body',
+          _ => 'other',
+        }] ??
+        const <int, _Level>{};
+    return (level) {
+      final style = _Level();
+      for (final step in <_Level?>[
+        fromMaster[level],
+        slot?.levels[level],
+        if (fontColour != null) _Level()..colour = fontColour,
+        ownLevels[level],
+      ]) {
+        if (step != null) style.layer(step);
+      }
+      return style;
+    };
+  }
+
+  /// The things on the slide at [path] that can be picked up, in the order
+  /// they are drawn, each at the box it is drawn in.
+  List<SlideObject> objectsAt(String path) {
+    _open();
+    final root = _root(path);
+    final common = root == null ? null : _kid(root, 'cSld');
+    final tree = common == null ? null : _kid(common, 'spTree');
+    if (tree == null) return const <SlideObject>[];
+    final (layout, master, _) = _framesFor(path);
+    final out = <SlideObject>[];
+    for (final el in tree.childElements) {
+      final kind = _ln(el);
+      if (!const <String>{'sp', 'pic', 'graphicFrame', 'grpSp', 'cxnSp'}.contains(kind)) {
+        continue;
+      }
+      final id = idOf(el);
+      if (id == null) continue;
+      final slot = _slotFor(el, layout, master);
+      final box = _boxOf(el) ?? slot?.box;
+      if (box == null) continue;
+      final properties = _kid(el, 'spPr') ?? _kid(el, 'grpSpPr');
+      final transform = properties == null ? null : _kid(properties, 'xfrm');
+      bool flag(String name) =>
+          transform != null && (_at(transform, name) == '1' || _at(transform, name) == 'true');
+      final turn = double.tryParse((transform == null ? null : _at(transform, 'rot')) ?? '');
+      final nv = el.childElements.where((c) => _ln(c).startsWith('nv')).firstOrNull;
+      final named = nv == null ? null : _kid(nv, 'cNvPr');
+      out.add(
+        SlideObject(
+          id: id,
+          kind: kind,
+          box: box,
+          rotation: turn == null ? slot?.rotation ?? 0 : turn / 60000,
+          flipH: flag('flipH'),
+          flipV: flag('flipV'),
+          placeholder: _placeholderOf(el)?.type,
+          name: named == null ? '' : _at(named, 'name') ?? '',
+          hasText: kind == 'sp',
+        ),
+      );
+    }
+    return out;
+  }
+
+  /// Every layout of every master, in the order the masters list them.
+  List<SlideLayoutInfo> layouts() {
+    final root = _open();
+    final out = <SlideLayoutInfo>[];
+    final masters = _kid(root, 'sldMasterIdLst');
+    final deckRels = _relsOf('ppt/presentation.xml');
+    for (final id in masters == null ? const <XmlElement>[] : _kids(masters, 'sldMasterId')) {
+      final master = deckRels[_relId(id) ?? ''];
+      if (master == null) continue;
+      final masterRoot = _root(master);
+      final list = masterRoot == null ? null : _kid(masterRoot, 'sldLayoutIdLst');
+      final rels = _relsOf(master);
+      for (final entry in list == null ? const <XmlElement>[] : _kids(list, 'sldLayoutId')) {
+        final path = rels[_relId(entry) ?? ''];
+        if (path == null) continue;
+        final layout = _root(path);
+        if (layout == null) continue;
+        final common = _kid(layout, 'cSld');
+        out.add(
+          SlideLayoutInfo(
+            path,
+            (common == null ? null : _at(common, 'name')) ?? _nameOf(path),
+            master,
+            _at(layout, 'type'),
+          ),
+        );
+      }
+    }
+    return out;
+  }
+
+  /// A layout drawn as a slide made on it would be before anything is typed:
+  /// the master's and the layout's own furniture, and each placeholder as a
+  /// dashed box with its name in it.
+  SlideBlock layoutAt(String path) {
+    _open();
+    final layout = _frame(path);
+    final parent = layout?.parent;
+    final master = parent == null ? null : _frame(parent);
+    final root = _root(path);
+    final common = root == null ? null : _kid(root, 'cSld');
+    final tree = common == null ? null : _kid(common, 'spTree');
+    final hints = <SlideShape>[];
+    if (tree != null && layout != null) {
+      for (final el in tree.childElements) {
+        final ph = _placeholderOf(el);
+        if (ph == null || const <String>{'dt', 'ftr', 'sldNum'}.contains(ph.type)) continue;
+        final slot = _slotFor(el, layout, master);
+        final box = _boxOf(el) ?? slot?.box;
+        if (box == null) continue;
+        final role = _roleOf(el, ph.type);
+        final base = _bases(_kid(el, 'txBody'), layout.colours, slot, role, master, null)(0);
+        hints.add(
+          SlideShape(
+            box: box,
+            blocks: <DocBlock>[
+              ParagraphBlock(<DocSpan>[
+                DocSpan(
+                  placeholderHint(ph.type),
+                  fontSize: base.size ?? kSlideTextSize,
+                  bold: base.bold ?? false,
+                  color: 0x80000000 | ((base.colour ?? 0xFF000000) & 0xFFFFFF),
+                ),
+              ], align: base.align ?? DocAlign.start),
+            ],
+            role: role,
+            line: 0x66808080,
+            lineWidth: 1,
+            dash: 'dash',
+            verticalAlign: slot?.anchor,
+            placeholder: ph.type,
+          ),
+        );
+      }
+    }
+    return SlideBlock(
+      width: _slideWidth,
+      height: _slideHeight,
+      shapes: <SlideShape>[...?master?.furniture, ...?layout?.furniture, ...hints],
+      background: layout?.background ?? master?.background,
+      backgroundAsset: layout?.backgroundAsset ?? master?.backgroundAsset,
+      layoutName: _nameOf(path),
+    );
+  }
+
+  /// What an empty placeholder of [type] asks for.
+  static String placeholderHint(String type) => switch (type) {
+    'title' || 'ctrTitle' => 'Title',
+    'subTitle' => 'Subtitle',
+    'pic' => 'Picture',
+    'tbl' => 'Table',
+    'chart' => 'Chart',
+    _ => 'Text',
+  };
+
   List<DocBlock> _textBody(
     XmlElement body,
     Map<String, int> colours,
     _Slot? slot,
     SlideRole role, [
     _Frame? master,
+    int? fontColour,
   ]) {
     final own = _kid(body, 'lstStyle');
     final ownLevels = own == null
@@ -1032,6 +1559,7 @@ class PptxParser {
       for (final step in <_Level?>[
         fromMaster[level],
         slot?.levels[level],
+        if (fontColour != null) _Level()..colour = fontColour,
         ownLevels[level],
       ]) {
         if (step != null) style.layer(step);

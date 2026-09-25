@@ -505,4 +505,167 @@ void main() {
     expect(body.where((e) => e.name.local == 'tbl'), hasLength(1));
     expect(body.where((e) => e.name.local == 'p').map(textOf), contains('After the table.'));
   });
+
+  group('after the round two file critic', () {
+    String inner(XmlElement p) => p.toXmlString();
+
+    test('deleting a paragraph beside one being edited leaves that one its own', () {
+      final file = Opened(docx(
+        '<w:p><w:r><w:t>Intro.</w:t></w:r></w:p>'
+        '<w:p><w:pPr><w:pageBreakBefore/><w:ind w:firstLine="1440"/></w:pPr><w:r><w:rPr><w:caps/></w:rPr><w:t>This paragraph goes.</w:t></w:r></w:p>'
+        '<w:p><w:r><w:t>Keep this paragraph, with a comment on </w:t></w:r><w:commentRangeStart w:id="2"/>'
+        '<w:r><w:t>these words</w:t></w:r><w:commentRangeEnd w:id="2"/><w:r><w:commentReference w:id="2"/></w:r>'
+        '<w:r><w:t> and more.</w:t></w:r></w:p>',
+      ));
+      final from = file.at('This paragraph');
+      file.doc.delete(from, file.at('Keep') - from);
+      file.type('Keep', 'NEW ');
+      final saved = file.save();
+      final kept = paragraphWith(saved, 'NEW Keep');
+      expect(inner(kept), isNot(contains('pageBreakBefore')));
+      expect(inner(kept), isNot(contains('caps')));
+      expect(inner(kept), contains('<w:commentRangeStart w:id="2"/><w:r><w:t xml:space="preserve">these words</w:t></w:r><w:commentRangeEnd w:id="2"/>'));
+      expect(bodyOf(saved).where((e) => textOf(e).contains('goes')), isEmpty);
+    });
+
+    test('Enter at the start of a paragraph leaves its marks on its words', () {
+      final file = Opened(docx(
+        '<w:p><w:bookmarkStart w:id="4" w:name="_Toc1"/><w:r><w:t>Chapter heading</w:t></w:r><w:bookmarkEnd w:id="4"/></w:p>',
+      ));
+      file.doc.insert(0, '\n');
+      file.type('Chapter', 'Big ');
+      final saved = file.save();
+      final heading = paragraphWith(saved, 'Big Chapter');
+      expect(inner(heading), contains('w:name="_Toc1"'));
+      expect(inner(bodyOf(saved).first), isNot(contains('bookmark')));
+    });
+
+    test('a split keeps a comment round its word, and a join keeps a bookmark', () {
+      final split = Opened(docx(
+        '<w:p><w:r><w:t xml:space="preserve">Alpha beta gamma </w:t></w:r><w:commentRangeStart w:id="0"/>'
+        '<w:r><w:t>delta</w:t></w:r><w:commentRangeEnd w:id="0"/><w:r><w:t xml:space="preserve"> epsilon zeta.</w:t></w:r></w:p>',
+      ));
+      split.doc.insert(split.at('gamma'), '\n');
+      final halves = bodyOf(split.save()).where((e) => e.name.local == 'p').toList();
+      expect(inner(halves[0]), isNot(contains('commentRange')));
+      expect(inner(halves[1]), contains('<w:commentRangeStart w:id="0"/><w:r><w:t xml:space="preserve">delta</w:t></w:r><w:commentRangeEnd w:id="0"/>'));
+
+      final join = Opened(docx(
+        '<w:p><w:r><w:t>First paragraph text.</w:t></w:r></w:p>'
+        '<w:p><w:r><w:t xml:space="preserve">Second has a </w:t></w:r><w:bookmarkStart w:id="1" w:name="_Ref111"/>'
+        '<w:r><w:t>bookmarked phrase</w:t></w:r><w:bookmarkEnd w:id="1"/><w:r><w:t xml:space="preserve"> here.</w:t></w:r></w:p>',
+      ));
+      final end = join.at('First paragraph text.') + 'First paragraph text.'.length;
+      join.doc.delete(end, 1);
+      final joined = paragraphWith(join.save(), 'First paragraph text.Second');
+      expect(inner(joined), contains('<w:bookmarkStart w:id="1" w:name="_Ref111"/><w:r><w:t xml:space="preserve">bookmarked phrase</w:t></w:r><w:bookmarkEnd w:id="1"/>'));
+    });
+
+    test('two fixes in one paragraph leave the runs between them as they were', () {
+      final file = Opened(docx(
+        '<w:p><w:r><w:t xml:space="preserve">Teh quick brown fox jumps over the </w:t></w:r>'
+        '<w:r><w:rPr><w:smallCaps/></w:rPr><w:t xml:space="preserve">lazy </w:t></w:r>'
+        '<w:r><w:rPr><w:spacing w:val="60"/><w:lang w:val="fr-FR"/></w:rPr><w:t>la maison</w:t></w:r>'
+        '<w:r><w:t xml:space="preserve"> awya.</w:t></w:r></w:p>',
+      ));
+      file.doc.replace(file.at('Teh'), 3, 'The');
+      file.doc.replace(file.at('awya'), 4, 'away');
+      final xml = inner(paragraphWith(file.save(), 'The quick'));
+      expect(xml, contains('<w:r><w:rPr><w:smallCaps/></w:rPr><w:t xml:space="preserve">lazy </w:t></w:r>'));
+      expect(xml, contains('<w:r><w:rPr><w:spacing w:val="60"/><w:lang w:val="fr-FR"/></w:rPr><w:t xml:space="preserve">la maison</w:t></w:r>'));
+      expect(textOf(paragraphWith(file.save(), 'The quick')), 'The quick brown fox jumps over the lazy la maison away.');
+    });
+
+    test('words sharing a run with a page break are words, and outlive the break', () {
+      final file = Opened(docx(
+        '<w:p><w:r><w:t>Before.</w:t></w:r></w:p>'
+        '<w:p><w:r><w:t>The last words of chapter one.</w:t><w:br w:type="page"/></w:r></w:p>'
+        '<w:p><w:r><w:t>After.</w:t></w:r></w:p>',
+      ));
+      expect(file.doc.toPlainText(), contains('The last words of chapter one.'));
+      final breakAt = file.at('chapter one.') + 'chapter one.'.length;
+      file.doc.delete(breakAt, 1);
+      final saved = file.save();
+      final para = paragraphWith(saved, 'The last words');
+      expect(textOf(para), 'The last words of chapter one.');
+      expect(inner(para), isNot(contains('w:type="page"')));
+    });
+
+    test('an indented list item takes its new level\'s indent', () {
+      const numbering = '<w:abstractNum w:abstractNumId="7"><w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="decimal"/>'
+          '<w:lvlText w:val="%1."/><w:pPr><w:ind w:left="720" w:hanging="360"/></w:pPr></w:lvl><w:lvl w:ilvl="1"><w:start w:val="1"/>'
+          '<w:numFmt w:val="lowerLetter"/><w:lvlText w:val="%2."/><w:pPr><w:ind w:left="1440" w:hanging="360"/></w:pPr></w:lvl></w:abstractNum>'
+          '<w:num w:numId="90"><w:abstractNumId w:val="7"/></w:num>';
+      String item(String words) =>
+          '<w:p><w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="90"/></w:numPr><w:ind w:left="720" w:hanging="360"/></w:pPr>'
+          '<w:r><w:t>$words</w:t></w:r></w:p>';
+      final file = Opened(docx(item('One') + item('Two') + item('Three'), numbering: numbering));
+      final controller = QuillController(document: file.doc, selection: TextSelection.collapsed(offset: file.at('Two')));
+      controller.indentSelection(true);
+      final two = paragraphWith(file.save(), 'Two');
+      expect(inner(two), contains('<w:ilvl w:val="1"/>'));
+      expect(inner(two), isNot(contains('<w:ind ')));
+    });
+
+    test('a new list\'s numbering goes before numIdMacAtCleanup, numbered 1. a. i.', () {
+      final file = Opened(docx(
+        '<w:p><w:r><w:t>One</w:t></w:r></w:p><w:p><w:r><w:t>Two</w:t></w:r></w:p><w:p><w:r><w:t>Three</w:t></w:r></w:p>',
+        numbering: '<w:numIdMacAtCleanup w:val="3"/>',
+      ));
+      file.doc.format(file.at('One'), 1, Attribute.ol);
+      file.doc.format(file.at('Two'), 1, Attribute.ol);
+      file.doc.format(file.at('Two'), 1, const IndentAttribute(level: 1));
+      file.doc.format(file.at('Three'), 1, Attribute.ol);
+      file.doc.format(file.at('Three'), 1, const IndentAttribute(level: 2));
+      final numbering = documentXml(file.save(), 'word/numbering.xml');
+      expect(numbering.indexOf('<w:num '), lessThan(numbering.indexOf('<w:numIdMacAtCleanup')));
+      expect(numbering.indexOf('<w:abstractNum '), lessThan(numbering.indexOf('<w:num ')));
+      final levels = RegExp(r'<w:lvl w:ilvl="(\d)"><w:start w:val="1"/><w:numFmt w:val="(\w+)"/>').allMatches(numbering).map((m) => m.group(2)).take(3).toList();
+      expect(levels, <String>['decimal', 'lowerLetter', 'lowerRoman']);
+    });
+
+    test('outdenting a paragraph to nothing keeps its right and first-line indents', () {
+      final file = Opened(docx(
+        '<w:p><w:pPr><w:ind w:left="720" w:right="1440" w:firstLine="720"/></w:pPr><w:r><w:t>Indented words.</w:t></w:r></w:p>',
+      ));
+      final controller = QuillController(document: file.doc, selection: TextSelection.collapsed(offset: file.at('Indented')));
+      controller.indentSelection(false);
+      final xml = inner(paragraphWith(file.save(), 'Indented'));
+      expect(xml, contains('w:right="1440"'));
+      expect(xml, contains('w:firstLine="720"'));
+      expect(xml, isNot(contains('w:left=')));
+    });
+
+    test('a typed link is styled as a link', () {
+      final file = Opened(docx('<w:p><w:r><w:t>See the page.</w:t></w:r></w:p>'));
+      file.doc.format(file.at('page'), 4, const LinkAttribute('https://example.org/page'));
+      final saved = file.save();
+      expect(inner(paragraphWith(saved, 'page')), contains('<w:rStyle w:val="Hyperlink"/>'));
+      expect(documentXml(saved, 'word/styles.xml'), contains('w:styleId="Hyperlink"'));
+    });
+
+    test('a paragraph typed after a table takes after the paragraph it was typed into', () {
+      final file = Opened(docx(
+        '<w:p><w:pPr><w:pStyle w:val="Caption"/><w:keepNext/></w:pPr><w:r><w:t>Table 1. Runs.</w:t></w:r></w:p>'
+        '<w:tbl><w:tblPr/><w:tblGrid><w:gridCol w:w="2000"/></w:tblGrid><w:tr><w:tc><w:p><w:r><w:t>cell</w:t></w:r></w:p></w:tc></w:tr></w:tbl>'
+        '<w:p><w:r><w:t>Text after the table.</w:t></w:r></w:p>',
+        styles: '<w:style w:type="paragraph" w:styleId="Caption"><w:name w:val="caption"/><w:rPr><w:b/><w:sz w:val="18"/></w:rPr></w:style>',
+      ));
+      file.type('Text after', 'A new paragraph after the table.\n');
+      final made = paragraphWith(file.save(), 'A new paragraph');
+      expect(inner(made), isNot(contains('Caption')));
+      expect(inner(made), isNot(contains('keepNext')));
+    });
+
+    test('a paragraph typed beside a tracked one is not the reviewer\'s', () {
+      final file = Opened(docx(
+        '<w:p><w:pPr><w:rPr><w:ins w:id="41" w:author="Reviewer" w:date="2026-01-01T00:00:00Z"/></w:rPr></w:pPr>'
+        '<w:r><w:t>Reviewed words.</w:t></w:r></w:p>',
+      ));
+      file.enterAfter('Reviewed words.', 'Typed by the phone user.');
+      final made = paragraphWith(file.save(), 'Typed by');
+      expect(inner(made), isNot(contains('w:ins')));
+      expect(inner(made), isNot(contains('Reviewer')));
+    });
+  });
 }

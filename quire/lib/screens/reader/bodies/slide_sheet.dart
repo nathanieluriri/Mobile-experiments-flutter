@@ -205,7 +205,7 @@ class _Contents extends StatelessWidget {
     // blocks out inside it. A shape holding a single picture is the ordinary
     // case and a column with one child in it would only add a seam.
     final single = shape.blocks.length == 1 && shape.blocks.first is ImageBlock;
-    final Widget body = single
+    Widget body = single
         ? blocks.first
         : Column(
             mainAxisSize: MainAxisSize.min,
@@ -217,38 +217,475 @@ class _Contents extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: blocks,
           );
+    if (single && shape.opacity < 1) {
+      body = Opacity(opacity: shape.opacity, child: body);
+    }
 
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: fill == null ? null : Color(fill),
-        image: picture == null
-            ? null
-            : DecorationImage(image: MemoryImage(picture), fit: BoxFit.cover),
-        border: line == null
-            ? null
-            : Border.all(
-                color: Color(line),
-                width: math.max(0.5, shape.lineWidth * scale),
-              ),
-      ),
-      child: shape.blocks.isEmpty
-          ? const SizedBox.expand()
-          // A shape whose words are taller than the box it was given keeps
-          // its box: PowerPoint would have shrunk the text to fit, and this
-          // reader would rather clip one line than move everything under it.
-          : ClipRect(
-              child: OverflowBox(
-                alignment: switch (shape.verticalAlign) {
-                  DocVerticalAlign.bottom => Alignment.bottomCenter,
-                  DocVerticalAlign.center => Alignment.center,
-                  _ => Alignment.topCenter,
-                },
-                maxHeight: double.infinity,
-                child: body,
-              ),
+    final Widget content = shape.blocks.isEmpty
+        ? const SizedBox.expand()
+        : single
+        ? body
+        // A shape whose words are taller than the box it was given keeps
+        // its box: PowerPoint would have shrunk the text to fit, and this
+        // reader would rather clip one line than move everything under it.
+        : ClipRect(
+            child: OverflowBox(
+              alignment: switch (shape.verticalAlign) {
+                DocVerticalAlign.bottom => Alignment.bottomCenter,
+                DocVerticalAlign.center => Alignment.center,
+                _ => Alignment.topCenter,
+              },
+              maxHeight: double.infinity,
+              child: body,
             ),
+          );
+
+    final plain = shape.geometry == 'rect' && shape.dash == null && !shape.shadow;
+    if (plain) {
+      return DecoratedBox(
+        decoration: BoxDecoration(
+          color: fill == null ? null : Color(fill),
+          image: picture == null
+              ? null
+              : DecorationImage(
+                  image: MemoryImage(picture),
+                  fit: BoxFit.cover,
+                  opacity: shape.opacity,
+                ),
+          border: line == null
+              ? null
+              : Border.all(
+                  color: Color(line),
+                  width: math.max(0.5, shape.lineWidth * scale),
+                ),
+        ),
+        child: content,
+      );
+    }
+
+    final outline = slideOutlineOf(shape.geometry);
+    Widget inside = content;
+    if (picture != null || (single && !outline.open)) {
+      inside = ClipPath(
+        clipper: _OutlineClip(outline, shape.flipH, shape.flipV),
+        child: picture == null
+            ? content
+            : DecoratedBox(
+                decoration: BoxDecoration(
+                  image: DecorationImage(
+                    image: MemoryImage(picture),
+                    fit: BoxFit.cover,
+                    opacity: shape.opacity,
+                  ),
+                ),
+                child: content,
+              ),
+      );
+    }
+    return CustomPaint(
+      painter: _OutlinePainter(
+        outline: outline,
+        fill: fill == null ? null : Color(fill),
+        line: line == null ? null : Color(line),
+        width: math.max(0.5, shape.lineWidth * scale),
+        dash: shape.dash,
+        shadow: shape.shadow,
+        scale: scale,
+        flipH: shape.flipH,
+        flipV: shape.flipV,
+      ),
+      child: inside,
     );
   }
+}
+
+/// A preset outline: how to draw it in a box, and whether it is a line
+/// rather than something that can be filled.
+class SlideOutline {
+  const SlideOutline(this.build, {this.open = false});
+  final Path Function(Size size) build;
+  final bool open;
+
+  Path pathIn(Size size, {bool flipH = false, bool flipV = false}) {
+    final path = build(size);
+    if (!flipH && !flipV) return path;
+    final matrix = Matrix4.identity()
+      ..translateByDouble(flipH ? size.width : 0, flipV ? size.height : 0, 0, 1)
+      ..scaleByDouble(flipH ? -1 : 1, flipV ? -1 : 1, 1, 1);
+    return path.transform(matrix.storage);
+  }
+}
+
+Path _polygon(List<Offset> points) => Path()..addPolygon(points, true);
+
+final Map<String, SlideOutline> _outlines = <String, SlideOutline>{};
+
+/// The outline PowerPoint's preset [name] draws, or a rectangle for one this
+/// reader does not know.
+SlideOutline slideOutlineOf(String name) =>
+    _outlines.putIfAbsent(name, () => _outlineFor(name));
+
+SlideOutline _outlineFor(String name) {
+  switch (name) {
+    case 'line':
+    case 'straightConnector1':
+      return SlideOutline(
+        (s) => Path()
+          ..moveTo(0, 0)
+          ..lineTo(s.width, s.height),
+        open: true,
+      );
+    case 'bentConnector2':
+      return SlideOutline(
+        (s) => Path()
+          ..moveTo(0, 0)
+          ..lineTo(s.width, 0)
+          ..lineTo(s.width, s.height),
+        open: true,
+      );
+    case 'bentConnector3':
+    case 'bentConnector4':
+      return SlideOutline(
+        (s) => Path()
+          ..moveTo(0, 0)
+          ..lineTo(s.width / 2, 0)
+          ..lineTo(s.width / 2, s.height)
+          ..lineTo(s.width, s.height),
+        open: true,
+      );
+    case 'curvedConnector2':
+    case 'curvedConnector3':
+    case 'curvedConnector4':
+      return SlideOutline(
+        (s) => Path()
+          ..moveTo(0, 0)
+          ..cubicTo(s.width / 2, 0, s.width / 2, s.height, s.width, s.height),
+        open: true,
+      );
+    case 'ellipse':
+    case 'flowChartConnector':
+      return SlideOutline((s) => Path()..addOval(Offset.zero & s));
+    case 'roundRect':
+    case 'round2SameRect':
+    case 'flowChartAlternateProcess':
+      return SlideOutline(
+        (s) => Path()
+          ..addRRect(
+            RRect.fromRectAndRadius(
+              Offset.zero & s,
+              Radius.circular(math.min(s.width, s.height) * 0.1667),
+            ),
+          ),
+      );
+    case 'flowChartTerminator':
+      return SlideOutline(
+        (s) => Path()
+          ..addRRect(
+            RRect.fromRectAndRadius(
+              Offset.zero & s,
+              Radius.circular(math.min(s.width, s.height) / 2),
+            ),
+          ),
+      );
+    case 'triangle':
+    case 'flowChartExtract':
+      return SlideOutline(
+        (s) => _polygon(<Offset>[
+          Offset(s.width / 2, 0),
+          Offset(s.width, s.height),
+          Offset(0, s.height),
+        ]),
+      );
+    case 'rtTriangle':
+      return SlideOutline(
+        (s) => _polygon(<Offset>[
+          Offset.zero,
+          Offset(s.width, s.height),
+          Offset(0, s.height),
+        ]),
+      );
+    case 'diamond':
+    case 'flowChartDecision':
+      return SlideOutline(
+        (s) => _polygon(<Offset>[
+          Offset(s.width / 2, 0),
+          Offset(s.width, s.height / 2),
+          Offset(s.width / 2, s.height),
+          Offset(0, s.height / 2),
+        ]),
+      );
+    case 'parallelogram':
+    case 'flowChartInputOutput':
+      return SlideOutline((s) {
+        final a = math.min(s.width, s.height) * 0.25;
+        return _polygon(<Offset>[
+          Offset(a, 0),
+          Offset(s.width, 0),
+          Offset(s.width - a, s.height),
+          Offset(0, s.height),
+        ]);
+      });
+    case 'trapezoid':
+      return SlideOutline((s) {
+        final a = math.min(s.width, s.height) * 0.25;
+        return _polygon(<Offset>[
+          Offset(a, 0),
+          Offset(s.width - a, 0),
+          Offset(s.width, s.height),
+          Offset(0, s.height),
+        ]);
+      });
+    case 'pentagon':
+      return SlideOutline(
+        (s) => _polygon(<Offset>[
+          Offset(s.width / 2, 0),
+          Offset(s.width, s.height * 0.382),
+          Offset(s.width * 0.809, s.height),
+          Offset(s.width * 0.191, s.height),
+          Offset(0, s.height * 0.382),
+        ]),
+      );
+    case 'hexagon':
+      return SlideOutline((s) {
+        final a = math.min(s.width, s.height) * 0.25;
+        return _polygon(<Offset>[
+          Offset(a, 0),
+          Offset(s.width - a, 0),
+          Offset(s.width, s.height / 2),
+          Offset(s.width - a, s.height),
+          Offset(a, s.height),
+          Offset(0, s.height / 2),
+        ]);
+      });
+    case 'octagon':
+      return SlideOutline((s) {
+        final a = math.min(s.width, s.height) * 0.29289;
+        return _polygon(<Offset>[
+          Offset(a, 0),
+          Offset(s.width - a, 0),
+          Offset(s.width, a),
+          Offset(s.width, s.height - a),
+          Offset(s.width - a, s.height),
+          Offset(a, s.height),
+          Offset(0, s.height - a),
+          Offset(0, a),
+        ]);
+      });
+    case 'star4':
+    case 'star5':
+    case 'star6':
+    case 'star8':
+      final points = int.parse(name.substring(4));
+      final inner = switch (points) {
+        4 => 0.25,
+        5 => 0.382,
+        6 => 0.5,
+        _ => 0.7,
+      };
+      return SlideOutline((s) {
+        final out = <Offset>[];
+        for (var i = 0; i < points * 2; i++) {
+          final r = i.isEven ? 1.0 : inner;
+          final a = -math.pi / 2 + i * math.pi / points;
+          out.add(
+            Offset(
+              s.width / 2 + math.cos(a) * s.width / 2 * r,
+              s.height / 2 + math.sin(a) * s.height / 2 * r,
+            ),
+          );
+        }
+        return _polygon(out);
+      });
+    case 'rightArrow':
+    case 'leftArrow':
+    case 'upArrow':
+    case 'downArrow':
+      return SlideOutline((s) {
+        final across = name == 'upArrow' || name == 'downArrow';
+        final length = across ? s.height : s.width;
+        final thick = across ? s.width : s.height;
+        final head = math.min(length, math.min(s.width, s.height) * 0.5);
+        final shaft = thick * 0.25;
+        final raw = <Offset>[
+          Offset(0, shaft),
+          Offset(length - head, shaft),
+          Offset(length - head, 0),
+          Offset(length, thick / 2),
+          Offset(length - head, thick),
+          Offset(length - head, thick - shaft),
+          Offset(0, thick - shaft),
+        ];
+        Offset place(Offset p) => switch (name) {
+          'leftArrow' => Offset(length - p.dx, p.dy),
+          'downArrow' => Offset(p.dy, p.dx),
+          'upArrow' => Offset(p.dy, length - p.dx),
+          _ => p,
+        };
+        return _polygon(raw.map(place).toList());
+      });
+    case 'chevron':
+    case 'homePlate':
+      return SlideOutline((s) {
+        final a = math.min(s.width / 2, math.min(s.width, s.height) * 0.5);
+        return _polygon(<Offset>[
+          Offset.zero,
+          Offset(s.width - a, 0),
+          Offset(s.width, s.height / 2),
+          Offset(s.width - a, s.height),
+          Offset(0, s.height),
+          if (name == 'chevron') Offset(a, s.height / 2),
+        ]);
+      });
+    case 'plus':
+    case 'mathPlus':
+      return SlideOutline((s) {
+        final a = math.min(s.width, s.height) * 0.25;
+        return _polygon(<Offset>[
+          Offset(a, 0),
+          Offset(s.width - a, 0),
+          Offset(s.width - a, a),
+          Offset(s.width, a),
+          Offset(s.width, s.height - a),
+          Offset(s.width - a, s.height - a),
+          Offset(s.width - a, s.height),
+          Offset(a, s.height),
+          Offset(a, s.height - a),
+          Offset(0, s.height - a),
+          Offset(0, a),
+          Offset(a, a),
+        ]);
+      });
+    case 'heart':
+      return SlideOutline((s) {
+        final w = s.width, h = s.height;
+        return Path()
+          ..moveTo(w / 2, h * 0.25)
+          ..cubicTo(w * 0.15, -h * 0.15, -w * 0.25, h * 0.45, w / 2, h)
+          ..moveTo(w / 2, h * 0.25)
+          ..cubicTo(w * 0.85, -h * 0.15, w * 1.25, h * 0.45, w / 2, h);
+      });
+  }
+  return SlideOutline((s) => Path()..addRect(Offset.zero & s));
+}
+
+/// The lengths of PowerPoint's preset dashes, in widths of the line.
+List<double> slideDashOf(String name) => switch (name) {
+  'sysDot' => const <double>[1, 1],
+  'sysDash' => const <double>[3, 1],
+  'dash' => const <double>[4, 3],
+  'dashDot' => const <double>[4, 3, 1, 3],
+  'lgDash' => const <double>[8, 3],
+  'lgDashDot' => const <double>[8, 3, 1, 3],
+  'lgDashDotDot' => const <double>[8, 3, 1, 3, 1, 3],
+  'sysDashDot' => const <double>[3, 1, 1, 1],
+  'sysDashDotDot' => const <double>[3, 1, 1, 1, 1, 1],
+  'dot' => const <double>[1, 3],
+  _ => const <double>[],
+};
+
+/// [path] cut into the dashes [pattern] states, in widths of [width].
+Path dashedPath(Path path, List<double> pattern, double width) {
+  if (pattern.isEmpty) return path;
+  final out = Path();
+  for (final metric in path.computeMetrics()) {
+    var at = 0.0;
+    var i = 0;
+    while (at < metric.length) {
+      final length = math.max(0.5, pattern[i % pattern.length] * width);
+      if (i.isEven) out.addPath(metric.extractPath(at, at + length), Offset.zero);
+      at += length;
+      i++;
+    }
+  }
+  return out;
+}
+
+class _OutlineClip extends CustomClipper<Path> {
+  _OutlineClip(this.outline, this.flipH, this.flipV);
+  final SlideOutline outline;
+  final bool flipH;
+  final bool flipV;
+
+  @override
+  Path getClip(Size size) => outline.pathIn(size, flipH: flipH, flipV: flipV);
+
+  @override
+  bool shouldReclip(_OutlineClip old) =>
+      old.outline != outline || old.flipH != flipH || old.flipV != flipV;
+}
+
+/// A shape's outline filled, stroked and, where the deck asks for a drop
+/// shadow, laid over a darker copy of itself set off down and to the right.
+/// The copy is not blurred: nothing in this app blurs, and the offset alone
+/// is what tells a reader the shape stands off the slide.
+class _OutlinePainter extends CustomPainter {
+  _OutlinePainter({
+    required this.outline,
+    required this.fill,
+    required this.line,
+    required this.width,
+    required this.dash,
+    required this.shadow,
+    required this.scale,
+    required this.flipH,
+    required this.flipV,
+  });
+
+  final SlideOutline outline;
+  final Color? fill;
+  final Color? line;
+  final double width;
+  final String? dash;
+  final bool shadow;
+  final double scale;
+  final bool flipH;
+  final bool flipV;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final path = outline.pathIn(size, flipH: flipH, flipV: flipV);
+    final stroke = line == null
+        ? null
+        : (dash == null ? path : dashedPath(path, slideDashOf(dash!), width));
+    if (shadow) {
+      final offset = Offset(3 * scale, 3 * scale);
+      final ink = Paint()..color = const Color(0x40000000);
+      if (fill != null && !outline.open) {
+        canvas.drawPath(path.shift(offset), ink);
+      } else if (stroke != null) {
+        canvas.drawPath(
+          stroke.shift(offset),
+          ink
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = width,
+        );
+      }
+    }
+    if (fill != null && !outline.open) {
+      canvas.drawPath(path, Paint()..color = fill!);
+    }
+    if (stroke != null) {
+      canvas.drawPath(
+        stroke,
+        Paint()
+          ..color = line!
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = width,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(_OutlinePainter old) =>
+      old.outline != outline ||
+      old.fill != fill ||
+      old.line != line ||
+      old.width != width ||
+      old.dash != dash ||
+      old.shadow != shadow ||
+      old.scale != scale ||
+      old.flipH != flipH ||
+      old.flipV != flipV;
 }
 
 /// One block of a shape.

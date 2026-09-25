@@ -26,6 +26,7 @@ import '../edit/doc_editor.dart';
 import '../edit/grid_editor.dart';
 import '../edit/markup_screen.dart';
 import '../edit/paragraph_editor.dart';
+import '../edit/slides/slide_editor.dart';
 import '../edit/revisions_sheet.dart';
 import '../edit/text_editor.dart';
 import '../sign/placement_layer.dart';
@@ -396,10 +397,9 @@ class _ReaderHostState extends State<ReaderHost> with TickerProviderStateMixin {
         );
       case DocFormat.pptx:
         _openEditor(
-          (context, save, back) => ParagraphEditor(
+          (context, save, back) => SlideEditor(
             title: store.entry.title,
             bytes: bytes,
-            deck: true,
             onSave: save,
             onBack: back,
           ),

@@ -339,43 +339,55 @@ class _Out {
 /// A list a paragraph is in: its kind and the numbering it takes.
 typedef _ListRef = ({String kind, String numId});
 
-/// How a line's text lines up with the paragraph it came from: the same
-/// characters at the start and at the end, and what changed between.
-class _Edit {
-  _Edit(String old, String now, {bool fresh = false})
-      : oldLength = old.length,
-        newLength = now.length {
-    if (!fresh) {
-      while (prefix < old.length && prefix < now.length && old.codeUnitAt(prefix) == now.codeUnitAt(prefix)) {
-        prefix++;
-      }
+/// For each character of [now], the character of [old] it was kept from, or
+/// -1 for one typed: the longest common run of characters, so two changes
+/// apart in one line leave everything between them as it was.
+List<int> alignText(String old, String now) {
+  final n = old.length, m = now.length;
+  final out = List<int>.filled(m, -1);
+  var p = 0;
+  while (p < n && p < m && old.codeUnitAt(p) == now.codeUnitAt(p)) {
+    out[p] = p;
+    p++;
+  }
+  var s = 0;
+  while (s < n - p && s < m - p && old.codeUnitAt(n - 1 - s) == now.codeUnitAt(m - 1 - s)) {
+    out[m - 1 - s] = n - 1 - s;
+    s++;
+  }
+  final a0 = p, a1 = n - s, b0 = p, b1 = m - s;
+  final rows = a1 - a0, cols = b1 - b0;
+  if (rows == 0 || cols == 0 || rows * cols > 4000000) return out;
+  final table = List<Uint16List>.generate(rows + 1, (_) => Uint16List(cols + 1));
+  for (var i = rows - 1; i >= 0; i--) {
+    final row = table[i], below = table[i + 1];
+    final a = old.codeUnitAt(a0 + i);
+    for (var j = cols - 1; j >= 0; j--) {
+      row[j] = a == now.codeUnitAt(b0 + j) ? below[j + 1] + 1 : math.max(below[j], row[j + 1]);
     }
-    while (suffix < old.length - prefix &&
-        suffix < now.length - prefix &&
-        old.codeUnitAt(old.length - 1 - suffix) == now.codeUnitAt(now.length - 1 - suffix)) {
-      suffix++;
+  }
+  var i = 0, j = 0;
+  while (i < rows && j < cols) {
+    if (old.codeUnitAt(a0 + i) == now.codeUnitAt(b0 + j)) {
+      out[b0 + j] = a0 + i;
+      i++;
+      j++;
+    } else if (table[i + 1][j] >= table[i][j + 1]) {
+      i++;
+    } else {
+      j++;
     }
   }
+  return out;
+}
 
-  final int oldLength;
-  final int newLength;
-  int prefix = 0;
-  int suffix = 0;
-
-  /// Where a mark that stood before the old character [at] stands now. A
-  /// start inside the change moves to its start, and an end to its end.
-  int map(int at, {required bool start}) {
-    if (at <= prefix) return at;
-    if (at >= oldLength - suffix) return at + newLength - oldLength;
-    return start ? prefix : newLength - suffix;
-  }
-
-  /// The old character the new one at [i] is, or null for one typed.
-  int? source(int i) {
-    if (i < prefix) return i;
-    if (i >= newLength - suffix) return oldLength - (newLength - i);
-    return null;
-  }
+/// One new line's share of the paragraphs it was made from: the character
+/// each of its characters takes its run from, and the marks that now fall
+/// in it.
+class _Slice {
+  const _Slice(this.bases, this.marks);
+  final List<_CharBase> bases;
+  final List<(int, XmlElement)> marks;
 }
 
 /// A Word document as lines of text the editor can change, with the look
@@ -829,6 +841,36 @@ class DocxDelta {
       }
       if (fieldDepth > 0 || r.getElement('w:fldChar') != null) return;
       final hidden = rPr?.getElement('w:vanish') != null;
+      final words = r.childElements.where((c) => _isPlain(c) && c.name.local != 'rPr' && c.name.local != 'lastRenderedPageBreak');
+      if (!hidden && words.isNotEmpty && r.childElements.any((c) => !_isPlain(c))) {
+        // Words sharing a run with a page break or a symbol are read as a
+        // run of words and a run of the break, so the words can be seen,
+        // found and changed, and the break stays where it was.
+        final pieces = <List<XmlElement>>[];
+        var plain = <XmlElement>[];
+        for (final c in r.childElements) {
+          if (c.name.local == 'rPr') continue;
+          if (_isPlain(c)) {
+            plain.add(c);
+            continue;
+          }
+          if (plain.isNotEmpty) pieces.add(plain);
+          plain = <XmlElement>[];
+          pieces.add(<XmlElement>[c]);
+        }
+        if (plain.isNotEmpty) pieces.add(plain);
+        for (final piece in pieces) {
+          addRun(
+            XmlElement(_w('r'), <XmlAttribute>[for (final a in r.attributes) a.copy()], <XmlNode>[
+              if (rPr != null) rPr.copy(),
+              for (final c in piece) c.copy(),
+            ]),
+            link,
+            linkElement,
+          );
+        }
+        return;
+      }
       if (hidden || r.childElements.any((c) => !_isPlain(c))) {
         keep(_keptRun(r, hidden));
         return;
@@ -1353,6 +1395,7 @@ class DocxDelta {
       return _package.original;
     }
     final matches = _match(lines);
+    final slices = _slices(lines, matches);
     final out = <_Out>[];
     final used = <int>{};
     _Para? lastSource;
@@ -1371,6 +1414,9 @@ class DocxDelta {
           out.addAll(_blockAt[blockId]!.map(_original));
         }
         lastList = null;
+        // A line typed after a table takes after the paragraph it was typed
+        // into, never after one across the table.
+        lastSource = null;
         continue;
       }
       final source = matches[i];
@@ -1395,10 +1441,11 @@ class DocxDelta {
       }
       final written = _paragraphFor(
         line,
-        para ?? lastSource,
+        para ?? lastSource ?? _nextPara(lines, matches, i),
         fresh: para == null,
         before: lastList,
         after: _nextList(lines, matches, i),
+        slice: slices[i],
       );
       out.add(_Out.made(written));
       if (para != null) lastSource = para;
@@ -1411,6 +1458,56 @@ class DocxDelta {
   }
 
   _Out _original(int index) => _Out.original(index, _children[index]);
+
+  /// The paragraph read from the file that the next line after [i] with one
+  /// stands for, before any table or break.
+  _Para? _nextPara(List<_Line> lines, List<int?> matches, int i) {
+    for (var k = i + 1; k < lines.length; k++) {
+      if (lines[k].blockId != null) return null;
+      final source = matches[k];
+      final unit = source == null ? null : _units[source];
+      if (unit is _Para) return unit;
+    }
+    return null;
+  }
+
+  /// Each changed line's share of the paragraphs it was made from: a
+  /// paragraph read from the file, the line that stands for it and the lines
+  /// split off after it, and the paragraph after it when a join has brought
+  /// its words onto the line.
+  Map<int, _Slice> _slices(List<_Line> lines, List<int?> matches) {
+    final out = <int, _Slice>{};
+    final paired = <int>{for (final m in matches) ?m};
+    final seen = <int>{};
+    var i = 0;
+    while (i < lines.length) {
+      final source = matches[i];
+      final unit = source == null ? null : _units[source];
+      if (lines[i].blockId != null || unit is! _Para || !seen.add(source!)) {
+        i++;
+        continue;
+      }
+      final members = <int>[i];
+      var j = i + 1;
+      while (j < lines.length && lines[j].blockId == null && matches[j] == null) {
+        members.add(j++);
+      }
+      final olds = <_Para>[unit];
+      final next = source + 1 < _units.length ? _units[source + 1] : null;
+      if (next is _Para && !paired.contains(source + 1) && next.text.isNotEmpty) {
+        final tail = next.text.substring(math.max(0, next.text.length - 8));
+        if (lines[members.last].text.endsWith(tail)) olds.add(next);
+      }
+      if (members.length > 1 || olds.length > 1 || lines[i].key != _lines[source].key) {
+        final shares = _sliceGroup(<String>[for (final m in members) lines[m].text], olds);
+        for (var k = 0; k < members.length; k++) {
+          out[members[k]] = shares[k];
+        }
+      }
+      i = j;
+    }
+    return out;
+  }
 
   /// A section break put back: its own empty paragraph as it was, or given
   /// to the paragraph now last in its section.
@@ -1659,9 +1756,7 @@ class DocxDelta {
     var i = 0, j = 0;
     final gapA = <int>[], gapB = <int>[];
     void pairGap() {
-      for (var k = 0; k < gapB.length; k++) {
-        result[gapB[k]] = k < gapA.length ? gapA[k] : null;
-      }
+      _pairGap(b, gapA, gapB, result);
       gapA.clear();
       gapB.clear();
     }
@@ -1689,6 +1784,64 @@ class DocxDelta {
     pairGap();
   }
 
+  /// Pairs the changed lines [gapB] with the paragraphs [gapA] they took the
+  /// place of. The same number on each side pair in order, one for one; a
+  /// gap where lines were added or taken away pairs each line with the
+  /// paragraph whose words it shares most, in order, and a line sharing none
+  /// is a new one, so a paragraph beside one deleted keeps its own
+  /// properties and marks.
+  void _pairGap(List<_Line> b, List<int> gapA, List<int> gapB, List<int?> result) {
+    if (gapA.length == gapB.length) {
+      for (var k = 0; k < gapB.length; k++) {
+        result[gapB[k]] = gapA[k];
+      }
+      return;
+    }
+    if (gapA.isEmpty) return;
+    final n = gapA.length, m = gapB.length;
+    if (n * m > 250000) {
+      for (var k = 0; k < m && k < n; k++) {
+        result[gapB[k]] = gapA[k];
+      }
+      return;
+    }
+    int score(int x, int y) {
+      final a = _units[gapA[x]] is _Para ? (_units[gapA[x]] as _Para).text : '';
+      final t = b[gapB[y]].text;
+      var p = 0;
+      while (p < a.length && p < t.length && a.codeUnitAt(p) == t.codeUnitAt(p)) {
+        p++;
+      }
+      var q = 0;
+      while (q < a.length - p && q < t.length - p && a.codeUnitAt(a.length - 1 - q) == t.codeUnitAt(t.length - 1 - q)) {
+        q++;
+      }
+      return p + q;
+    }
+
+    final table = List<List<int>>.generate(n + 1, (_) => List<int>.filled(m + 1, 0));
+    final scores = List<List<int>>.generate(n, (x) => List<int>.generate(m, (y) => score(x, y)));
+    for (var x = n - 1; x >= 0; x--) {
+      for (var y = m - 1; y >= 0; y--) {
+        final take = scores[x][y] > 0 ? scores[x][y] + table[x + 1][y + 1] : -1;
+        table[x][y] = math.max(take, math.max(table[x + 1][y], table[x][y + 1]));
+      }
+    }
+    var x = 0, y = 0;
+    while (x < n && y < m) {
+      final take = scores[x][y] > 0 ? scores[x][y] + table[x + 1][y + 1] : -1;
+      if (take >= 0 && take == table[x][y]) {
+        result[gapB[y]] = gapA[x];
+        x++;
+        y++;
+      } else if (table[x + 1][y] >= table[x][y + 1]) {
+        x++;
+      } else {
+        y++;
+      }
+    }
+  }
+
   /// A paragraph written from [line], taking its paragraph properties from
   /// [source] and each character's run properties from the character it
   /// stands for there. A [fresh] line is one typed after [source], which
@@ -1699,11 +1852,19 @@ class DocxDelta {
     required bool fresh,
     _ListRef? before,
     _ListRef? after,
+    _Slice? slice,
   }) {
     final p = XmlElement(_w('p'));
     final props = source?.pPr?.copy() ?? XmlElement(_w('pPr'));
     // Section breaks are put back by their own lines.
     props.getElement('w:sectPr')?.remove();
+    // A paragraph made from its neighbour is the writer's own, never a
+    // reviewer's tracked change.
+    if (fresh) {
+      props.getElement('w:pPrChange')?.remove();
+      final mark = props.getElement('w:rPr');
+      if (mark != null) _untrack(mark);
+    }
     _applyLine(props, line.attributes, source, before: before, after: after);
     if (props.children.isNotEmpty) p.children.add(props);
     final styleId = props.getElement('w:pStyle')?.getAttribute('w:val') ?? _defaultParagraphStyle;
@@ -1712,12 +1873,9 @@ class DocxDelta {
         source.lineAttributes['header'] == line.attributes['header'] &&
         source.lineAttributes['blockquote'] == line.attributes['blockquote'];
     final text = line.text;
-    final edit = _Edit(source?.text ?? '', text, fresh: fresh);
-    final bases = _basesFor(text, source, edit, fresh: fresh);
-    final marks = <(int, XmlElement)>[
-      if (!fresh && source != null)
-        for (final (at, mark) in source.marks) (edit.map(at, start: _opens(mark)), mark),
-    ];
+    final share = slice ?? (fresh || source == null ? null : _sliceGroup(<String>[text], <_Para>[source]).single);
+    final bases = share?.bases ?? _freshBases(text, source);
+    final marks = <(int, XmlElement)>[...?share?.marks];
     _sortMarks(marks);
     var nextMark = 0;
     XmlElement? link;
@@ -1755,7 +1913,7 @@ class DocxDelta {
         final ends = i == chunk.length || !_sameRun(bases[at + i - 1], bases[at + i]) || markAt(at + i);
         if (!ends) continue;
         final base = bases[at + start];
-        final run = _run(chunk.substring(start, i), base, want, styleId, sameKind);
+        final run = _run(chunk.substring(start, i), base, want, styleId, sameKind, untracked: fresh);
         final target = attributes['link'] as String?;
         if (target == null) {
           link = null;
@@ -1767,6 +1925,8 @@ class DocxDelta {
             linkTarget = target;
             p.children.add(link);
           }
+          // Words made a link here look like one in Word too.
+          if (base.link != target) _styleAsLink(run);
           link.children.add(run);
         }
         start = i;
@@ -1779,35 +1939,176 @@ class DocxDelta {
     return p;
   }
 
-  /// Each character of [text] paired with the character of [source] it came
-  /// from: the ones before and after the change as they were, and new ones
-  /// taking after the character they were typed next to.
-  List<_CharBase> _basesFor(String text, _Para? source, _Edit edit, {required bool fresh}) {
-    final chars = source?.chars ?? const <_CharBase>[];
-    final plain = source?.plain ?? const _CharBase(null, RunLook(), RunLook(), <String, Object?>{}, null);
-    if (chars.isEmpty) return List<_CharBase>.filled(text.length, plain);
-    _CharBase? scan(int from, int step) {
-      for (var i = from; i >= 0 && i < chars.length; i += step) {
-        if (!chars[i].inline) return chars[i];
-      }
-      return null;
+  /// Takes a reviewer's tracked marks out of run properties copied for new
+  /// words.
+  static void _untrack(XmlElement rPr) {
+    for (final c in rPr.childElements.toList()) {
+      if (const <String>{'ins', 'del', 'moveFrom', 'moveTo', 'rPrChange'}.contains(c.name.local)) c.remove();
     }
-
-    final near = fresh
-        ? scan(chars.length - 1, -1)
-        : (edit.prefix > 0 ? scan(edit.prefix - 1, -1) : null) ?? scan(edit.prefix, 1);
-    return <_CharBase>[
-      for (var i = 0; i < text.length; i++)
-        switch (edit.source(i)) {
-          null => near ?? plain,
-          final j => chars[j].inline ? (near ?? plain) : chars[j],
-        },
-    ];
   }
 
-  XmlElement _run(String text, _CharBase base, RunLook want, String? styleId, bool sameKind) {
+  /// Gives [run] the document's Hyperlink character style, made when the
+  /// document has none.
+  void _styleAsLink(XmlElement run) {
+    var rPr = run.getElement('w:rPr');
+    if (rPr == null) {
+      rPr = XmlElement(_w('rPr'));
+      run.children.insert(0, rPr);
+    }
+    if (rPr.getElement('w:rStyle') != null) return;
+    rPr.children.insert(0, XmlElement(_w('rStyle'), [XmlAttribute(_w('val'), _linkStyle())]));
+  }
+
+  String _linkStyle() {
+    for (final style in _styles.values) {
+      if (style.type == 'character' && ((style.name ?? '').toLowerCase() == 'hyperlink' || style.id == 'Hyperlink')) {
+        return style.id;
+      }
+    }
+    const id = 'Hyperlink';
+    final doc = _package.part('word/styles.xml');
+    if (doc != null) {
+      final element = XmlElement(_w('style'), [
+        XmlAttribute(_w('type'), 'character'),
+        XmlAttribute(_w('styleId'), id),
+      ], [
+        XmlElement(_w('name'), [XmlAttribute(_w('val'), 'Hyperlink')]),
+        XmlElement(_w('uiPriority'), [XmlAttribute(_w('val'), '99')]),
+        XmlElement(_w('unhideWhenUsed')),
+        XmlElement(_w('rPr'), [], [
+          XmlElement(_w('color'), [XmlAttribute(_w('val'), '0563C1'), XmlAttribute(_w('themeColor'), 'hyperlink')]),
+          XmlElement(_w('u'), [XmlAttribute(_w('val'), 'single')]),
+        ]),
+      ]);
+      doc.rootElement.children.add(element);
+      _package.touch('word/styles.xml');
+      _styles[id] = _Style(id, 'character')
+        ..name = 'Hyperlink'
+        ..rPr = element.getElement('w:rPr');
+    }
+    return id;
+  }
+
+  /// A line typed with nothing read to stand for, whose characters take
+  /// after the last character of [source].
+  List<_CharBase> _freshBases(String text, _Para? source) {
+    final chars = source?.chars ?? const <_CharBase>[];
+    final plain = source?.plain ?? const _CharBase(null, RunLook(), RunLook(), <String, Object?>{}, null);
+    _CharBase? near;
+    for (var i = chars.length - 1; i >= 0; i--) {
+      if (!chars[i].inline) {
+        near = chars[i];
+        break;
+      }
+    }
+    return List<_CharBase>.filled(text.length, near ?? plain);
+  }
+
+  /// The lines [texts] as they share out the paragraphs [olds] they were
+  /// made from: each character kept takes its own run, each typed one the
+  /// run of the character kept before it, and each mark stands where its
+  /// characters went: a start before the first of them kept, an end after
+  /// the last, and a range with none kept closed up where it was.
+  List<_Slice> _sliceGroup(List<String> texts, List<_Para> olds) {
+    final oldText = StringBuffer();
+    final oldChars = <_CharBase>[];
+    final oldMarks = <(int, XmlElement)>[];
+    for (final para in olds) {
+      final offset = oldChars.length;
+      oldText.write(para.text);
+      oldChars.addAll(para.chars);
+      for (final (at, mark) in para.marks) {
+        oldMarks.add((offset + at, mark));
+      }
+    }
+    final joined = texts.join('\n');
+    final kept = alignText(oldText.toString(), joined);
+    final plain = olds.first.plain;
+    final bases = List<_CharBase?>.filled(joined.length, null);
+    for (var k = 0; k < joined.length; k++) {
+      final from = kept[k];
+      if (from >= 0 && from < oldChars.length && !oldChars[from].inline) bases[k] = oldChars[from];
+    }
+    _CharBase? near;
+    for (var k = 0; k < joined.length; k++) {
+      if (kept[k] >= 0 && bases[k] != null) {
+        near = bases[k];
+      } else {
+        bases[k] ??= near;
+      }
+    }
+    _CharBase? after;
+    for (var k = joined.length - 1; k >= 0; k--) {
+      if (kept[k] >= 0 && bases[k] != null) after = bases[k];
+      bases[k] ??= after ?? plain;
+    }
+    // Where each old character went.
+    final newOf = List<int>.filled(oldChars.length, -1);
+    for (var k = 0; k < joined.length; k++) {
+      if (kept[k] >= 0 && kept[k] < newOf.length) newOf[kept[k]] = k;
+    }
+    int endAt(int at) {
+      for (var o = math.min(at, newOf.length) - 1; o >= 0; o--) {
+        if (newOf[o] >= 0) return newOf[o] + 1;
+      }
+      return 0;
+    }
+
+    int startAt(int at) {
+      for (var o = at; o < newOf.length; o++) {
+        if (newOf[o] >= 0) return newOf[o];
+      }
+      return joined.length;
+    }
+
+    final placed = <(int, XmlElement)>[
+      for (final (at, mark) in oldMarks) (_opens(mark) ? startAt(at) : endAt(at), mark),
+    ];
+    // A range whose characters all went closes up where its end stands.
+    final ends = <String, int>{
+      for (final (at, mark) in placed)
+        if (!_opens(mark)) _rangeKey(mark): at,
+    };
+    for (var k = 0; k < placed.length; k++) {
+      final (at, mark) = placed[k];
+      if (!_opens(mark)) continue;
+      final end = ends[_rangeKey(mark)];
+      if (end != null && end < at) placed[k] = (end, mark);
+    }
+    final starts = <int>[];
+    var at = 0;
+    for (final text in texts) {
+      starts.add(at);
+      at += text.length + 1;
+    }
+    final out = <_Slice>[];
+    for (var i = 0; i < texts.length; i++) {
+      final from = starts[i];
+      final to = from + texts[i].length;
+      out.add(
+        _Slice(
+          <_CharBase>[for (var k = from; k < to; k++) bases[k]!],
+          <(int, XmlElement)>[
+            for (final (at, mark) in placed)
+              if (at >= from && (at <= to) && (i == texts.length - 1 || at < starts[i + 1]))
+                (at - from, mark),
+          ],
+        ),
+      );
+    }
+    return out;
+  }
+
+  static String _rangeKey(XmlElement mark) {
+    final local = mark.name.local;
+    final kind = local.replaceAll(RegExp(r'(Start|End)$'), '');
+    return '$kind:${mark.getAttribute('w:id') ?? ''}';
+  }
+
+  XmlElement _run(String text, _CharBase base, RunLook want, String? styleId, bool sameKind, {bool untracked = false}) {
     final r = XmlElement(_w('r'));
     final rPr = base.rPr?.copy() ?? XmlElement(_w('rPr'));
+    if (untracked) _untrack(rPr);
     _applyLook(rPr, base, want, styleId, sameKind);
     if (rPr.children.isNotEmpty) r.children.add(rPr);
     final buffer = StringBuffer();
@@ -1976,12 +2277,19 @@ class DocxDelta {
           _newNumbering(list);
       pPr.getElement('w:numPr')?.remove();
       _insertOrdered(pPr, _numPr(indent, id), _pPrOrder);
+      // The level's own indent, as Word and Docs move an item to it.
+      pPr.getElement('w:ind')?.remove();
     }
     if (list == null) {
       final wasIndent = was['list'] == null ? ((was['indent'] as num?)?.toInt() ?? 0) : 0;
       if (indent != wasIndent) {
         if (indent == 0) {
-          pPr.getElement('w:ind')?.remove();
+          final ind = pPr.getElement('w:ind');
+          if (ind != null) {
+            ind.removeAttribute('w:left');
+            ind.removeAttribute('w:start');
+            if (ind.attributes.isEmpty) ind.remove();
+          }
         } else {
           final ind = pPr.getElement('w:ind');
           if (ind != null) {
@@ -2059,6 +2367,9 @@ class DocxDelta {
     return id;
   }
 
+  /// A new numbered list's levels, as the editor draws them: 1., a., i.
+  static const _numberFormats = <String>['decimal', 'lowerLetter', 'lowerRoman'];
+
   /// A numbering of its own for a new bulleted or numbered list, added to
   /// the document, so no list already in it is joined or renumbered.
   String _newNumbering(String list) {
@@ -2093,7 +2404,7 @@ class DocxDelta {
         XmlElement(_w('lvl'), [XmlAttribute(_w('ilvl'), '$level')], [
           XmlElement(_w('start'), [XmlAttribute(_w('val'), '1')]),
           XmlElement(_w('numFmt'), [
-            XmlAttribute(_w('val'), want ? 'bullet' : (level.isEven ? 'decimal' : 'lowerLetter')),
+            XmlAttribute(_w('val'), want ? 'bullet' : _numberFormats[level % 3]),
           ]),
           XmlElement(_w('lvlText'), [
             XmlAttribute(_w('val'), want ? bullets[level % 3] : '%${level + 1}.'),
@@ -2107,18 +2418,29 @@ class DocxDelta {
           ]),
         ]),
     ]);
-    final firstNum = root.childElements.where((e) => e.name.local == 'num').firstOrNull;
+    final firstNum = root.childElements.where((e) => e.name.local == 'num' || e.name.local == 'numIdMacAtCleanup').firstOrNull;
     if (firstNum != null) {
       root.children.insert(root.children.indexOf(firstNum), abstract);
     } else {
       root.children.add(abstract);
     }
-    root.children.add(XmlElement(_w('num'), [XmlAttribute(_w('numId'), '$numId')], [
+    final num = XmlElement(_w('num'), [XmlAttribute(_w('numId'), '$numId')], [
       XmlElement(_w('abstractNumId'), [XmlAttribute(_w('val'), '$abstractId')]),
-    ]));
+    ]);
+    // After the last w:num, and before w:numIdMacAtCleanup, which the
+    // schema puts last.
+    final lastNum = root.childElements.where((e) => e.name.local == 'num').lastOrNull;
+    final cleanup = root.childElements.where((e) => e.name.local == 'numIdMacAtCleanup').firstOrNull;
+    if (lastNum != null) {
+      root.children.insert(root.children.indexOf(lastNum) + 1, num);
+    } else if (cleanup != null) {
+      root.children.insert(root.children.indexOf(cleanup), num);
+    } else {
+      root.children.add(num);
+    }
     _package.touch('word/numbering.xml');
     _numFormats['$numId'] = <int, String>{
-      for (var level = 0; level < 9; level++) level: want ? 'bullet' : (level.isEven ? 'decimal' : 'lowerLetter'),
+      for (var level = 0; level < 9; level++) level: want ? 'bullet' : _numberFormats[level % 3],
     };
     return '$numId';
   }
