@@ -109,11 +109,14 @@ final Map<int, int> _windows1252Bytes = <int, int>{
 /// first few rows, breaking ties towards more columns.
 ///
 /// Consistency beats frequency: a comma inside quoted prose is common, and
-/// counting occurrences would choose it over the real separator. A candidate
-/// is marked down for what reading with it makes odd: quotes that open or
-/// close in the middle of a field, and unquoted fields holding another
-/// candidate, which is what a row looks like split at the wrong character.
-/// A comma between digits, as in 1,50, is a decimal mark and not odd.
+/// counting occurrences would choose it over the real separator. The count
+/// most rows share is the one that counts, so a title line of one field
+/// does not rule a delimiter out. A candidate is marked down for what
+/// reading with it makes odd: quotes that open or close in the middle of a
+/// field, and unquoted fields holding another candidate, which is what a
+/// row looks like split at the wrong character. A comma between digits, as
+/// in 1,50, is a decimal mark, and one followed by a space is prose; neither
+/// is odd.
 String sniffDelimiter(String text, {List<String> candidates = const [',', ';', '\t', '|']}) {
   var best = ',';
   var bestScore = double.negativeInfinity;
@@ -125,11 +128,17 @@ String sniffDelimiter(String text, {List<String> candidates = const [',', ';', '
         if (!(row.length == 1 && row.first.isEmpty)) row,
     ];
     if (rows.isEmpty) continue;
-    final first = rows.first.length;
-    if (first < 2) continue;
-    final consistent = rows.where((r) => r.length == first).length / rows.length;
+    final counts = <int, int>{};
+    for (final row in rows) {
+      counts[row.length] = (counts[row.length] ?? 0) + 1;
+    }
+    final common = counts.entries
+        .reduce((a, b) => b.value > a.value || (b.value == a.value && b.key > a.key) ? b : a)
+        .key;
+    if (common < 2) continue;
+    final consistent = counts[common]! / rows.length;
     final fields = rows.fold<int>(0, (a, r) => a + r.length);
-    final score = consistent * 100 + math.min(first, 20) - (odd.quotes * 3 + odd.split) * 100 / fields;
+    final score = consistent * 100 + math.min(common, 20) - (odd.quotes * 3 + odd.split) * 100 / fields;
     if (score > bestScore) {
       bestScore = score;
       best = d;
@@ -147,10 +156,19 @@ class CsvOddities {
 
   static final RegExp _decimal = RegExp(r'^\s*[-+]?\d+,\d+\s*$');
 
+  /// A comma or semicolon not followed by a space, which prose never has.
+  static final RegExp _bareComma = RegExp(r',(?! )');
+  static final RegExp _bareSemicolon = RegExp(r';(?! )');
+
   void field(String value, bool quoted) {
     if (quoted) return;
     for (final other in others) {
-      if (value.contains(other) && !(other == ',' && _decimal.hasMatch(value))) {
+      final bare = switch (other) {
+        ',' => _bareComma.hasMatch(value) && !_decimal.hasMatch(value),
+        ';' => _bareSemicolon.hasMatch(value),
+        _ => value.contains(other),
+      };
+      if (bare) {
         split++;
         return;
       }

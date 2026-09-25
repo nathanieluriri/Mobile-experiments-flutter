@@ -106,6 +106,15 @@ class GridEditorState extends State<GridEditor> with WidgetsBindingObserver {
   /// Each column's width, measured once when the file opens. Typing never
   /// changes them; adding or taking away a column adds or takes its own.
   late List<double> _widths = _measure();
+
+  /// The file's first row stays in sight under the column letters, as the
+  /// reader shows it, until it is unfrozen from its row menu.
+  late bool _frozen = _doc.rowCount > 1;
+
+  /// The columns the grid builds cells for: the ones in sight and a few
+  /// either side, so a wide file costs what a narrow one does.
+  final ValueNotifier<(int, int)> _inSight = ValueNotifier<(int, int)>((0, 12));
+  final ScrollController _acrossFrozen = ScrollController();
   bool _saving = false;
   String? _problem;
 
@@ -127,6 +136,14 @@ class GridEditorState extends State<GridEditor> with WidgetsBindingObserver {
   @visibleForTesting
   double get horizontalOffset => _across.hasClients ? _across.offset : 0;
 
+  @visibleForTesting
+  bool get frozen => _frozen;
+
+  @visibleForTesting
+  List<double> get widths => _widths;
+
+  int get _first => _frozen ? 1 : 0;
+
   @override
   void initState() {
     super.initState();
@@ -134,6 +151,8 @@ class GridEditorState extends State<GridEditor> with WidgetsBindingObserver {
     // A menu stays with its cell, so it goes when the grid moves.
     _across.addListener(() {
       if (_acrossHead.hasClients) _acrossHead.jumpTo(_across.offset);
+      if (_acrossFrozen.hasClients) _acrossFrozen.jumpTo(_across.offset);
+      _placeSight();
       if (_menu) setState(() => _menu = false);
     });
     _down.addListener(() {
@@ -147,7 +166,33 @@ class GridEditorState extends State<GridEditor> with WidgetsBindingObserver {
     _field.addListener(() {
       final typing = _isTyping;
       if (typing != _typing) setState(() => _typing = typing);
+      // The bar grows with long words; the cell stays in sight above it.
+      if (_focus.hasFocus) _revealSoon();
     });
+  }
+
+  /// Works out which columns are in sight, and a few either side.
+  void _placeSight() {
+    if (!_across.hasClients) return;
+    final left = _across.offset;
+    final right = left + _across.position.viewportDimension;
+    var x = 0.0;
+    var from = 0, to = _columns - 1;
+    var seen = false;
+    for (var c = 0; c < _columns; c++) {
+      final w = _width(c);
+      if (!seen && x + w >= left) {
+        from = c;
+        seen = true;
+      }
+      if (x > right) {
+        to = c;
+        break;
+      }
+      x += w;
+    }
+    final next = (math.max(0, from - 2), math.min(_columns - 1, to + 2));
+    if (next != _inSight.value) _inSight.value = next;
   }
 
   bool get _isTyping {
@@ -180,6 +225,8 @@ class GridEditorState extends State<GridEditor> with WidgetsBindingObserver {
     _acrossHead.dispose();
     _down.dispose();
     _downHead.dispose();
+    _acrossFrozen.dispose();
+    _inSight.dispose();
     super.dispose();
   }
 
@@ -191,7 +238,13 @@ class GridEditorState extends State<GridEditor> with WidgetsBindingObserver {
   /// whole screen.
   List<double> _measure() {
     final out = <double>[];
-    final painter = TextPainter(textDirection: TextDirection.ltr, maxLines: 1);
+    // Measured at the size the phone draws text, so a larger font setting
+    // widens the columns rather than cutting what is in them.
+    final painter = TextPainter(
+      textDirection: TextDirection.ltr,
+      maxLines: 1,
+      textScaler: MediaQuery.textScalerOf(context),
+    );
     for (var c = 0; c < _doc.columnCount; c++) {
       // The longest few values are the only ones that can be the widest.
       final values = <(int, String)>[
@@ -205,7 +258,8 @@ class GridEditorState extends State<GridEditor> with WidgetsBindingObserver {
           ..layout();
         widest = math.max(widest, painter.width);
       }
-      out.add((widest + 16 + 6).clamp(kGridMinColumn, kGridMaxColumn).toDouble());
+      final scale = MediaQuery.textScalerOf(context).scale(1);
+      out.add((widest + 16 + 6).clamp(kGridMinColumn, kGridMaxColumn * scale).toDouble());
     }
     painter.dispose();
     return out;
@@ -347,8 +401,8 @@ class GridEditorState extends State<GridEditor> with WidgetsBindingObserver {
   }
 
   void _reveal(int row, int column) {
-    if (_down.hasClients) {
-      final top = row * kGridRowHeight;
+    if (_down.hasClients && row >= _first) {
+      final top = (row - _first) * kGridRowHeight;
       final view = _down.position.viewportDimension;
       if (top < _down.offset) {
         _down.jumpTo(top);
@@ -395,7 +449,28 @@ class GridEditorState extends State<GridEditor> with WidgetsBindingObserver {
       // No clipboard on this platform: the last copy made here stands in.
     }
     if (text == null) return;
-    _change(() => _doc.setCell(pick.row, pick.column, text!));
+    // A block copied from another sheet, cells split by tabs and rows by
+    // line breaks, is spread over the cells from the picked one on.
+    final block = text.contains('\t') || text.trimRight().contains('\n')
+        ? <List<String>>[
+            for (final line in text.replaceAll('\r\n', '\n').replaceAll('\r', '\n').split('\n'))
+              line.split('\t'),
+          ]
+        : null;
+    if (block != null && block.length > 1 && block.last.length == 1 && block.last.single.isEmpty) {
+      block.removeLast();
+    }
+    _change(() {
+      if (block == null) {
+        _doc.setCell(pick.row, pick.column, text!);
+        return;
+      }
+      for (var r = 0; r < block.length; r++) {
+        for (var c = 0; c < block[r].length; c++) {
+          _doc.setCell(pick.row + r, pick.column + c, block[r][c]);
+        }
+      }
+    });
     setState(() => _menu = false);
     _load();
   }
@@ -491,6 +566,13 @@ class GridEditorState extends State<GridEditor> with WidgetsBindingObserver {
     setState(() => _menu = true);
   }
 
+  /// A drag on a picked column's edge begins: the widths before it are a
+  /// step of their own to undo.
+  void _widenStart() {
+    _undo.add((_doc.rows, _widths));
+    _redo.clear();
+  }
+
   /// A column letter's edge dragged makes the column wider or narrower.
   void _widen(int column, double by) {
     setState(() {
@@ -502,10 +584,31 @@ class GridEditorState extends State<GridEditor> with WidgetsBindingObserver {
       _widths = widths;
       _menu = false;
     });
+    _placeSight();
   }
+
+  void _freeze(bool on) {
+    setState(() {
+      _frozen = on;
+      _menu = false;
+    });
+  }
+
+  /// What the cell's More actions sheet can do at [pick]: nothing past the
+  /// end of the data, where there is no row or column to act on.
+  Set<String> _moreFor(CellPick pick) => <String>{
+        if (pick.row <= _doc.rowCount) 'rowAbove',
+        if (pick.row < _doc.rowCount) 'rowBelow',
+        if (pick.column <= _doc.columnCount) 'columnLeft',
+        if (pick.column < _doc.columnCount) 'columnRight',
+        if (pick.row < _doc.rowCount) 'deleteRow',
+        if (pick.column < _doc.columnCount) 'deleteColumn',
+      };
 
   Future<void> _more() async {
     setState(() => _menu = false);
+    final pick = _pick;
+    final can = pick is CellPick ? _moreFor(pick) : const <String>{};
     final choice = await showDeskSheet<String>(
       context,
       (context) => DeskSheet(
@@ -535,6 +638,7 @@ class GridEditorState extends State<GridEditor> with WidgetsBindingObserver {
             ('deleteRow', 'Delete this row', LucideIcons.trash2),
             ('deleteColumn', 'Delete this column', LucideIcons.trash2),
           ])
+            if (can.contains(key))
             DeskSheetRow(
               label: label,
               icon: icon,
@@ -589,6 +693,8 @@ class GridEditorState extends State<GridEditor> with WidgetsBindingObserver {
       onSave: _save,
       canSave: _doc.touched || _typing,
       saving: _saving,
+      covered: _menu,
+      onUncover: () => setState(() => _menu = false),
       tools: <Widget>[
         EditButton(
           icon: LucideIcons.undo2,
@@ -617,12 +723,15 @@ class GridEditorState extends State<GridEditor> with WidgetsBindingObserver {
 
   Widget _bar() {
     final picked = _pick is CellPick;
+    final type = AppText.bodyTight;
+    final line = MediaQuery.textScalerOf(context).scale(type.fontSize ?? 14) * (type.height ?? 1.4);
+    final one = math.max(kGridBarHeight, line + 2 * 12 + 12 + 2);
     return Container(
       // One line tall while a cell is only picked, so picking never moves
       // the grid; taller while typing, so the words and the caret show.
       constraints: BoxConstraints(
-        minHeight: kGridBarHeight,
-        maxHeight: _focus.hasFocus ? double.infinity : kGridBarHeight,
+        minHeight: one,
+        maxHeight: _focus.hasFocus ? double.infinity : one,
       ),
       decoration: const BoxDecoration(
         color: AppColors.surface,
@@ -635,12 +744,15 @@ class GridEditorState extends State<GridEditor> with WidgetsBindingObserver {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: <Widget>[
-          SizedBox(
-            width: 52,
-            child: Text(
-              _reference,
-              key: const ValueKey<String>('grid-reference'),
-              style: AppText.cellHeader.copyWith(color: AppColors.inkSoft),
+          ConstrainedBox(
+            constraints: const BoxConstraints(minWidth: 52),
+            child: Padding(
+              padding: const EdgeInsets.only(right: 4),
+              child: Text(
+                _reference,
+                key: const ValueKey<String>('grid-reference'),
+                style: AppText.cellHeader.copyWith(color: AppColors.inkSoft),
+              ),
             ),
           ),
           Expanded(
@@ -774,6 +886,41 @@ class GridEditorState extends State<GridEditor> with WidgetsBindingObserver {
     double width,
     GridPick? pick,
   ) {
+    final frozen = _frozen ? kGridRowHeight : 0.0;
+    final first = _first;
+    Widget rowOf(int r) => ValueListenableBuilder<(int, int)>(
+          valueListenable: _inSight,
+          builder: (context, sight, _) => _GridRow(
+            row: r,
+            doc: _doc,
+            widths: widths,
+            from: sight.$1,
+            to: sight.$2,
+            pick: pick,
+            typing: _focus.hasFocus ? _field : null,
+            onTap: (column) => _tapCell(r, column),
+            onHold: (column) => _holdCell(r, column),
+          ),
+        );
+    Widget rowHeadOf(int r) => _Head(
+          key: ValueKey<String>('row-$r'),
+          label: '${r + 1}',
+          width: rowHead,
+          height: kGridRowHeight,
+          lit: switch (pick) {
+            CellPick(:final row) => row == r,
+            RowPick(:final row) => row == r,
+            _ => false,
+          },
+          chosen: pick is RowPick && pick.row == r,
+          onTap: () {
+            if (!_tapIsStop) select(RowPick(r));
+          },
+          onHold: () => select(RowPick(r)),
+        );
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _placeSight();
+    });
     return Listener(
       onPointerDown: _touchDown,
       child: GestureDetector(
@@ -815,7 +962,11 @@ class GridEditorState extends State<GridEditor> with WidgetsBindingObserver {
                         onTap: () {
                           if (!_tapIsStop) select(ColumnPick(c));
                         },
-                        onWiden: (by) => _widen(c, by),
+                        onHold: () => select(ColumnPick(c)),
+                        // Only a picked column's edge sizes it, so a swipe
+                        // across the letters always moves the grid.
+                        onWidenStart: pick is ColumnPick && pick.column == c ? _widenStart : null,
+                        onWiden: pick is ColumnPick && pick.column == c ? (by) => _widen(c, by) : null,
                       ),
                   ],
                 ),
@@ -824,41 +975,20 @@ class GridEditorState extends State<GridEditor> with WidgetsBindingObserver {
             // The row numbers, moving down with the grid.
             Positioned(
               left: 0,
-              top: kGridHeaderHeight,
+              top: kGridHeaderHeight + frozen,
               width: rowHead,
               bottom: 0,
               child: ListView.builder(
                 controller: _downHead,
                 physics: const NeverScrollableScrollPhysics(),
                 itemExtent: kGridRowHeight,
-                itemCount: _rows,
-                itemBuilder: (context, r) => _Head(
-                  key: ValueKey<String>('row-$r'),
-                  label: '${r + 1}',
-                  width: rowHead,
-                  height: kGridRowHeight,
-                  lit: switch (pick) {
-                    CellPick(:final row) => row == r,
-                    RowPick(:final row) => row == r,
-                    _ => false,
-                  },
-                  chosen: pick is RowPick && pick.row == r,
-                  onTap: () {
-                    if (!_tapIsStop) select(RowPick(r));
-                  },
-                ),
+                itemCount: _rows - first,
+                itemBuilder: (context, i) => rowHeadOf(i + first),
               ),
             ),
             Positioned(
-              left: 0,
-              top: 0,
-              width: rowHead,
-              height: kGridHeaderHeight,
-              child: const _Corner(),
-            ),
-            Positioned(
               left: rowHead,
-              top: kGridHeaderHeight,
+              top: kGridHeaderHeight + frozen,
               right: 0,
               bottom: 0,
               child: SingleChildScrollView(
@@ -872,25 +1002,61 @@ class GridEditorState extends State<GridEditor> with WidgetsBindingObserver {
                     controller: _down,
                     physics: _panned,
                     itemExtent: kGridRowHeight,
-                    itemCount: _rows,
-                    itemBuilder: (context, r) => _GridRow(
-                      row: r,
-                      doc: _doc,
-                      widths: widths,
-                      pick: pick,
-                      typing: _focus.hasFocus ? _field : null,
-                      onTap: (column) => _tapCell(r, column),
-                      onHold: (column) => _holdCell(r, column),
+                    itemCount: _rows - first,
+                    itemBuilder: (context, i) => rowOf(i + first),
+                  ),
+                ),
+              ),
+            ),
+            // The frozen first row, across with the grid and never down.
+            if (_frozen) ...<Widget>[
+              Positioned(
+                left: rowHead,
+                top: kGridHeaderHeight,
+                right: 0,
+                height: kGridRowHeight,
+                child: DecoratedBox(
+                  key: const ValueKey<String>('grid-frozen'),
+                  position: DecorationPosition.foreground,
+                  decoration: const BoxDecoration(
+                    border: Border(bottom: BorderSide(color: Color(0xFFB8B8B8), width: 2)),
+                  ),
+                  child: ColoredBox(
+                    color: AppColors.page,
+                    child: SingleChildScrollView(
+                      controller: _acrossFrozen,
+                      scrollDirection: Axis.horizontal,
+                      physics: const NeverScrollableScrollPhysics(),
+                      child: SizedBox(width: width, child: rowOf(0)),
                     ),
                   ),
                 ),
               ),
+              Positioned(
+                left: 0,
+                top: kGridHeaderHeight,
+                width: rowHead,
+                height: kGridRowHeight,
+                child: rowHeadOf(0),
+              ),
+            ],
+            Positioned(
+              left: 0,
+              top: 0,
+              width: rowHead,
+              height: kGridHeaderHeight,
+              child: const _Corner(),
             ),
           ],
         ),
       ),
     );
   }
+
+  /// Where row [row]'s top sits over the grid, the frozen row staying put.
+  double _rowTop(int row, double down) => row < _first
+      ? kGridHeaderHeight + row * kGridRowHeight
+      : kGridHeaderHeight + _first * kGridRowHeight + (row - _first) * kGridRowHeight - down;
 
   Widget _menuFor(GridPick pick, Size room, double rowHead) {
     final across = _across.hasClients ? _across.offset : 0.0;
@@ -901,7 +1067,7 @@ class GridEditorState extends State<GridEditor> with WidgetsBindingObserver {
       case CellPick(:final row, :final column):
         target = Rect.fromLTWH(
           rowHead + _left(column) - across,
-          kGridHeaderHeight + row * kGridRowHeight - down,
+          _rowTop(row, down),
           _width(column),
           kGridRowHeight,
         );
@@ -910,16 +1076,17 @@ class GridEditorState extends State<GridEditor> with WidgetsBindingObserver {
           PillAction('Copy', () => unawaited(copy())),
           PillAction('Paste', () => unawaited(paste())),
           PillAction('Clear', clear),
-          PillAction(
-            'More actions',
-            () => unawaited(_more()),
-            icon: LucideIcons.ellipsisVertical,
-          ),
+          if (_moreFor(pick).isNotEmpty)
+            PillAction(
+              'More actions',
+              () => unawaited(_more()),
+              icon: LucideIcons.ellipsisVertical,
+            ),
         ];
       case RowPick(:final row):
         target = Rect.fromLTWH(
           0,
-          kGridHeaderHeight + row * kGridRowHeight - down,
+          _rowTop(row, down),
           rowHead,
           kGridRowHeight,
         );
@@ -927,6 +1094,7 @@ class GridEditorState extends State<GridEditor> with WidgetsBindingObserver {
           PillAction('Insert above', () => insertRow(below: false)),
           PillAction('Insert below', () => insertRow(below: true)),
           if (row < _doc.rowCount) PillAction('Delete', deleteRow),
+          if (row == 0 && _doc.rowCount > 1) PillAction(_frozen ? 'Unfreeze' : 'Freeze', () => _freeze(!_frozen)),
         ];
       case ColumnPick(:final column):
         target = Rect.fromLTWH(
@@ -978,6 +1146,8 @@ class _Head extends StatelessWidget {
     required this.lit,
     required this.chosen,
     required this.onTap,
+    this.onHold,
+    this.onWidenStart,
     this.onWiden,
   });
 
@@ -988,13 +1158,21 @@ class _Head extends StatelessWidget {
   final bool chosen;
   final VoidCallback onTap;
 
+  /// A touch and hold, which opens the menu while the finger is still down.
+  final VoidCallback? onHold;
+
   /// Called with how far the column's right edge is dragged.
   final ValueChanged<double>? onWiden;
+  final VoidCallback? onWidenStart;
 
   @override
   Widget build(BuildContext context) {
     final widen = onWiden;
-    final head = _face();
+    final hold = onHold;
+    final face = _face();
+    final head = hold == null
+        ? face
+        : GestureDetector(onLongPress: hold, behavior: HitTestBehavior.translucent, child: face);
     if (widen == null) return head;
     return SizedBox(
       width: width,
@@ -1010,6 +1188,7 @@ class _Head extends StatelessWidget {
             child: GestureDetector(
               key: ValueKey<String>('widen-$label'),
               behavior: HitTestBehavior.opaque,
+              onHorizontalDragStart: (_) => onWidenStart?.call(),
               onHorizontalDragUpdate: (d) => widen(d.delta.dx),
               child: const SizedBox.expand(),
             ),
@@ -1055,6 +1234,8 @@ class _GridRow extends StatelessWidget {
     required this.row,
     required this.doc,
     required this.widths,
+    required this.from,
+    required this.to,
     required this.pick,
     required this.typing,
     required this.onTap,
@@ -1064,6 +1245,10 @@ class _GridRow extends StatelessWidget {
   final int row;
   final CsvDocument doc;
   final List<double> widths;
+
+  /// The columns built: those in sight, and a few either side.
+  final int from;
+  final int to;
   final GridPick? pick;
 
   /// The bar being typed in, whose words the picked cell shows as they come.
@@ -1084,13 +1269,19 @@ class _GridRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final pick = this.pick;
     final rowPicked = pick is RowPick && pick.row == row;
+    final last = math.min(to, widths.length - 1);
+    var before = 0.0;
+    for (var c = 0; c < from && c < widths.length; c++) {
+      before += widths[c];
+    }
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTapUp: (d) => onTap(_columnAt(d.localPosition.dx)),
       onLongPressStart: (d) => onHold(_columnAt(d.localPosition.dx)),
       child: Row(
         children: <Widget>[
-          for (var c = 0; c < widths.length; c++)
+          SizedBox(width: before),
+          for (var c = from; c <= last; c++)
             if (typing != null &&
                 pick is CellPick &&
                 pick.row == row &&

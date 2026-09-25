@@ -265,6 +265,85 @@ void main() {
     });
   });
 
+  group('round three: rows are known by where they came from', () {
+    String saved(CsvDocument doc) => utf8.decode(doc.write());
+
+    test('deleting a column takes its field out of every row, empty or not', () {
+      final semi = CsvDocument.read(_b('email;note\nada@example.com;\nbo@example.com;VIP\ncy@example.com;\n'))..deleteColumn(1);
+      expect(saved(semi), 'email\nada@example.com\nbo@example.com\ncy@example.com\n');
+      final wide = CsvDocument.read(_b(
+        'Name,Address,Phone,Notes\r\nAda,"12 High St, Leeds",555-1234,\r\nBo,"4 Low Rd, Hull",555-9876,VIP\r\nCy,"9 Mill Ln, York",555-1111,\r\n',
+      ))..deleteColumn(3);
+      final out = saved(wide);
+      expect(out, 'Name,Address,Phone\r\nAda,"12 High St, Leeds",555-1234\r\nBo,"4 Low Rd, Hull",555-9876\r\nCy,"9 Mill Ln, York",555-1111\r\n');
+      expect(CsvDocument.read(_b(out)).columnCount, 3);
+      final euro = CsvDocument.read(_b('Datum;Betrag;\r\n01.02.2024;-12,50;\r\n02.02.2024;100,00;\r\n'))..deleteColumn(2);
+      expect(euro.changed, isTrue);
+      expect(saved(euro), 'Datum;Betrag\r\n01.02.2024;-12,50\r\n02.02.2024;100,00\r\n');
+    });
+
+    test('a short row typed into and cleared again leaves every untouched row as it was', () {
+      final doc = CsvDocument.read(_b('name,city,note\nAda,"Leeds, UK",first\nBo,Hull\nCy,York,third\n'))
+        ..setCell(2, 2, 'x')
+        ..setCell(2, 2, '')
+        ..setCell(3, 2, 'THIRD');
+      expect(saved(doc), 'name,city,note\nAda,"Leeds, UK",first\nBo,Hull\nCy,York,THIRD\n');
+    });
+
+    test('deleting the header of a tab or semicolon file with commas in its words changes nothing else', () {
+      final tsv = CsvDocument.read(_b('Name\tAddress\nAda\t12 High St, Leeds\nBo\t4 Low Rd, Hull\nCy\t9 Mill Ln, York\n'))..deleteRow(0);
+      expect(saved(tsv), 'Ada\t12 High St, Leeds\nBo\t4 Low Rd, Hull\nCy\t9 Mill Ln, York\n');
+      expect(sniffDelimiter(saved(tsv)), '\t');
+      final semi = CsvDocument.read(_b('Name;Ort\r\nMüller, Hans;Berlin\r\nSchmidt, Anna;Hamburg\r\nWeber, Klaus;München\r\n'))..deleteRow(0);
+      expect(saved(semi), 'Müller, Hans;Berlin\r\nSchmidt, Anna;Hamburg\r\nWeber, Klaus;München\r\n');
+      expect(sniffDelimiter(saved(semi)), ';');
+    });
+
+    test('a file whose first row has one field reads back with its own delimiter', () {
+      final doc = CsvDocument.read(_b('Artikel;Preis\nObst\nApfel;1,50\nBirne;2,30\n'))..deleteRow(0);
+      final out = doc.write();
+      expect(readCsv(out).rows, <List<String>>[
+        <String>['Obst'],
+        <String>['Apfel', '1,50'],
+        <String>['Birne', '2,30'],
+      ]);
+      final narrow = CsvDocument.read(_b('Name;Betrag;Status\nAda;12,50;bezahlt\nBo;3,00;offen\n'))..deleteColumn(1);
+      expect(readCsv(narrow.write()).rows, <List<String>>[
+        <String>['Name', 'Status'],
+        <String>['Ada', 'bezahlt'],
+        <String>['Bo', 'offen'],
+      ]);
+    });
+
+    test('rows typed below the data and emptied again are not written, even after a delete', () {
+      final doc = CsvDocument.read(_b('a,b\n1,2\n3,4\n'))
+        ..deleteRow(2)
+        ..setCell(4, 0, 'x')
+        ..setCell(4, 0, '');
+      expect(saved(doc), 'a,b\n1,2\n');
+    });
+
+    test('inserting rows keeps the file\'s own empty rows at its end', () {
+      final commas = CsvDocument.read(_b('Item,Qty,Price\r\nPen,2,1.00\r\nInk,1,4.50\r\n,,\r\n,,\r\n'))
+        ..insertRow(1)
+        ..setCell(1, 0, 'Nib')
+        ..insertRow(1)
+        ..setCell(1, 0, 'Pad');
+      expect(saved(commas), endsWith(',,\r\n,,\r\n'));
+      final blank = CsvDocument.read(_b('a,b\n1,2\n\n'))
+        ..insertRow(1)
+        ..setCell(1, 0, 'new');
+      expect(saved(blank), 'a,b\nnew,\n1,2\n\n');
+    });
+
+    test('after a delete each row keeps its own text, not that of the row that stood there', () {
+      final blank = CsvDocument.read(_b('h1,h2,h3\nx,y,z\n,,\n\nlast,row,here\n'))..deleteRow(1);
+      expect(saved(blank), 'h1,h2,h3\n,,\n\nlast,row,here\n');
+      final quoted = CsvDocument.read(_b('sku,qty\n"A-1",2\nA-1,2\nB-7,1\n'))..deleteRow(1);
+      expect(saved(quoted), 'sku,qty\nA-1,2\nB-7,1\n');
+    });
+  });
+
   group('the grid', () {
     Uint8List? saved;
 
@@ -294,10 +373,12 @@ void main() {
       final column0 = tester.getTopLeft(find.byKey(const ValueKey<String>('column-0')));
       final head = tester.getTopLeft(find.byKey(ValueKey<String>('column-$column')));
       final width = tester.getSize(find.byKey(ValueKey<String>('column-$column'))).width;
-      return Offset(
-        body.dx + (head.dx - column0.dx) + width / 2,
-        body.dy + row * kGridRowHeight + kGridRowHeight / 2,
-      );
+      // The first row stays frozen above the body until it is unfrozen.
+      final first = state.frozen ? 1 : 0;
+      final top = row < first
+          ? tester.getTopLeft(find.byKey(const ValueKey<String>('grid-frozen'))).dy + row * kGridRowHeight
+          : body.dy + (row - first) * kGridRowHeight;
+      return Offset(body.dx + (head.dx - column0.dx) + width / 2, top + kGridRowHeight / 2);
     }
 
     String reference(WidgetTester tester) =>
@@ -502,10 +583,17 @@ void main() {
       final column = tester.getSize(find.byKey(const ValueKey<String>('column-1'))).width;
       expect(column, greaterThanOrEqualTo(painter.width + 16));
       painter.dispose();
+      // A column's edge sizes it once the column is picked.
+      await tester.tap(find.byKey(const ValueKey<String>('column-1')));
+      await settle(tester);
       await tester.drag(find.byKey(const ValueKey<String>('widen-B')), const Offset(60, 0));
       await settle(tester);
       expect(tester.getSize(find.byKey(const ValueKey<String>('column-1'))).width, greaterThan(column + 30));
       expect(state.document.changed, isFalse);
+      // Widening is a step of its own to undo.
+      await tester.tap(find.bySemanticsLabel('Undo'));
+      await settle(tester);
+      expect(tester.getSize(find.byKey(const ValueKey<String>('column-1'))).width, column);
     });
 
     testWidgets('undo is there from the first words typed', (tester) async {
@@ -548,7 +636,7 @@ void main() {
       addTearDown(tester.view.resetViewInsets);
       await settle(tester);
       final body = tester.getRect(find.byKey(const ValueKey<String>('grid-body')));
-      final down = body.top + 16 * kGridRowHeight - state.verticalOffset;
+      final down = body.top + (16 - (state.frozen ? 1 : 0)) * kGridRowHeight - state.verticalOffset;
       expect(down, greaterThanOrEqualTo(body.top));
       expect(down + kGridRowHeight, lessThanOrEqualTo(body.bottom + 0.5));
     });
@@ -655,6 +743,167 @@ void main() {
       await tester.tap(find.text('SAVE'));
       await settle(tester);
       expect(saved, isNull);
+    });
+  });
+  group('round three: the grid as Sheets has it', () {
+    Future<GridEditorState> open(WidgetTester tester, Uint8List bytes) async {
+      await pumpScreen(
+        tester,
+        MaterialApp(
+          debugShowCheckedModeBanner: false,
+          home: GridEditor(title: 'Sheet', bytes: bytes, onBack: () {}, onSave: (out, note) async => null),
+        ),
+      );
+      await settle(tester);
+      return tester.state<GridEditorState>(find.byType(GridEditor));
+    }
+
+    Rect cellRect(WidgetTester tester, GridEditorState state, int row, int column) {
+      final body = tester.getRect(find.byKey(const ValueKey<String>('grid-body')));
+      final column0 = tester.getTopLeft(find.byKey(const ValueKey<String>('column-0')));
+      final head = tester.getRect(find.byKey(ValueKey<String>('column-$column')));
+      final first = state.frozen ? 1 : 0;
+      final top = body.top + (row - first) * kGridRowHeight - state.verticalOffset;
+      return Rect.fromLTWH(body.left + head.left - column0.dx, top, head.width, kGridRowHeight);
+    }
+
+    testWidgets('the bar\'s words can be selected, with handles and a cut, copy and paste menu', (tester) async {
+      final state = await open(tester, _b('name,town\nAda,Vaux-la-Pierre de la Montagne Noire\n'));
+      state.select(const CellPick(1, 1), edit: true);
+      await settle(tester);
+      final field = find.descendant(of: find.byKey(const ValueKey<String>('grid-field')), matching: find.byType(EditableText));
+      await tester.longPress(field);
+      await settle(tester);
+      final editable = tester.state<EditableTextState>(field);
+      expect(editable.selectionOverlay?.handlesAreVisible, isTrue);
+      expect(find.byType(AdaptiveTextSelectionToolbar), findsOneWidget);
+    });
+
+    testWidgets('a larger phone font widens the columns rather than cutting dates', (tester) async {
+      tester.platformDispatcher.textScaleFactorTestValue = 1.3;
+      addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+      await open(tester, _b('id,Subscribed\n1,2019-04-12\n2,2020-11-30\n'));
+      for (final paragraph in tester.renderObjectList<RenderParagraph>(
+        find.descendant(of: find.byKey(const ValueKey<String>('grid-body')), matching: find.byType(RichText)),
+      )) {
+        expect(paragraph.didExceedMaxLines, isFalse, reason: paragraph.text.toPlainText());
+      }
+    });
+
+    testWidgets('the file\'s first row stays in sight as the grid goes down, until it is unfrozen', (tester) async {
+      final rows = [for (var r = 0; r < 80; r++) 'North $r,$r,${r * 2}'].join('\n');
+      final state = await open(tester, _b('Region,Jan,Feb\n$rows\n'));
+      expect(state.frozen, isTrue);
+      await tester.drag(find.byKey(const ValueKey<String>('grid-pan')), const Offset(0, -700));
+      await settle(tester);
+      expect(state.verticalOffset, greaterThan(300));
+      final frozen = find.byKey(const ValueKey<String>('grid-frozen'));
+      expect(find.descendant(of: frozen, matching: find.text('Feb')), findsOneWidget);
+      await tester.tapAt(tester.getCenter(find.descendant(of: frozen, matching: find.text('Feb'))));
+      await settle(tester);
+      expect(state.pick, const CellPick(0, 2));
+      await tester.tap(find.byKey(const ValueKey<String>('row-0')));
+      await settle(tester);
+      await tester.tap(find.text('Unfreeze'));
+      await settle(tester);
+      expect(state.frozen, isFalse);
+      expect(frozen, findsNothing);
+    });
+
+    testWidgets('the cell being typed into stays in sight as the bar grows with its words', (tester) async {
+      final rows = [for (var i = 0; i < 40; i++) 'row $i,x'].join('\n');
+      final state = await open(tester, _b('name,note\n$rows\n'));
+      state.select(const CellPick(17, 1), edit: true);
+      await settle(tester);
+      tester.view.viewInsets = const FakeViewPadding(bottom: 330 * 2);
+      addTearDown(tester.view.resetViewInsets);
+      await settle(tester);
+      tester.testTextInput.enterText(List.filled(12, 'a long note').join(' '));
+      await settle(tester);
+      final body = tester.getRect(find.byKey(const ValueKey<String>('grid-body')));
+      final cell = cellRect(tester, state, 17, 1);
+      expect(cell.top, greaterThanOrEqualTo(body.top - 0.5));
+      expect(cell.bottom, lessThanOrEqualTo(body.bottom + 0.5));
+    });
+
+    testWidgets('a swipe across unpicked letters moves the grid and sizes nothing', (tester) async {
+      final header = [for (var c = 0; c < 20; c++) 'head$c'].join(',');
+      final row = [for (var c = 0; c < 20; c++) 'value$c'].join(',');
+      final state = await open(tester, _b('$header\n$row\n'));
+      final before = List<double>.of(state.widths);
+      final b = tester.getRect(find.byKey(const ValueKey<String>('column-1')));
+      await tester.dragFrom(Offset(b.right - 10, b.center.dy), const Offset(-160, 0));
+      await settle(tester);
+      expect(state.widths, before);
+      expect(find.byKey(const ValueKey<String>('widen-B')), findsNothing);
+    });
+
+    testWidgets('Back closes the action bar before it leaves the editor', (tester) async {
+      await pumpScreen(
+        tester,
+        MaterialApp(
+          debugShowCheckedModeBanner: false,
+          home: Builder(
+            builder: (context) => GestureDetector(
+              onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(
+                builder: (_) => GridEditor(title: 'Sheet', bytes: _b('a,b\n1,2\n3,4\n'), onBack: () {}, onSave: (out, note) async => null),
+              )),
+              child: const Text('open'),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('open'));
+      await settle(tester);
+      final state = tester.state<GridEditorState>(find.byType(GridEditor));
+      state.select(const CellPick(1, 1));
+      state.select(const CellPick(1, 1));
+      await settle(tester);
+      expect(find.byKey(const ValueKey<String>('grid-actions')), findsOneWidget);
+      await tester.binding.handlePopRoute();
+      await settle(tester);
+      expect(find.byType(GridEditor), findsOneWidget);
+      expect(find.byKey(const ValueKey<String>('grid-actions')), findsNothing);
+    });
+
+    testWidgets('a touch and hold on a row number opens its menu while the finger is down', (tester) async {
+      await open(tester, _b('a,b\n1,2\n3,4\n'));
+      final gesture = await tester.startGesture(tester.getCenter(find.byKey(const ValueKey<String>('row-1'))));
+      await tester.pump(const Duration(milliseconds: 700));
+      expect(find.byKey(const ValueKey<String>('grid-actions')), findsOneWidget);
+      await gesture.up();
+      await settle(tester);
+    });
+
+    testWidgets('a cell past the data offers no row or column actions that would do nothing', (tester) async {
+      final state = await open(tester, _b('a,b\n1,2\n3,4\n'));
+      state.select(const CellPick(8, 3));
+      state.select(const CellPick(8, 3));
+      await settle(tester);
+      expect(find.byKey(const ValueKey<String>('grid-actions')), findsOneWidget);
+      expect(find.bySemanticsLabel('More actions'), findsNothing);
+    });
+
+    testWidgets('a block pasted from another sheet spreads over the cells', (tester) async {
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
+        if (call.method == 'Clipboard.getData') return <String, Object?>{'text': 'Leeds\t12\nHull\t4\n'};
+        return null;
+      });
+      final state = await open(tester, _b('city,qty\nYork,1\nBath,2\n'));
+      state.select(const CellPick(1, 0));
+      await state.paste();
+      await settle(tester);
+      expect(<String>[state.document.cell(1, 0), state.document.cell(1, 1), state.document.cell(2, 0), state.document.cell(2, 1)],
+          <String>['Leeds', '12', 'Hull', '4']);
+      expect(_s(state.document.write()), 'city,qty\nLeeds,12\nHull,4\n');
+    });
+
+    testWidgets('a wide file builds only the columns in sight', (tester) async {
+      final header = [for (var c = 0; c < 300; c++) 'h$c'].join(',');
+      final rows = [for (var r = 0; r < 30; r++) [for (var c = 0; c < 300; c++) '$r.$c'].join(',')].join('\n');
+      await open(tester, _b('$header\n$rows\n'));
+      final built = find.descendant(of: find.byKey(const ValueKey<String>('grid-body')), matching: find.byType(RichText)).evaluate().length;
+      expect(built, lessThan(30 * 20));
     });
   });
 }

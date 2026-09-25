@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/material.dart' show InputDecoration, Material, MaterialType, TextField;
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
@@ -29,6 +30,8 @@ class EditFrame extends StatelessWidget {
     this.saving = false,
     this.tools = const <Widget>[],
     this.note,
+    this.covered = false,
+    this.onUncover,
   });
 
   final String title;
@@ -37,6 +40,11 @@ class EditFrame extends StatelessWidget {
   final VoidCallback onSave;
   final bool canSave;
   final bool saving;
+
+  /// True while something small is open over the editor, such as a menu of
+  /// actions, which Back closes before it leaves.
+  final bool covered;
+  final VoidCallback? onUncover;
 
   /// What sits between the title and the save, such as a preview switch.
   final List<Widget> tools;
@@ -84,9 +92,14 @@ class EditFrame extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return PopScope(
-      canPop: !canSave || saving,
+      canPop: !covered && (!canSave || saving),
       onPopInvokedWithResult: (didPop, _) {
-        if (!didPop) unawaited(_leave(context));
+        if (didPop) return;
+        if (covered) {
+          onUncover?.call();
+          return;
+        }
+        unawaited(_leave(context));
       },
       child: _frame(context),
     );
@@ -276,11 +289,11 @@ class _EditFieldState extends State<EditField> {
 
   @override
   Widget build(BuildContext context) {
-    final style =
-        widget.style ?? AppText.bodyTight.copyWith(color: AppColors.ink);
-    final hint = widget.hint;
-    final controller = widget.controller;
+    final style = (widget.style ?? AppText.bodyTight.copyWith(color: AppColors.ink))
+        .copyWith(textBaseline: TextBaseline.alphabetic);
     final expands = widget.expands;
+    // The platform's own text field underneath, for its selection handles,
+    // its cut, copy and paste menu and its magnifier.
     return Container(
       padding: const EdgeInsets.all(kEditFieldPad),
       decoration: BoxDecoration(
@@ -288,34 +301,28 @@ class _EditFieldState extends State<EditField> {
         borderRadius: BorderRadius.circular(kEditFieldRadius),
         border: AppEdges.all(context),
       ),
-      child: Stack(
-        children: <Widget>[
-          if (hint != null)
-            ValueListenableBuilder<TextEditingValue>(
-              valueListenable: controller,
-              builder: (context, value, _) => value.text.isEmpty
-                  ? Text(hint, style: style.copyWith(color: AppColors.inkFaint))
-                  : const SizedBox.shrink(),
-            ),
-          EditableText(
-            controller: controller,
-            focusNode: _focus,
-            style: style,
-            cursorColor: AppColors.accentBright,
-            backgroundCursorColor: AppColors.hairline,
-            cursorWidth: 1.5,
-            cursorRadius: const Radius.circular(1),
-            selectionColor: AppColors.accentWash,
-            keyboardType: widget.keyboardType,
-            textInputAction: widget.textInputAction,
-            onChanged: widget.onChanged,
-            onSubmitted: widget.onSubmitted,
-            onEditingComplete: widget.onEditingComplete,
-            minLines: expands ? null : widget.minLines,
-            maxLines: expands ? null : widget.maxLines,
-            expands: expands,
+      child: Material(
+        type: MaterialType.transparency,
+        child: TextField(
+          controller: widget.controller,
+          focusNode: _focus,
+          style: style,
+          cursorColor: AppColors.accentBright,
+          cursorWidth: 1.5,
+          cursorRadius: const Radius.circular(1),
+          keyboardType: widget.keyboardType,
+          textInputAction: widget.textInputAction,
+          onChanged: widget.onChanged,
+          onSubmitted: widget.onSubmitted,
+          onEditingComplete: widget.onEditingComplete,
+          minLines: expands ? null : widget.minLines,
+          maxLines: expands ? null : widget.maxLines,
+          expands: expands,
+          decoration: InputDecoration.collapsed(
+            hintText: widget.hint,
+            hintStyle: style.copyWith(color: AppColors.inkFaint),
           ),
-        ],
+        ),
       ),
     );
   }

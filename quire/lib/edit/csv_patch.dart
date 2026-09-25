@@ -10,7 +10,7 @@ enum CsvEncoding { utf8, utf8Bom, utf16le, utf16be, windows1252 }
 /// One row as the file holds it: its cells, which of them were quoted, the
 /// text it was read from and what ended it.
 class CsvRow {
-  const CsvRow(this.cells, {this.quoted = const <bool>[], this.raw, this.end = '\n', this.open = false});
+  const CsvRow(this.cells, {this.quoted = const <bool>[], this.raw, this.end = '\n', this.open = false, this.source});
 
   final List<String> cells;
   final List<bool> quoted;
@@ -27,10 +27,14 @@ class CsvRow {
   /// closed before anything can follow it.
   final bool open;
 
+  /// Which row of the file this is, however it has moved or changed since,
+  /// or null for a row the editor made.
+  final int? source;
+
   bool wasQuoted(int column) => column < quoted.length && quoted[column];
 
   CsvRow withCells(List<String> next, {List<bool>? quoted}) =>
-      CsvRow(next, quoted: quoted ?? this.quoted, end: end);
+      CsvRow(next, quoted: quoted ?? this.quoted, end: end, source: source);
 
   /// The row with [next] after it. A row left inside an open quote is
   /// written out again, closed, once a line ending follows it.
@@ -40,6 +44,7 @@ class CsvRow {
         raw: open && next.isNotEmpty ? null : raw,
         end: next,
         open: open && next.isEmpty,
+        source: source,
       );
 }
 
@@ -105,9 +110,24 @@ class CsvDocument {
     if (used.length != _read.length) return true;
     final widened = _widened;
     for (var i = 0; i < used.length; i++) {
-      if (!(widened ? _sameCells(used[i], _read[i]) : _sameRow(used[i], _read[i]))) return true;
+      final row = used[i];
+      if (row.source != i || row.end != _read[i].end || !_asRead(row, widened)) return true;
     }
     return false;
+  }
+
+  /// True when [row] holds what the file's row it came from held, so the
+  /// text it was read from can be written for it. Padding a row out with
+  /// empty cells does not change it, as the table grows around it, but a
+  /// row that has lost a field has, and while something is typed past the
+  /// file's right edge every row is written as wide as the table.
+  bool _asRead(CsvRow row, bool widened) {
+    final k = row.source;
+    if (k == null || _read[k].raw == null) return false;
+    final was = _read[k];
+    if (identical(row, was)) return true;
+    if (widened) return _sameCells(row, was);
+    return row.cells.length >= was.cells.length && _sameRow(row, was);
   }
 
   int get _readWidth => _read.fold<int>(0, (m, r) => r.cells.length > m ? r.cells.length : m);
@@ -221,42 +241,47 @@ class CsvDocument {
   Uint8List write() {
     if (!changed) return original;
     final used = _used(rows);
-    var text = _text(used, quoteAll: false);
-    if (!_readsBack(text, used)) text = _text(used, quoteAll: true);
+    var (text, expected) = _text(used, quoteAll: false);
+    if (!_readsBack(text, expected)) (text, expected) = _text(used, quoteAll: true);
     return _encode(text);
   }
 
-  String _text(List<CsvRow> rows, {required bool quoteAll}) {
+  /// The file's text for [rows], and the cells each row of it should read
+  /// back as.
+  (String, List<List<String>>) _text(List<CsvRow> rows, {required bool quoteAll}) {
     final out = StringBuffer();
+    final expected = <List<String>>[];
     final widened = _widened;
+    final texts = <String>[];
+    for (final row in rows) {
+      // A row holding what it was read with is written as it was read.
+      final asRead = _asRead(row, widened);
+      final kept = asRead ? _read[row.source!] : row;
+      texts.add(quoteAll && _misleads(kept) ? _format(kept, guard: true) : kept.raw ?? _format(kept));
+      expected.add(kept.cells);
+    }
     for (var i = 0; i < rows.length; i++) {
-      final row = rows[i];
-      // A row put back as it was is the row the file had.
-      final back = i < _read.length && (widened ? _sameCells(row, _read[i]) : _sameRow(row, _read[i]));
-      final kept = back ? _read[i] : row;
-      final text = quoteAll && _misleads(kept) ? _format(kept, always: true) : kept.raw ?? _format(kept);
-      out.write(text);
-      var end = kept.end;
+      out.write(texts[i]);
+      var end = rows[i].end;
       // A bare CR before a blank line ending in LF would read as one CRLF,
       // and the blank line would be lost.
-      if (end == '\r' && i + 1 < rows.length) {
-        final after = rows[i + 1];
-        if ((after.raw ?? _format(after)).isEmpty && after.end.startsWith('\n')) end = '\r\n';
+      if (end == '\r' && i + 1 < rows.length && texts[i + 1].isEmpty && rows[i + 1].end.startsWith('\n')) {
+        end = '\r\n';
       }
       out.write(end);
     }
-    return out.toString();
+    return (out.toString(), expected);
   }
 
   static bool _misleads(CsvRow row) =>
       row.cells.any((cell) => _delimiters.any(cell.contains) || cell.contains('"'));
 
   /// True when [text], read the way quire reads a file, gives [rows].
-  bool _readsBack(String text, List<CsvRow> rows) {
+  bool _readsBack(String text, List<List<String>> rows) {
     final got = parseCsv(text, delimiter: text.isEmpty ? ',' : sniffDelimiter(text));
     if (got.length != rows.length) return false;
     for (var i = 0; i < rows.length; i++) {
-      final a = got[i], b = rows[i].cells;
+      final a = got[i], b = rows[i];
       final blankA = a.every((c) => c.isEmpty), blankB = b.every((c) => c.isEmpty);
       if (blankA && blankB && (a.length <= 1 || b.length <= 1)) continue;
       if (a.length != b.length) return false;
@@ -279,8 +304,11 @@ class CsvDocument {
         }
       }
     }
+    // Rows the editor made past the data and left empty are not written, as
+    // a spreadsheet exports only what is used; the file's own empty rows
+    // are kept.
     var count = rows.length;
-    while (count > _read.length && rows[count - 1].cells.every((c) => c.isEmpty)) {
+    while (count > 0 && rows[count - 1].source == null && rows[count - 1].cells.every((c) => c.isEmpty)) {
       count--;
     }
     final out = <CsvRow>[
@@ -321,20 +349,21 @@ class CsvDocument {
     return true;
   }
 
-  /// The characters a reader might take for the delimiter. A cell holding
-  /// any of them is quoted, so the file reads back with the delimiter it
-  /// was written with whichever one a reader guesses first.
+  /// The characters a reader might take for the delimiter.
   static const List<String> _delimiters = <String>[',', ';', '\t', '|'];
 
-  String _format(CsvRow row, {bool always = false}) {
+  /// A row as a spreadsheet writes it, quoting only the cells that need it
+  /// and those the file had quoted. [guard] also quotes cells holding any
+  /// other character a reader might take for the delimiter, for a file that
+  /// would otherwise read back split at the wrong one.
+  String _format(CsvRow row, {bool guard = false}) {
     // A row of one empty cell is written as an empty quoted cell, or it
     // would read back as a blank line with no cells at all.
     if (row.cells.length == 1 && row.cells.single.isEmpty) return '""';
     final parts = <String>[];
     for (var i = 0; i < row.cells.length; i++) {
       final value = row.cells[i];
-      final needs = always ||
-          _delimiters.any(value.contains) ||
+      final needs = (guard && _delimiters.any(value.contains)) ||
           value.contains(delimiter) ||
           value.contains('"') ||
           value.contains('\n') ||
@@ -507,7 +536,7 @@ class CsvDocument {
 
     void endRow(int at, String end) {
       endField();
-      rows.add(CsvRow(cells, quoted: quoted, raw: text.substring(start, at), end: end, open: inQuotes));
+      rows.add(CsvRow(cells, quoted: quoted, raw: text.substring(start, at), end: end, open: inQuotes, source: rows.length));
       cells = <String>[];
       quoted = <bool>[];
     }
