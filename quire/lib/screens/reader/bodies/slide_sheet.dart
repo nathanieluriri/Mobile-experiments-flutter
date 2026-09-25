@@ -752,7 +752,7 @@ class _SlideBlockView extends StatelessWidget {
     final body = switch (block) {
       HeadingBlock() => _text(
         (block as HeadingBlock).spans,
-        align: DocAlign.start,
+        align: (block as HeadingBlock).align,
       ),
       ParagraphBlock() => _paragraph(block as ParagraphBlock),
       ListItemBlock() => _listItem(context, block as ListItemBlock),
@@ -835,7 +835,7 @@ class _SlideBlockView extends StatelessWidget {
             width: math.max(gutter, needed),
             child: span == null ? null : _marker(<DocSpan>[span], align: DocAlign.start),
           ),
-          Expanded(child: _text(block.spans, align: DocAlign.start)),
+          Expanded(child: _text(block.spans, align: block.align)),
         ],
       ),
     );

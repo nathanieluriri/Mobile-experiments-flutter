@@ -92,7 +92,7 @@ void main() {
     await tester.tap(find.bySemanticsLabel('Alignment'));
     await settle(tester);
     await screenshot(tester, 'C', '06_alignment_choices');
-    await tester.tap(find.text('Align centre'));
+    await tester.tap(find.bySemanticsLabel('Align centre'));
     await settle(tester);
     await tester.tap(find.bySemanticsLabel('More options'));
     await settle(tester);

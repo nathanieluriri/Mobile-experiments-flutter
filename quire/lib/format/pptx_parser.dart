@@ -993,14 +993,18 @@ class PptxParser {
     final held = _slots[memo];
     if (held != null) return held;
 
-    _Slot? on(_Frame? frame) => frame == null
+    // A layout matches by index where the types differ, as a picture in a
+    // content placeholder does; a master only by type, as PowerPoint's own
+    // masters give the date, footer and slide number indices a layout's
+    // content uses.
+    _Slot? on(_Frame? frame, {bool index = true}) => frame == null
         ? null
         : frame.byKey[key] ??
-              (ph.index > 0 ? frame.byIndex[ph.index] : null) ??
+              (index && ph.index > 0 ? frame.byIndex[ph.index] : null) ??
               frame.byType[ph.type] ??
               frame.byType[_equivalent(ph.type)];
 
-    final above = on(master);
+    final above = on(master, index: false);
     final near = on(layout);
     if (above == null && near == null) return null;
 
@@ -1706,11 +1710,11 @@ class PptxParser {
         continue;
       }
 
+      final align = style.align ?? DocAlign.start;
       if (role == SlideRole.title && level == 0) {
-        out.add(HeadingBlock(1, spans));
+        out.add(HeadingBlock(1, spans, align: align));
         continue;
       }
-      final align = style.align ?? DocAlign.start;
       final bulleted =
           style.plain != true &&
           (style.bullet != null || style.ordered == true);
@@ -1731,6 +1735,7 @@ class PptxParser {
           level: level,
           ordered: ordered,
           marker: ordered ? '${counters[level]}.' : style.bullet,
+          align: align,
         ),
       );
     }

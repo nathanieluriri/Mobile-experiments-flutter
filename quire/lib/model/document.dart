@@ -121,9 +121,10 @@ class ParagraphBlock extends DocBlock {
 
 /// A heading at level 1 to 6.
 class HeadingBlock extends DocBlock {
-  const HeadingBlock(this.level, this.spans, {this.anchor});
+  const HeadingBlock(this.level, this.spans, {this.anchor, this.align = DocAlign.start});
   final int level;
   final List<DocSpan> spans;
+  final DocAlign align;
 
   /// Markdown slug, or null for sources that have no anchors.
   final String? anchor;
@@ -139,8 +140,10 @@ class ListItemBlock extends DocBlock {
     required this.ordered,
     this.marker,
     this.checked,
+    this.align = DocAlign.start,
   });
   final List<DocSpan> spans;
+  final DocAlign align;
 
   /// Zero based nesting depth.
   final int level;

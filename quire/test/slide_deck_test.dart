@@ -442,6 +442,30 @@ Uint8List _pictureHolder(Uint8List bytes) {
   return ZipEncoder().encodeBytes(out);
 }
 
+/// The sample deck with a master that has PowerPoint's date, footer and
+/// slide number placeholders at idx 2, 3 and 4, each centred low, grey
+/// and set right, and slide 2 given a second content placeholder at idx 2.
+Uint8List _footed(Uint8List bytes) {
+  String furniture(int id, String type, int idx) => '<p:sp><p:nvSpPr><p:cNvPr id="$id" name="$type $idx"/><p:cNvSpPr><a:spLocks noGrp="1"/></p:cNvSpPr>'
+      '<p:nvPr><p:ph type="$type" sz="quarter" idx="$idx"/></p:nvPr></p:nvSpPr>'
+      '<p:spPr><a:xfrm><a:off x="${822960 + idx * 1000000}" y="6356350"/><a:ext cx="2743200" cy="365125"/></a:xfrm></p:spPr>'
+      '<p:txBody><a:bodyPr anchor="ctr"/><a:lstStyle><a:lvl1pPr algn="r"><a:defRPr sz="1200"><a:solidFill><a:srgbClr val="8C8C8C"/></a:solidFill></a:defRPr></a:lvl1pPr></a:lstStyle><a:p/></p:txBody></p:sp>';
+  const second = '<p:sp><p:nvSpPr><p:cNvPr id="9" name="Content 9"/><p:cNvSpPr><a:spLocks noGrp="1"/></p:cNvSpPr><p:nvPr><p:ph idx="2"/></p:nvPr></p:nvSpPr>'
+      '<p:spPr><a:xfrm><a:off x="6400800" y="1737360"/><a:ext cx="4572000" cy="3200400"/></a:xfrm></p:spPr>'
+      '<p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:rPr lang="en-GB"/><a:t>Right column point</a:t></a:r></a:p></p:txBody></p:sp>';
+  final archive = ZipDecoder().decodeBytes(bytes);
+  final out = Archive();
+  for (final f in archive.files) {
+    var text = f.name.endsWith('.xml') ? utf8.decode(f.content) : null;
+    if (f.name == 'ppt/slideMasters/slideMaster1.xml') {
+      text = text!.replaceFirst('</p:spTree>', '${furniture(20, 'dt', 2)}${furniture(21, 'ftr', 3)}${furniture(22, 'sldNum', 4)}</p:spTree>');
+    }
+    if (f.name == 'ppt/slides/slide2.xml') text = text!.replaceFirst('</p:spTree>', '$second</p:spTree>');
+    out.addFile(text == null ? ArchiveFile.bytes(f.name, f.content) : ArchiveFile.string(f.name, text));
+  }
+  return ZipEncoder().encodeBytes(out);
+}
+
 void main() {
   late Uint8List bytes;
 
@@ -1232,6 +1256,46 @@ void main() {
       _expectWhole(pasted);
       expect(_names(pasted).where((n) => n.startsWith('ppt/charts/')), hasLength(1));
       expect(_parts(pasted)['[Content_Types].xml'], isNot(contains('/ppt/charts/chart1.xml')));
+    });
+  });
+
+  group('after the round two critic', () {
+    test('a content placeholder sharing an index with the master\'s footer takes the body\'s look', () {
+      final deck = PptxDeck(_footed(bytes));
+      final slide = deck.slides[1];
+      final looks = deck.looks(slide, 9)!.levels.first;
+      final body = deck.looks(slide, 3)!.levels.first;
+      expect(looks.align, DocAlign.start);
+      expect(looks.colour, body.colour);
+      expect(looks.size, body.size);
+      final shape = deck.shape(slide, 9)!;
+      expect(shape.verticalAlign, isNot(DocVerticalAlign.center));
+    });
+
+    test('a title and a bullet are drawn in the alignment the deck and the typing give them', () {
+      final deck = PptxDeck(bytes);
+      final statement = deck.slide(deck.slides[5]).shapes.expand((s) => s.blocks).whereType<HeadingBlock>().single;
+      expect(statement.align, DocAlign.center);
+      final slide = deck.slides[1];
+      final text = SlideText.read(deck.textBody(slide, 2), deck.looks(slide, 2)!);
+      final ops = Delta.fromJson(text.ops).compose(Delta()..retain(text.ops.first['insert'].length as int)..retain(1, <String, dynamic>{'align': 'center'}));
+      deck.setText(slide, 2, text.write(deck.slideDoc(slide), ops.toJson()));
+      final body = deck.objects(slide).firstWhere((o) => o.placeholder == 'body');
+      final bullets = SlideText.read(deck.textBody(slide, body.id), deck.looks(slide, body.id)!);
+      final first = (bullets.ops.first['insert'] as String).length;
+      final centred = Delta.fromJson(bullets.ops).compose(Delta()..retain(first)..retain(1, <String, dynamic>{'align': 'center'}));
+      deck.setText(slide, body.id, bullets.write(deck.slideDoc(slide), centred.toJson()));
+      final again = _reopen(deck);
+      final blocks = again.slide(again.slides[1]).shapes.expand((s) => s.blocks).toList();
+      expect(blocks.whereType<HeadingBlock>().single.align, DocAlign.center);
+      expect(blocks.whereType<ListItemBlock>().first.align, DocAlign.center);
+    });
+
+    testWidgets('a centred title is drawn centred', (tester) async {
+      final deck = PptxDeck((await tester.runAsync(() => documentBytes(kPressDayBriefing)))!);
+      await tester.pumpWidget(MaterialApp(home: SlideSheet(slide: deck.slide(deck.slides[5]), assets: deck.assets, width: 400)));
+      final title = find.byWidgetPredicate((w) => w is RichText && w.text.toPlainText().contains('Sheets off by four'));
+      expect(tester.widget<RichText>(title).textAlign, TextAlign.center);
     });
   });
 }
