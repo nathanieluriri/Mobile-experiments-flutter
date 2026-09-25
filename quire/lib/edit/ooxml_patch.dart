@@ -154,7 +154,8 @@ class OoxmlPackage {
     return out.join('/');
   }
 
-  /// The relationships of the part [name], by id.
+  /// The relationships of the part [name], by id: the part each points at,
+  /// or the address of an external one as it is written.
   Map<String, String> relationships(String name) {
     final slash = name.lastIndexOf('/');
     final rels =
@@ -165,7 +166,7 @@ class OoxmlPackage {
       for (final rel in doc.rootElement.childElements)
         if (rel.getAttribute('Id') case final id?)
           if (rel.getAttribute('Target') case final target?)
-            id: resolve(name, target),
+            id: rel.getAttribute('TargetMode') == 'External' ? target : resolve(name, target),
     };
   }
 }

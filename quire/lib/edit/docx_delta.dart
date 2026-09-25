@@ -921,6 +921,13 @@ class DocxDelta {
       }
       final look = _lookOf(rPr, styleId);
       final attributes = look.over(base);
+      if (link != null) {
+        // A link's colour and underline from its character style are the
+        // link's own look, which the page draws for every link, and not
+        // something words typed after it should carry.
+        if (rPr?.getElement('w:color') == null) attributes.remove('color');
+        if (rPr?.getElement('w:u') == null) attributes.remove('underline');
+      }
       final charBase = _CharBase(rPr, look, base.withAttributes(attributes), attributes, link, linkElement: linkElement);
       for (final c in r.childElements) {
         final String? chunk = switch (c.name.local) {
@@ -1015,7 +1022,7 @@ class DocxDelta {
           final type = c.getAttribute('w:type');
           if (type == 'page' || type == 'column') return KeptInline(id, nodes, '', kind: 'break');
         case 'footnoteReference' || 'endnoteReference':
-          return KeptInline(id, nodes, '*', kind: 'note');
+          return KeptInline(id, nodes, _noteMark(c), kind: 'note');
         case 'commentReference' || 'annotationRef':
           return KeptInline(id, nodes, '', kind: 'hidden');
         case 'sym':
@@ -1593,6 +1600,25 @@ class DocxDelta {
   }
 
   _Out _original(int index) => _Out.original(index, _children[index]);
+
+  Map<XmlElement, String>? _noteMarks;
+
+  /// The number a note mark shows: footnotes counted 1, 2, 3 and endnotes
+  /// i, ii, iii through the document, as Word numbers them; a mark whose
+  /// own text follows it shows nothing itself.
+  String _noteMark(XmlElement reference) {
+    final marks = _noteMarks ??= () {
+      final out = Map<XmlElement, String>.identity();
+      var foot = 0, end = 0;
+      for (final e in _package.part(_part)?.rootElement.descendantElements ?? const <XmlElement>[]) {
+        final custom = const <String>{'1', 'true', 'on'}.contains(e.getAttribute('w:customMarkFollows'));
+        if (e.name.local == 'footnoteReference') out[e] = custom ? '' : '${++foot}';
+        if (e.name.local == 'endnoteReference') out[e] = custom ? '' : formatListNumber(++end, 'lowerRoman');
+      }
+      return out;
+    }();
+    return marks[reference] ?? '*';
+  }
 
   /// The kept things placed so far in a write.
   final Set<String> _placed = <String>{};
@@ -2238,6 +2264,18 @@ class DocxDelta {
     }
     if (rPr.getElement('w:rStyle') != null) return;
     rPr.children.insert(0, XmlElement(_w('rStyle'), [XmlAttribute(_w('val'), _linkStyle())]));
+  }
+
+  /// The colour the document's own Hyperlink style gives links, as
+  /// 0xRRGGBB, or null where it gives none.
+  int? get linkColour {
+    for (final style in _styles.values) {
+      if (style.type == 'character' && ((style.name ?? '').toLowerCase() == 'hyperlink' || style.id == 'Hyperlink')) {
+        final colour = style.rPr?.getElement('w:color')?.getAttribute('w:val');
+        return colour == null ? null : int.tryParse(colour, radix: 16);
+      }
+    }
+    return null;
   }
 
   String _linkStyle() {

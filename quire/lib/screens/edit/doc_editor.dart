@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:math' as math;
 
-import 'package:flutter/material.dart' show Theme;
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_quill/flutter_quill.dart';
@@ -1015,7 +1014,6 @@ class DocEditorState extends State<DocEditor> {
   /// headings, quotations and lists in their typefaces, sizes, colours,
   /// spacing and indents.
   DefaultStyles _styles(BuildContext context) {
-    final theme = Theme.of(context);
     final source = _source;
     DefaultTextBlockStyle block(ParagraphLook look, {bool rule = false}) {
       final spacing = VerticalSpacing(look.before * kDocPoint, look.after * kDocPoint);
@@ -1066,7 +1064,7 @@ class DocEditorState extends State<DocEditor> {
         ),
       ),
       bold: const TextStyle(fontWeight: FontWeight.w700),
-      link: TextStyle(color: theme.colorScheme.primary, decoration: TextDecoration.underline),
+      link: TextStyle(color: Color(0xFF000000 | (source?.linkColour ?? 0x1155CC)), decoration: TextDecoration.underline),
     );
   }
 

@@ -789,6 +789,58 @@ void main() {
       expect(again.ops, isNotEmpty);
     });
 
+    test('note marks read as their numbers, in document order', () {
+      final file = Opened(docx(
+        '<w:p><w:r><w:t xml:space="preserve">First claim</w:t></w:r><w:r><w:footnoteReference w:id="4"/></w:r>'
+        '<w:r><w:t xml:space="preserve"> and a second</w:t></w:r><w:r><w:footnoteReference w:id="2"/></w:r></w:p>'
+        '<w:p><w:r><w:t xml:space="preserve">An end note</w:t></w:r><w:r><w:endnoteReference w:id="1"/></w:r>'
+        '<w:r><w:t xml:space="preserve"> and a third</w:t></w:r><w:r><w:footnoteReference w:id="3"/></w:r></w:p>',
+      ));
+      final marks = <String>[
+        for (final kept in file.delta.inlines.values)
+          if (kept.kind == 'note') kept.text,
+      ];
+      expect(marks, <String>['1', '2', 'i', '3']);
+    });
+
+    test('words typed after a link are plain, and the link keeps its look', () {
+      final file = Opened(docx(
+        '<w:p><w:r><w:t xml:space="preserve">See </w:t></w:r><w:hyperlink r:id="rId7"><w:r><w:rPr><w:rStyle w:val="Hyperlink"/></w:rPr>'
+        '<w:t>the press website</w:t></w:r></w:hyperlink><w:r><w:t>.</w:t></w:r></w:p>',
+        styles: '<w:style w:type="character" w:styleId="Hyperlink"><w:name w:val="Hyperlink"/><w:rPr><w:color w:val="0563C1"/><w:u w:val="single"/></w:rPr></w:style>',
+        rels: '<Relationship Id="rId7" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" Target="https://example.com/" TargetMode="External"/>',
+      ));
+      final link = file.delta.ops.firstWhere((o) => o['insert'] == 'the press website');
+      expect(link['attributes'], <String, Object?>{'link': 'https://example.com/'});
+      expect(file.delta.linkColour, 0x0563C1);
+      final end = file.at('the press website') + 'the press website'.length;
+      file.doc.insert(end, ' EDITED');
+      final typed = file.doc.toDelta().toList().firstWhere((o) => '${o.data}'.contains('EDITED'));
+      expect(typed.attributes, isNull);
+      final p = paragraphWith(file.save(), 'EDITED');
+      final run = p.childElements.firstWhere((e) => e.name.local == 'r' && textOf(e).contains('EDITED'));
+      expect(run.toXmlString(), isNot(contains('w:color')));
+      expect(run.toXmlString(), isNot(contains('w:u ')));
+      expect(p.getElement('w:hyperlink')!.toXmlString(), contains('<w:rStyle w:val="Hyperlink"/>'));
+    });
+
+    test('a link pasted into another paragraph points where the original does', () {
+      final file = Opened(docx(
+        '<w:p><w:hyperlink r:id="rId7"><w:r><w:t>the press website</w:t></w:r></w:hyperlink></w:p><w:p><w:r><w:t>Also at </w:t></w:r></w:p>',
+        rels: '<Relationship Id="rId7" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" Target="https://example.com/" TargetMode="External"/>',
+      ));
+      // Copy and paste carry the link as the page read it.
+      final read = file.delta.ops.firstWhere((o) => o['insert'] == 'the press website')['attributes']! as Map;
+      file.doc.insert(file.at('Also at ') + 'Also at '.length, 'the site');
+      file.doc.format(file.at('the site'), 'the site'.length, LinkAttribute(read['link'] as String));
+      final saved = file.save();
+      final id = paragraphWith(saved, 'Also at').getElement('w:hyperlink')!.getAttribute('r:id');
+      final rels = XmlDocument.parse(documentXml(saved, 'word/_rels/document.xml.rels')).rootElement.childElements;
+      final rel = rels.firstWhere((r) => r.getAttribute('Id') == id);
+      expect(rel.getAttribute('Target'), 'https://example.com/');
+      expect(rel.getAttribute('TargetMode'), 'External');
+    });
+
     test('a paragraph numbered between two style-numbered steps joins their list', () {
       final file = Opened(docx(
         '<w:p><w:pPr><w:pStyle w:val="ListNumber"/></w:pPr><w:r><w:t>Step one.</w:t></w:r></w:p>'
