@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'app.dart';
+import 'arrival/arrival_handoff.dart';
 
 /// The bars over a dark app that runs from edge to edge, as the splash does.
 const kSystemBars = SystemUiOverlayStyle(
@@ -15,11 +16,11 @@ const kSystemBars = SystemUiOverlayStyle(
   systemNavigationBarContrastEnforced: false,
 );
 
-void main() {
+void main(List<String> args) {
   // First, so that anything the three lines below raise has somewhere to go.
   installFailureHandlers();
   WidgetsFlutterBinding.ensureInitialized();
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
   SystemChrome.setSystemUIOverlayStyle(kSystemBars);
-  runApp(const App());
+  runApp(App(splashHandedOver: args.contains(kArrivalHandsOver)));
 }

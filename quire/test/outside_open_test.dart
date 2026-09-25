@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:quire/app.dart';
 import 'package:quire/screens/reader/reader_host.dart';
 import 'package:quire/services/document_store.dart';
+import 'package:quire/services/incoming_documents.dart';
 
 import 'support/fixtures.dart';
 import 'support/golden.dart';
@@ -93,6 +94,25 @@ void main() {
             .hasMatch(plist),
         isTrue,
       );
+    });
+  });
+
+  group('a document handed to quire while it is running', () {
+    test('reaches Dart on Android', () {
+      // The Dart side is tested against a mocked platform, which cannot tell
+      // that the activity has stopped passing new intents across.
+      final activity = File(
+        'android/app/src/main/kotlin/ng/com/uriri/quire/MainActivity.kt',
+      ).readAsStringSync();
+      expect(
+        RegExp(
+          r'override fun onNewIntent\(next: Intent\) \{.*?copyOf\(next\).*?invokeMethod\(OPENED, path\)',
+          dotAll: true,
+        ).hasMatch(activity),
+        isTrue,
+      );
+      expect(activity, contains('const val OPENED = "$kIncomingOpened"'));
+      expect(activity, contains('const val CHANNEL = "$kIncomingChannel"'));
     });
   });
 

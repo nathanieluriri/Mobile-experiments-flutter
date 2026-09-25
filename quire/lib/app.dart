@@ -83,7 +83,15 @@ typedef ReaderHandoff = ({DocumentStore store, bool outside});
 
 /// The whole app: one ground, one type family, one theme and no toggle.
 class App extends StatefulWidget {
-  const App({super.key, this.routes = const <String, WidgetBuilder>{}});
+  const App({
+    super.key,
+    this.routes = const <String, WidgetBuilder>{},
+    this.splashHandedOver = false,
+  });
+
+  /// Whether the platform will say what its splash showed and take it away
+  /// itself, which Android 12 and later do.
+  final bool splashHandedOver;
 
   /// The screens behind [kDeskRoute], [kReaderRoute] and [kSignRoute].
   ///
@@ -174,13 +182,18 @@ class _AppState extends State<App> with WidgetsBindingObserver {
       // The desk before the doorstep. A document handed in at a cold start
       // still goes onto the desk it is opened from, so the desk has to know
       // what it already holds before anything is added to it.
-      await library.boot(parse: false);
-      if (mounted) await incoming.boot();
-      // The platform has now said what it started the app on. Anything that
-      // arrives after this came in on top of whatever quire was showing.
-      _starting = false;
-      _arrivalLimit?.cancel();
-      if (mounted) _arrived.value = true;
+      try {
+        await library.boot(parse: false);
+        if (mounted) await incoming.boot();
+      } finally {
+        // The platform has now said what it started the app on, or the desk
+        // could not be read and there is nothing more to wait for. Anything
+        // that arrives after this came in on top of whatever quire was
+        // showing.
+        _starting = false;
+        _arrivalLimit?.cancel();
+        if (mounted) _arrived.value = true;
+      }
       // A document handed in at a cold start is opened before the desk's own
       // documents are read, not raced against them.
       await _opening;
@@ -430,7 +443,11 @@ class _AppState extends State<App> with WidgetsBindingObserver {
         // laid out on the whole screen. A test that brings its own desk is not
         // a launch, and gets no arrival.
         if (_library == null) return app;
-        return Arrival(ready: _arrived, child: app);
+        return Arrival(
+          ready: _arrived,
+          handsOver: widget.splashHandedOver,
+          child: app,
+        );
       },
     );
   }

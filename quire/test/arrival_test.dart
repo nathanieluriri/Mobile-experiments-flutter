@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
+import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
@@ -15,6 +17,7 @@ import 'package:quire/arrival/arrival_motion.dart';
 import 'package:quire/arrival/arrival_painter.dart';
 import 'package:quire/arrival/quire_mark.dart';
 import 'package:quire/screens/desk/desk_screen.dart';
+import 'package:quire/widgets/quire_spinner.dart';
 import 'package:quire/services/document_store.dart';
 import 'package:quire/theme/colors.dart';
 
@@ -22,7 +25,6 @@ import 'desk_test.dart' show deskApp;
 import 'support/golden.dart';
 
 const _launch = 'ios/Runner/Assets.xcassets';
-const _channel = MethodChannel(kArrivalChannel);
 const _end = 1100.0;
 
 /// Phones the first frame is held to the launch screen on: this app's own,
@@ -137,6 +139,166 @@ Rect _inkOf(_Pixels pixels, double ratio) {
   return Rect.fromLTRB(left / ratio, top / ratio, (right + 1) / ratio, (bottom + 1) / ratio);
 }
 
+/// The app's own phone, at its own pixel ratio, and the neighbourhood of the
+/// mark on it, which is where everything the goo does happens until it
+/// swells.
+const _screen = Size(402, 874);
+const _around = Rect.fromLTWH(125, 350, 152, 175);
+const _screenRatio = 3.0;
+
+/// The overlay around the mark on the app's own phone: the mark is moved
+/// into a small canvas rather than the whole screen painted.
+Future<_Pixels> _paintAround(
+  WidgetTester tester,
+  ArrivalPose pose,
+  ui.FragmentShader shader,
+) {
+  final full = ArrivalGeometry.standard(_screen);
+  return _paint(
+    tester,
+    _around.size,
+    pose,
+    shader: shader,
+    geometry: ArrivalGeometry(
+      markBox: full.markBox.shift(-_around.topLeft),
+      nameBox: full.nameBox.shift(-_around.topLeft),
+    ),
+    ratio: _screenRatio,
+  );
+}
+
+/// [pose] as the goo alone draws it, with nothing laid over it and its holes
+/// still the ground's colour, so two of them can be held to each other.
+ArrivalPose _gooOf(ArrivalPose pose) => ArrivalPose(
+  nameOpacity: 0,
+  nameDrop: 0,
+  exactMark: 0,
+  window: 0,
+  swell: pose.swell,
+  gooOutline: pose.gooOutline,
+  gooHole: pose.gooHole,
+  rim: pose.rim,
+  morph: pose.morph,
+  panes: pose.panes,
+  blob: pose.blob,
+  blobCorner: pose.blobCorner,
+  settle: pose.settle,
+  join: pose.join,
+  reach: pose.reach,
+  opening: pose.opening,
+  stubRound: pose.stubRound,
+  zip: pose.zip,
+  flapMelt: pose.flapMelt,
+  deskScale: pose.deskScale,
+);
+
+/// How much of each pixel is the mark's colour and how much of it is open
+/// onto what lies under the arrival, from a frame of the overlay alone.
+class _Cover {
+  _Cover(_Pixels pixels, double window)
+    : width = pixels.width,
+      height = pixels.height,
+      ink = Float64List(pixels.width * pixels.height),
+      open = Float64List(pixels.width * pixels.height) {
+    final ground = AppColors.ground.b;
+    final mark = AppColors.accentBright.b;
+    for (var i = 0; i < ink.length; i++) {
+      final alpha = pixels.bytes[i * 4 + 3] / 255;
+      open[i] = window > 0.02 ? ((1 - alpha) / window).clamp(0.0, 1.0) : 0;
+      final blue = alpha > 0 ? pixels.bytes[i * 4 + 2] / 255 / alpha : ground;
+      ink[i] = ((blue - ground) / (mark - ground)).clamp(0.0, 1.0);
+    }
+  }
+
+  final int width;
+  final int height;
+  final Float64List ink;
+  final Float64List open;
+
+  List<bool> get holes => [for (final o in open) o > 0.5];
+
+  List<bool> get inked => [
+    for (var i = 0; i < ink.length; i++) open[i] <= 0.5 && ink[i] > 0.5,
+  ];
+
+  List<bool> get bare => [
+    for (var i = 0; i < ink.length; i++) open[i] <= 0.5 && ink[i] <= 0.5,
+  ];
+
+  /// The connected regions of [mask], each as its pixels' indices.
+  List<List<int>> regions(List<bool> mask) {
+    final seen = List<bool>.filled(mask.length, false);
+    final found = <List<int>>[];
+    for (var start = 0; start < mask.length; start++) {
+      if (!mask[start] || seen[start]) continue;
+      final region = <int>[];
+      final stack = [start];
+      seen[start] = true;
+      while (stack.isNotEmpty) {
+        final i = stack.removeLast();
+        region.add(i);
+        final x = i % width;
+        final y = i ~/ width;
+        for (final (nx, ny) in [(x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)]) {
+          if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
+          final j = ny * width + nx;
+          if (mask[j] && !seen[j]) {
+            seen[j] = true;
+            stack.add(j);
+          }
+        }
+      }
+      found.add(region);
+    }
+    return found;
+  }
+
+  bool touchesEdge(List<int> region) => region.any((i) {
+    final x = i % width;
+    final y = i ~/ width;
+    return x == 0 || y == 0 || x == width - 1 || y == height - 1;
+  });
+
+  /// [mask] grown by [by] pixels in every direction, square.
+  List<bool> grown(List<bool> mask, int by) {
+    var grown = List<bool>.of(mask);
+    for (var step = 0; step < by; step++) {
+      final next = List<bool>.of(grown);
+      for (var i = 0; i < grown.length; i++) {
+        if (grown[i]) continue;
+        final x = i % width;
+        final y = i ~/ width;
+        for (var dy = -1; dy <= 1 && !next[i]; dy++) {
+          for (var dx = -1; dx <= 1; dx++) {
+            final nx = x + dx;
+            final ny = y + dy;
+            if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
+            if (grown[ny * width + nx]) {
+              next[i] = true;
+              break;
+            }
+          }
+        }
+      }
+      grown = next;
+    }
+    return grown;
+  }
+
+  /// Where the outer edge of the mark's left side crosses each row, to a
+  /// fraction of a pixel.
+  double leftEdge(int row) {
+    for (var x = 1; x < width; x++) {
+      final here = ink[row * width + x] * (1 - open[row * width + x]);
+      if (here >= 0.5) {
+        final before = ink[row * width + x - 1] * (1 - open[row * width + x - 1]);
+        return x - (here - 0.5) / math.max(here - before, 1e-6);
+      }
+    }
+    return double.nan;
+  }
+}
+
 /// A child whose state the arrival must never throw away.
 class _Counter extends StatefulWidget {
   const _Counter({this.onTap});
@@ -174,6 +336,7 @@ Future<void> _pumpArrival(
   ValueNotifier<bool> ready, {
   Widget child = const _Counter(),
   bool stillness = false,
+  bool handsOver = false,
 }) async {
   tester.view
     ..devicePixelRatio = kDpr
@@ -186,10 +349,20 @@ Future<void> _pumpArrival(
         devicePixelRatio: kDpr,
         disableAnimations: stillness,
       ),
-      child: Arrival(ready: ready, child: child),
+      child: Arrival(ready: ready, handsOver: handsOver, child: child),
     ),
   );
 }
+
+Future<void> _platformSays(
+  WidgetTester tester,
+  String method, [
+  Object? arguments,
+]) => tester.binding.defaultBinaryMessenger.handlePlatformMessage(
+  kArrivalChannel,
+  const StandardMethodCodec().encodeMethodCall(MethodCall(method, arguments)),
+  (_) {},
+);
 
 /// Advances until the reveal has left the resting pose, and says how long
 /// that took.
@@ -202,6 +375,30 @@ Future<int> _untilMoving(WidgetTester tester) async {
     await tester.pump(const Duration(milliseconds: 16));
   }
   fail('The arrival never moved');
+}
+
+/// The opacity the arrival is lifting off at, or null when it is not.
+double? _liftingOff(WidgetTester tester) {
+  final fading = find.descendant(
+    of: find.byType(Arrival),
+    matching: find.byType(Opacity),
+  );
+  if (fading.evaluate().isEmpty) return null;
+  return tester.widget<Opacity>(fading).opacity;
+}
+
+/// Advances until the arrival has begun to leave, through the goo or by
+/// lifting off, and says how long that took.
+Future<int> _untilLeaving(WidgetTester tester) async {
+  for (var ms = 0; ms < 5000; ms += 16) {
+    final painter = _painter(tester);
+    if (painter == null || !identical(painter.pose, ArrivalPose.rest)) {
+      return ms;
+    }
+    if ((_liftingOff(tester) ?? 1) < 1) return ms;
+    await tester.pump(const Duration(milliseconds: 16));
+  }
+  fail('The arrival never left');
 }
 
 void main() {
@@ -289,8 +486,12 @@ void main() {
         panes: [PanePose.rest, PanePose.rest, PanePose.rest, PanePose.rest],
         blob: Rect.zero,
         blobCorner: 0,
-        tension: 0,
+        settle: 0,
+        join: 0,
+        reach: 0,
+        opening: 0,
         stubRound: 0,
+        zip: 0,
         flapMelt: 0,
         deskScale: kArrivalDeskScale,
       );
@@ -304,9 +505,9 @@ void main() {
           if (d > 48) edges++;
         }
       }
-      // Two short bevels on the dog eared pane are drawn as straight lines,
-      // which puts a handful of their edge pixels a shade off. Nothing else
-      // differs by more than antialiasing.
+      // The dog eared pane's two short bevels are drawn as chords within a
+      // thirtieth of a unit of the curve. Nothing differs by more than
+      // antialiasing.
       expect(edges, lessThan(40), reason: 'worst $worst');
     });
 
@@ -369,6 +570,95 @@ void main() {
       }
     });
 
+    testWidgets("holds the mark's shape until the exact mark has gone", (
+      tester,
+    ) async {
+      final shader = await _shader(tester);
+      final full = ArrivalGeometry.standard(_screen);
+      final rest = _Cover(
+        await _paintAround(tester, _gooOf(arrivalPoseAt(0.001, full, _screen)), shader),
+        0,
+      );
+      for (var ms = 1000 / 60; ; ms += 1000 / 60) {
+        final pose = arrivalPoseAt(ms, full, _screen);
+        if (pose.exactMark == 0) break;
+        final goo = _Cover(await _paintAround(tester, _gooOf(pose), shader), 0);
+        var worst = 0.0;
+        for (var i = 0; i < goo.ink.length; i++) {
+          worst = math.max(worst, (goo.ink[i] - rest.ink[i]).abs());
+        }
+        // Under half a pixel of movement anywhere, so the two layers of the
+        // hand over are the same shape and no edge shows twice.
+        expect(worst, lessThanOrEqualTo(0.5), reason: 'at $ms ms');
+      }
+    });
+
+    testWidgets('opens only out of holes already there, and never faster '
+        'than an edge can be followed', (tester) async {
+      final shader = await _shader(tester);
+      final full = ArrivalGeometry.standard(_screen);
+      _Cover? last;
+      for (var ms = 100.0; ms <= 480; ms += 1000 / 120) {
+        final pose = arrivalPoseAt(ms, full, _screen);
+        final cover = _Cover(await _paintAround(tester, pose, shader), pose.window);
+        final holes = cover.holes;
+        if (last != null) {
+          final before = last.holes;
+          for (final region in cover.regions(holes)) {
+            expect(
+              region.any((i) => before[i]),
+              isTrue,
+              reason: 'a hole opened inside the ink at $ms ms',
+            );
+          }
+          // Three points a frame at 120 frames a second.
+          final reach = last.grown(before, (3 * _screenRatio).round());
+          var outrun = 0;
+          for (var i = 0; i < holes.length; i++) {
+            if (holes[i] && !reach[i]) outrun++;
+          }
+          expect(outrun, 0, reason: 'an edge outran the eye at $ms ms');
+        }
+        if (ms >= 200) {
+          final shut = cover.regions(cover.bare).where((r) => !cover.touchesEdge(r));
+          expect(shut, isEmpty, reason: 'ground shut inside the goo at $ms ms');
+        }
+        // The panes are one body once their inner corners have met.
+        if (ms >= 180) {
+          expect(
+            cover.regions(cover.inked).length,
+            1,
+            reason: 'the goo is in more than one piece at $ms ms',
+          );
+        }
+        last = cover;
+      }
+    });
+
+    testWidgets('softens every edge smoothly, without stair steps', (
+      tester,
+    ) async {
+      final shader = await _shader(tester);
+      final full = ArrivalGeometry.standard(_screen);
+      // The rows of the dog eared pane's left side, from below its ear to its
+      // foot, bevel and all.
+      final top = ((full.markBox.top + 82 * full.unit - _around.top) * _screenRatio).round();
+      final bottom = ((full.markBox.top + 124 * full.unit - _around.top) * _screenRatio).round();
+      for (var ms = 0.0; ms <= 520; ms += 1000 / 60) {
+        final pose = arrivalPoseAt(ms, full, _screen);
+        final cover = _Cover(await _paintAround(tester, pose, shader), pose.window);
+        final edge = [for (var y = top; y <= bottom; y++) cover.leftEdge(y)];
+        for (var i = 1; i < edge.length - 1; i++) {
+          final bend = edge[i + 1] - 2 * edge[i] + edge[i - 1];
+          expect(
+            bend.abs(),
+            lessThan(1.2),
+            reason: 'a step in the left edge at row ${top + i}, $ms ms',
+          );
+        }
+      }
+    });
+
     test('is one motion, with nothing jumping between frames', () {
       const size = Size(402, 874);
       final geometry = ArrivalGeometry.standard(size);
@@ -378,10 +668,13 @@ void main() {
         if (last != null) {
           expect(pose.swell, greaterThanOrEqualTo(last.swell));
           expect((pose.window - last.window).abs(), lessThan(0.2));
-          expect((pose.tension - last.tension).abs(), lessThan(0.2));
+          expect((pose.settle - last.settle).abs(), lessThan(0.2));
+          expect((pose.reach - last.reach).abs(), lessThan(0.2));
+          expect((pose.opening - last.opening).abs(), lessThan(4));
           expect((pose.morph - last.morph).abs(), lessThan(0.2));
           expect((pose.nameOpacity - last.nameOpacity).abs(), lessThan(0.2));
-          expect((pose.exactMark - last.exactMark).abs(), lessThan(0.2));
+          // Two pictures of the same shape, so a quicker blend is no jump.
+          expect((pose.exactMark - last.exactMark).abs(), lessThan(0.35));
           expect((pose.deskScale - last.deskScale).abs(), lessThan(0.01));
           for (var i = 0; i < 4; i++) {
             expect(
@@ -392,9 +685,11 @@ void main() {
         }
         last = pose;
       }
-      // Where it ends is where the desk stays.
-      expect(last!.deskScale, closeTo(1, 0.0005));
-      expect(arrivalPoseAt(_end, geometry, size).deskScale, 1);
+      // The desk is back where it stays some frames before the end, so
+      // nothing under the arrival moves as it is taken away.
+      for (var ms = 1000.0; ms <= _end; ms += 1000 / 60) {
+        expect(arrivalPoseAt(ms, geometry, size).deskScale, 1);
+      }
     });
   });
 
@@ -418,23 +713,13 @@ void main() {
     });
 
     testWidgets('waits for Android to take its splash away', (tester) async {
-      final calls = <String>[];
-      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(_channel, (
-        call,
-      ) async {
-        calls.add(call.method);
-        return call.method == 'handsOver' ? true : null;
-      });
-      addTearDown(
-        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
-          _channel,
-          null,
-        ),
-      );
       final ready = ValueNotifier<bool>(true);
-      await _pumpArrival(tester, ready);
+      await _pumpArrival(tester, ready, handsOver: true);
+      // Until the splash has said what it showed, the frame under it shows
+      // nothing, since the splash may have had no mark to match.
+      expect(_painter(tester)!.showMark, 0);
+      expect(_painter(tester)!.showName, 0);
       await tester.pump(const Duration(milliseconds: 400));
-      expect(calls, ['handsOver']);
       expect(_painter(tester)!.pose, same(ArrivalPose.rest));
 
       // Android reports where it really drew the mark, a little off the
@@ -466,32 +751,25 @@ void main() {
       await tester.pump(const Duration(milliseconds: 16));
       await tester.pump(const Duration(milliseconds: 16));
       expect(answered, isTrue);
+      expect(_painter(tester)!.showMark, 1);
+      expect(_painter(tester)!.showName, 1);
       final placed = _painter(tester)!.geometry;
       expect(placed.place(QuireMark.ink.topLeft).dx, closeTo(ink.left, 1e-6));
       expect(placed.place(QuireMark.ink.topLeft).dy, closeTo(ink.top, 1e-6));
-      expect(_painter(tester)!.pose, same(ArrivalPose.rest));
 
-      await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
-        kArrivalChannel,
-        const StandardMethodCodec().encodeMethodCall(const MethodCall('gone')),
-        (_) {},
-      );
+      // However long Android takes to lift its splash, nothing moves under
+      // it: a reveal started there would be half over when the splash went.
+      await tester.pump(const Duration(milliseconds: 1500));
+      expect(_painter(tester)!.pose, same(ArrivalPose.rest));
+      expect(_liftingOff(tester), isNull);
+
+      await _platformSays(tester, 'gone');
       expect(await _untilMoving(tester), lessThan(50));
     });
 
     testWidgets("shows Android's own splash pixels until it moves", (
       tester,
     ) async {
-      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
-        _channel,
-        (call) async => call.method == 'handsOver' ? true : null,
-      );
-      addTearDown(
-        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
-          _channel,
-          null,
-        ),
-      );
       Future<(Uint8List, int, int)> premultiplied(String path) async {
         return (await tester.runAsync(() async {
           final codec = await ui.instantiateImageCodec(
@@ -515,6 +793,7 @@ void main() {
             data: MediaQueryData(size: kPhone.logical, devicePixelRatio: kDpr),
             child: Arrival(
               ready: ValueNotifier<bool>(true),
+              handsOver: true,
               child: const _Counter(),
             ),
           ),
@@ -588,58 +867,46 @@ void main() {
       expect(worst, lessThanOrEqualTo(2));
     });
 
-    testWidgets('waits no longer than its limit once Android says it will hand over', (
+    testWidgets('leaves on its own a little after a launch screen that does', (
       tester,
     ) async {
-      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
-        _channel,
-        (call) async => call.method == 'handsOver' ? true : null,
-      );
-      addTearDown(
-        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
-          _channel,
-          null,
-        ),
-      );
-      // Both limits are counted from the first frame, whenever the answer lands.
-      final ready = ValueNotifier<bool>(true);
-      tester.view
-        ..devicePixelRatio = kDpr
-        ..physicalSize = kPhone.logical * kDpr;
-      addTearDown(tester.view.reset);
-      await tester.pumpWidget(
-        MediaQuery(
-          data: MediaQueryData(size: kPhone.logical, devicePixelRatio: kDpr),
-          child: Arrival(ready: ready, child: const _Counter()),
-        ),
-        duration: Duration.zero,
-      );
+      await _pumpArrival(tester, ValueNotifier<bool>(true));
+      expect(_painter(tester)!.showMark, 1);
       final waited = await _untilMoving(tester);
-      expect(
-        waited,
-        lessThan(kArrivalHandoffLimit.inMilliseconds + 100),
-      );
+      expect(waited, greaterThanOrEqualTo(kArrivalSplashFade.inMilliseconds));
+      expect(waited, lessThan(kArrivalSplashFade.inMilliseconds + 100));
     });
 
-    testWidgets('does not wait for ever on a splash never handed over', (
+    testWidgets('never shows a mark Android did not, however long it is silent', (
       tester,
     ) async {
-      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
-        _channel,
-        (call) async => call.method == 'handsOver' ? true : null,
-      );
-      addTearDown(
-        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
-          _channel,
-          null,
-        ),
-      );
-      await _pumpArrival(tester, ValueNotifier<bool>(true));
-      final waited = await _untilMoving(tester);
-      expect(waited, greaterThanOrEqualTo(kArrivalHandoffLimit.inMilliseconds));
+      // Android said it owned a splash and then never spoke of it again, as
+      // a relaunch that skips the splash would.
+      await _pumpArrival(tester, ValueNotifier<bool>(true), handsOver: true);
+      final shown = <double>{};
+      var waited = 0;
+      while (_painter(tester) != null && waited < 5000) {
+        shown
+          ..add(_painter(tester)!.showMark)
+          ..add(_painter(tester)!.showName);
+        if (!identical(_painter(tester)!.pose, ArrivalPose.rest)) {
+          fail('the goo played over a mark that was never on the screen');
+        }
+        await tester.pump(const Duration(milliseconds: 16));
+        waited += 16;
+      }
+      expect(shown, {0});
       expect(
         waited,
-        lessThan(kArrivalHandoffLimit.inMilliseconds + 100),
+        greaterThanOrEqualTo(kArrivalHandoffBackstop.inMilliseconds),
+      );
+      expect(
+        waited,
+        lessThan(
+          kArrivalHandoffBackstop.inMilliseconds +
+              kArrivalQuietReveal.inMilliseconds +
+              100,
+        ),
       );
     });
 
@@ -676,38 +943,22 @@ void main() {
     testWidgets('a splash that came up bare is followed by a bare frame', (
       tester,
     ) async {
-      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
-        _channel,
-        (call) async => call.method == 'handsOver' ? true : null,
-      );
-      addTearDown(
-        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
-          _channel,
-          null,
-        ),
-      );
-      await _pumpArrival(tester, ValueNotifier<bool>(true));
+      await _pumpArrival(tester, ValueNotifier<bool>(true), handsOver: true);
+      expect(_painter(tester)!.showMark, 0);
+      await tester.pump(const Duration(milliseconds: 300));
+      // What Android sends when its splash had no mark to hand over.
       unawaited(
-        tester.binding.defaultBinaryMessenger.handlePlatformMessage(
-          kArrivalChannel,
-          const StandardMethodCodec().encodeMethodCall(
-            const MethodCall('place', <String, Object?>{
-              'showedMark': false,
-              'showedName': false,
-            }),
-          ),
-          (_) {},
-        ),
+        _platformSays(tester, 'place', <String, Object?>{
+          'showedMark': false,
+          'showedName': false,
+        }),
       );
       await tester.pump();
       expect(_painter(tester)!.showMark, 0);
       expect(_painter(tester)!.showName, 0);
-      await tester.pump(const Duration(milliseconds: 40));
-      await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
-        kArrivalChannel,
-        const StandardMethodCodec().encodeMethodCall(const MethodCall('gone')),
-        (_) {},
-      );
+      await _platformSays(tester, 'gone');
+      expect(await _untilLeaving(tester), lessThan(50));
+      expect(_painter(tester)!.pose, same(ArrivalPose.rest));
       for (var ms = 0; ms < kArrivalQuietReveal.inMilliseconds + 100; ms += 16) {
         await tester.pump(const Duration(milliseconds: 16));
       }
@@ -731,6 +982,227 @@ void main() {
       );
       await tester.tapAt(kPhone.logical.center(Offset.zero));
       expect(taps, 1);
+    });
+  });
+
+  group('in the app', () {
+    late Directory home;
+
+    setUp(() => home = Directory.systemTemp.createTempSync('quire_arrival'));
+    tearDown(() {
+      if (home.existsSync()) home.deleteSync(recursive: true);
+    });
+
+    void storesIn(WidgetTester tester) {
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        const MethodChannel('plugins.flutter.io/path_provider'),
+        (call) async => home.path,
+      );
+    }
+
+    /// A frame of the test clock with a little real time beside it, for the
+    /// reads the desk makes off the disk.
+    Future<void> frame(WidgetTester tester) async {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 4)),
+      );
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+
+    testWidgets('opens onto the desk awake, however slow its first document', (
+      tester,
+    ) async {
+      storesIn(tester);
+      // Every shipped document is slow to arrive, the way a large import at
+      // the front of the desk is.
+      tester.binding.defaultBinaryMessenger.setMockMessageHandler(
+        'flutter/assets',
+        (message) async {
+          final key = Uri.decodeFull(
+            utf8.decode(
+              message!.buffer.asUint8List(
+                message.offsetInBytes,
+                message.lengthInBytes,
+              ),
+            ),
+          );
+          if (key.startsWith('assets/documents/')) {
+            await Future<void>.delayed(const Duration(milliseconds: 120));
+          }
+          final file = File(key);
+          if (!file.existsSync()) return null;
+          return ByteData.sublistView(file.readAsBytesSync());
+        },
+      );
+      addTearDown(
+        () => tester.binding.defaultBinaryMessenger.setMockMessageHandler(
+          'flutter/assets',
+          null,
+        ),
+      );
+      await pumpScreen(tester, const App(splashHandedOver: true));
+      // Android hands over before the saved desk has been read.
+      unawaited(_platformSays(tester, 'place', <String, Object?>{}));
+      await tester.pump(const Duration(milliseconds: 16));
+      await tester.pump(const Duration(milliseconds: 16));
+      await _platformSays(tester, 'gone');
+
+      var moving = 0;
+      for (var ms = 0; ms < 5000 && _painter(tester) != null; ms += 16) {
+        await frame(tester);
+        final painter = _painter(tester);
+        if (painter == null || identical(painter.pose, ArrivalPose.rest)) {
+          continue;
+        }
+        moving++;
+        expect(
+          find.descendant(
+            of: find.byType(DeskScreen),
+            matching: find.byType(QuireSpinner),
+          ),
+          findsNothing,
+          reason: 'the window is open onto a desk still loading',
+        );
+      }
+      expect(moving, greaterThan(30));
+      expect(_painter(tester), isNull);
+    });
+
+    testWidgets('opens promptly onto a saved desk that cannot be read', (
+      tester,
+    ) async {
+      Directory('${home.path}/imports').createSync(recursive: true);
+      File(
+        '${home.path}/imports/state.json',
+      ).writeAsBytesSync(const [0x7B, 0xFF, 0xFE, 0x7D]);
+      storesIn(tester);
+      await pumpScreen(tester, const App());
+      var ms = 0;
+      while (ms < 3000) {
+        await frame(tester);
+        ms += 16;
+        final painter = _painter(tester);
+        if (painter == null || !identical(painter.pose, ArrivalPose.rest)) {
+          break;
+        }
+      }
+      expect(ms, lessThan(kArrivalSplashFade.inMilliseconds + 200));
+      for (var i = 0; i < 100 && _painter(tester) != null; i++) {
+        await frame(tester);
+      }
+      expect(_painter(tester), isNull);
+    });
+  });
+
+  group('once it has gone', () {
+    testWidgets("lets go of the splash's pixels and the goo", (tester) async {
+      await _pumpArrival(tester, ValueNotifier<bool>(true), handsOver: true);
+      final pixels = Uint8List(4 * 4 * 4)..fillRange(0, 64, 255);
+      var answered = false;
+      unawaited(
+        tester.binding.defaultBinaryMessenger.handlePlatformMessage(
+          kArrivalChannel,
+          const StandardMethodCodec().encodeMethodCall(
+            MethodCall('place', <String, Object?>{
+              'markPixels': pixels,
+              'markPixelsSize': [4, 4],
+              'markPixelsRect': [0.0, 0.0, 2.0, 2.0],
+            }),
+          ),
+          (_) => answered = true,
+        ),
+      );
+      for (var i = 0; i < 40 && !answered; i++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 20)),
+        );
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      final image = _painter(tester)!.markPixels!;
+      await _platformSays(tester, 'gone');
+      await _untilMoving(tester);
+      await tester.pump(kArrivalReveal);
+      await tester.pump(const Duration(milliseconds: 16));
+      expect(_painter(tester), isNull);
+      expect(image.debugDisposed, isTrue);
+    });
+  });
+
+  group('landing', () {
+    testWidgets('is taken away without a pixel changing', (tester) async {
+      tester.view
+        ..devicePixelRatio = _screenRatio
+        ..physicalSize = _screen * _screenRatio;
+      addTearDown(tester.view.reset);
+      final key = GlobalKey();
+      await tester.pumpWidget(
+        RepaintBoundary(
+          key: key,
+          child: MediaQuery(
+            data: const MediaQueryData(
+              size: _screen,
+              devicePixelRatio: _screenRatio,
+            ),
+            child: Arrival(
+              ready: ValueNotifier<bool>(true),
+              child: Directionality(
+                textDirection: TextDirection.ltr,
+                child: ColoredBox(
+                  color: const Color(0xFF203040),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      for (var i = 0; i < 18; i++)
+                        Padding(
+                          padding: EdgeInsets.fromLTRB(13 + i * 0.37, 7, 0, 0),
+                          child: Text('line $i under the window'),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await _untilMoving(tester);
+      await tester.pump(Duration(milliseconds: kArrivalReveal.inMilliseconds - 90));
+      _Pixels? before;
+      while (_painter(tester) != null) {
+        before = await _grab(tester, key, _screenRatio);
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      final after = await _grab(tester, key, _screenRatio);
+      var changed = 0;
+      for (var i = 0; i < after.bytes.length; i++) {
+        if (after.bytes[i] != before!.bytes[i]) changed++;
+      }
+      expect(changed, 0);
+    });
+  });
+
+  group('under the platform asking for less motion', () {
+    testWidgets('still lifts off over a quiet moment, not in a cut', (
+      tester,
+    ) async {
+      tester.platformDispatcher.accessibilityFeaturesTestValue =
+          const FakeAccessibilityFeatures(disableAnimations: true);
+      addTearDown(tester.platformDispatcher.clearAccessibilityFeaturesTestValue);
+      tester.view
+        ..devicePixelRatio = kDpr
+        ..physicalSize = kPhone.logical * kDpr;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        Arrival(ready: ValueNotifier<bool>(true), child: const _Counter()),
+      );
+      var between = 0;
+      for (var i = 0; i < 60; i++) {
+        await tester.pump(const Duration(milliseconds: 16));
+        final opacity = _liftingOff(tester);
+        if (opacity != null && opacity > 0 && opacity < 1) between++;
+      }
+      expect(between, greaterThanOrEqualTo(10));
+      expect(_painter(tester), isNull);
     });
   });
 
@@ -763,7 +1235,7 @@ void main() {
       await capture(tester, 'arrival__t0000');
       await _untilMoving(tester);
       var at = 16;
-      for (final ms in [250, 450, 650, 900]) {
+      for (final ms in [250, 300, 317, 333, 450, 650, 900]) {
         await pumpMs(tester, ms - at);
         at = ms;
         await capture(tester, 'arrival__t${ms.toString().padLeft(4, '0')}');

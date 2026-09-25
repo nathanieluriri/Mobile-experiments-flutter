@@ -167,9 +167,13 @@ class ArrivalPainter extends CustomPainter {
     put(pose.blob.width / 2);
     put(pose.blob.height / 2);
     put(pose.blobCorner);
-    put(pose.tension);
+    put(pose.settle);
     put(pose.stubRound);
     put(pose.flapMelt);
+    put(pose.join);
+    put(pose.reach);
+    put(pose.opening);
+    put(pose.zip);
     colour(AppColors.ground);
     colour(AppColors.accentBright);
   }
