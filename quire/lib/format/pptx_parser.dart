@@ -174,6 +174,9 @@ class _Slot {
   SlideBox? box;
   DocVerticalAlign? anchor;
   double? rotation;
+
+  /// The placeholder type the slot has on its layout or master.
+  String? type;
   final Map<int, _Level> levels = <int, _Level>{};
 }
 
@@ -594,7 +597,8 @@ class PptxParser {
       }
       final slot = _Slot()
         ..box = _boxOf(shape)
-        ..rotation = _rotationOf(shape);
+        ..rotation = _rotationOf(shape)
+        ..type = ph.type;
       final body = _kid(shape, 'txBody');
       if (body != null) {
         final properties = _kid(body, 'bodyPr');
@@ -993,19 +997,27 @@ class PptxParser {
     final held = _slots[memo];
     if (held != null) return held;
 
-    // A layout matches by index where the types differ, as a picture in a
-    // content placeholder does; a master only by type, as PowerPoint's own
-    // masters give the date, footer and slide number indices a layout's
-    // content uses.
-    _Slot? on(_Frame? frame, {bool index = true}) => frame == null
+    // A slide's placeholder takes after its layout's by index, where the
+    // types differ as a picture in a content placeholder does, and the
+    // layout's after the master's of its own type: PowerPoint's masters give
+    // their date, footer and slide number the indices a layout's content
+    // uses.
+    final near = layout == null
         ? null
-        : frame.byKey[key] ??
-              (index && ph.index > 0 ? frame.byIndex[ph.index] : null) ??
-              frame.byType[ph.type] ??
-              frame.byType[_equivalent(ph.type)];
-
-    final above = on(master, index: false);
-    final near = on(layout);
+        : layout.byKey[key] ??
+              (ph.index > 0 ? layout.byIndex[ph.index] : null) ??
+              layout.byType[ph.type] ??
+              layout.byType[_equivalent(ph.type)];
+    final type = near?.type ?? ph.type;
+    final above = master == null
+        ? null
+        : master.byType[switch (type) {
+                'title' || 'ctrTitle' => 'title',
+                'dt' || 'ftr' || 'sldNum' || 'hdr' => type,
+                _ => 'body',
+              }] ??
+              master.byType[type] ??
+              master.byType[_equivalent(type)];
     if (above == null && near == null) return null;
 
     final merged = _Slot()
