@@ -2,7 +2,12 @@
     <application
         android:label="Quire"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/ic_launcher"
+        android:allowBackup="false"
+        android:fullBackupContent="false">
+        <!-- Nothing leaves the phone, the library included. Left on, backup
+             copies every imported document to the owner's cloud account and
+             on to their next phone. -->
         <!-- The reader is a sheet of paper held upright, so the screen stays
              upright. A page the file says is turned is turned by the reader
              when it draws it, and a thumb resting on the fore edge is not a
@@ -118,14 +123,12 @@
                 <data android:scheme="content"/>
                 <data android:scheme="file"/>
                 <data android:mimeType="application/vnd.openxmlformats-officedocument.wordprocessingml.document"/>
-                <data android:mimeType="application/msword"/>
             </intent-filter>
             <intent-filter>
                 <action android:name="android.intent.action.SEND"/>
                 <action android:name="android.intent.action.SEND_MULTIPLE"/>
                 <category android:name="android.intent.category.DEFAULT"/>
                 <data android:mimeType="application/vnd.openxmlformats-officedocument.wordprocessingml.document"/>
-                <data android:mimeType="application/msword"/>
             </intent-filter>
         </activity-alias>
 
@@ -150,20 +153,18 @@
                 <data android:scheme="content"/>
                 <data android:scheme="file"/>
                 <data android:mimeType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"/>
-                <data android:mimeType="application/vnd.ms-excel"/>
             </intent-filter>
             <intent-filter>
                 <action android:name="android.intent.action.SEND"/>
                 <action android:name="android.intent.action.SEND_MULTIPLE"/>
                 <category android:name="android.intent.category.DEFAULT"/>
                 <data android:mimeType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"/>
-                <data android:mimeType="application/vnd.ms-excel"/>
             </intent-filter>
         </activity-alias>
 
-        <!-- Slides are the newest of these and the only one with no older
-             binary beside it: quire reads the zipped presentation and says so,
-             and claims nothing it cannot open. -->
+        <!-- Only the zipped Office formats are claimed. The older .doc, .xls
+             and .ppt are compound files quire cannot read, and offering to
+             open one only to call it damaged is a claim the app cannot keep. -->
         <activity-alias
             android:name=".OpenPpt"
             android:targetActivity=".MainActivity"

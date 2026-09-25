@@ -7,6 +7,7 @@ import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart' show clampDouble;
+import 'package:flutter/material.dart' show showLicensePage;
 import 'package:flutter/physics.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter/widgets.dart';
@@ -1177,6 +1178,10 @@ class _DeskScreenState extends State<DeskScreen> with TickerProviderStateMixin {
       documents: _entries.length,
       words: widget.store.wordsIn(_entries),
       minutes: widget.store.minutesIn(_entries),
+      onLicences: () => showLicensePage(
+        context: context,
+        applicationName: 'Quire',
+      ),
     );
     // The body is what scrolls, because the rows are its own: a slot closing
     // behind a removal has to be able to move the list under the finger. The

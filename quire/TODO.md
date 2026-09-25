@@ -2,8 +2,8 @@
 
 ## 1. Fix first: old Word and Excel files
 
-- [ ] The phone offers quire for `.doc` and `.xls`, but they fail to open and show as damaged, because quire only reads the newer zipped formats. Pick one:
-  - [ ] Stop claiming them: take `application/msword` and `application/vnd.ms-excel` out of the Android manifest and the `doc`/`xls` mapping in `incoming_documents.dart`, or
+- [x] The phone offered quire for `.doc` and `.xls`, but they failed to open and showed as damaged, because quire only reads the newer zipped formats. Picked the first:
+  - [x] Stop claiming them: take `application/msword` and `application/vnd.ms-excel` out of the Android manifest and the `doc`/`xls` mapping in `incoming_documents.dart`, or
   - [ ] Say so plainly when one arrives ("an older Word file: save it as .docx to read it here"), until they can be read (see 2.9).
 
 ## 2. Formats to read

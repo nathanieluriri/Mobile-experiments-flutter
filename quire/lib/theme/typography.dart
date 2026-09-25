@@ -1,10 +1,11 @@
 import 'package:flutter/painting.dart';
 
-/// The one family the interface is set in. Quicksand is bundled and declared
-/// but never used: a reader must not compete with what it is displaying.
+/// The one family the interface is set in: a reader must not compete with
+/// what it is displaying.
 const kFontFamily = 'Inter';
 
-/// The brand mark's face, and nothing else's.
+/// The brand mark's face, and nothing else's. Only its semibold is bundled,
+/// because [AppText.markName] is the one style that uses it.
 ///
 /// The one relaxation of the single family rule. Document text, every label
 /// and every other string in the app stay [kFontFamily].

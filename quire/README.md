@@ -3,8 +3,10 @@
 # Quire
 
 A reader for the documents you are actually sent. It opens PDF, Word,
-spreadsheets, CSV and Markdown, and it treats every one of them as a document
-rather than as a file it happens to be able to display.
+spreadsheets, PowerPoint decks, CSV and Markdown, and it treats every one of
+them as a document rather than as a file it happens to be able to display.
+The Office formats are the zipped ones (.docx, .xlsx, .pptx); the older .doc,
+.xls and .ppt binaries are not read yet.
 
 ## What it does that other readers do not
 
@@ -29,6 +31,13 @@ finishing its sentence runs into the next, a strip no word crosses is a gutter,
 and a line repeated at the same height on most pages is a running head rather
 than part of the text.
 
+**A deck is laid on a bench and presented.** Every slide of a .pptx is set at
+its own shape, with its speaker notes on the back of the sheet, and present mode
+puts the slide alone on the screen with the deck's own titles to jump by.
+
+**A PDF can be sealed with a password,** in the file itself, so it asks for the
+password in any other reader too.
+
 **The reading can be fastened down.** Lock the way out, so a hand on the edge of
 the screen cannot close the document, or lock the page as well and every bar
 leaves the screen.
@@ -38,7 +47,9 @@ new size rather than magnifying it. Fit the width, the whole page, or actual
 size. Reflowing text for documents that have no pages of their own. And a loupe
 that follows your finger for the fine print.
 
-Everything stays on the device. There is no account, no sync and no network.
+Everything stays on the device. There is no account, no sync and no network:
+the app does not hold the internet permission, so Android itself refuses it a
+connection. The library is kept out of the phone's cloud backup as well.
 
 ## Running it
 
@@ -57,9 +68,11 @@ apps that can open a document.
 
 - `lib/pdf/` the page engine: parser, content interpreter, typesetter, and the
   incremental writer that puts a signature into an existing file
-- `lib/format/` the Word, spreadsheet, CSV and Markdown parsers
+- `lib/format/` the Word, spreadsheet, PowerPoint, CSV and Markdown parsers
 - `lib/model/` the one document model they all produce, and the search over it
 - `lib/screens/` the desk and the reader
 - `lib/painting/` everything drawn rather than laid out
 - `test/` unit tests for the parsing and the geometry, golden images for the
-  screens and for each animation's keyframes
+  screens and for each animation's keyframes. Run the suite with
+  `tool/test.sh`, which clears `test/failures/` first so every diff in it
+  belongs to the run that made it.

@@ -22,7 +22,12 @@ class DeskColophon extends StatelessWidget {
     required this.words,
     required this.minutes,
     this.topGap = kColophonGap,
+    this.onLicences,
   });
+
+  /// Opens the licences the app is bound by, fonts and packages together.
+  /// The link is left off when there is nowhere to open them.
+  final VoidCallback? onLicences;
 
   final int documents;
 
@@ -69,6 +74,19 @@ class DeskColophon extends StatelessWidget {
           textAlign: TextAlign.center,
           style: AppText.micro.copyWith(color: AppColors.inkFaint),
         ),
+        if (onLicences != null)
+          GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: onLicences,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 24),
+              child: Text(
+                'LICENCES',
+                textAlign: TextAlign.center,
+                style: AppText.micro.copyWith(color: AppColors.inkFaint),
+              ),
+            ),
+          ),
       ],
     );
   }

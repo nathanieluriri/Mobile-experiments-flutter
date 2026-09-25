@@ -211,18 +211,20 @@ void main() {
   });
 
   group('the formats it will take', () {
-    test('every one the desk reads, and the two old Office names', () {
+    test('every one the desk reads', () {
       expect(formatOfPath('/a/b.pdf'), DocFormat.pdf);
       expect(formatOfPath('/a/b.docx'), DocFormat.docx);
-      expect(formatOfPath('/a/b.doc'), DocFormat.docx);
       expect(formatOfPath('/a/b.xlsx'), DocFormat.xlsx);
-      expect(formatOfPath('/a/b.xls'), DocFormat.xlsx);
+      expect(formatOfPath('/a/b.pptx'), DocFormat.pptx);
       expect(formatOfPath('/a/b.csv'), DocFormat.csv);
       expect(formatOfPath('/a/b.md'), DocFormat.md);
       expect(formatOfPath('/a/b.markdown'), DocFormat.md);
     });
 
-    test('and nothing else', () {
+    test('and nothing else, the old Office binaries included', () {
+      expect(formatOfPath('/a/b.doc'), isNull);
+      expect(formatOfPath('/a/b.xls'), isNull);
+      expect(formatOfPath('/a/b.ppt'), isNull);
       expect(formatOfPath('/a/b.txt'), isNull);
       expect(formatOfPath('/a/b.mp4'), isNull);
       expect(formatOfPath('/a/b'), isNull);

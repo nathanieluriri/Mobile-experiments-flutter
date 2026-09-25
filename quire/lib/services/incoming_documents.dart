@@ -168,13 +168,8 @@ DocFormat? formatOfPath(String path) {
   final dot = path.lastIndexOf('.');
   if (dot < 0 || dot == path.length - 1) return null;
   final tail = path.substring(dot + 1).toLowerCase();
-  // The two the manifest asks for that are not one of the five the desk names.
-  final wanted = switch (tail) {
-    'doc' => 'docx',
-    'xls' => 'xlsx',
-    'ppt' => 'pptx',
-    'markdown' => 'md',
-    _ => tail,
-  };
+  // .doc, .xls and .ppt are not mapped on to their zipped successors: they
+  // are compound files, and every one handed over would read as damaged.
+  final wanted = tail == 'markdown' ? 'md' : tail;
   return DocFormat.forExtension(wanted);
 }
