@@ -282,11 +282,17 @@ class SlideShape {
     this.own,
     this.textable = false,
     this.chart,
+    this.brightness = 0,
+    this.contrast = 0,
   });
 
   /// The chart the shape is, drawn from its values when the file keeps no
   /// picture of it.
   final SlideChart? chart;
+
+  /// A picture's brightness and contrast, each from -1 to 1.
+  final double brightness;
+  final double contrast;
 
   final SlideBox box;
 
@@ -382,6 +388,8 @@ class SlideShape {
     own: own,
     textable: textable,
     chart: chart,
+    brightness: brightness,
+    contrast: contrast,
   );
 
   /// Every word the shape holds, in order.

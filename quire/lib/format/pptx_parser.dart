@@ -1130,6 +1130,8 @@ class PptxParser {
       own: idOf(el),
       textable: _ln(el) == 'sp',
       chart: drawn,
+      brightness: _lum(blip, 'bright'),
+      contrast: _lum(blip, 'contrast'),
     );
   }
 
@@ -1266,6 +1268,12 @@ class PptxParser {
       }
     }
     return null;
+  }
+
+  static double _lum(XmlElement? blip, String name) {
+    final lum = blip == null ? null : _kid(blip, 'lum');
+    final value = double.tryParse((lum == null ? null : _at(lum, name)) ?? '');
+    return value == null ? 0 : (value / 100000).clamp(-1.0, 1.0);
   }
 
   /// A chart read from its part: its kind, its categories and each series'
@@ -1405,8 +1413,12 @@ class PptxParser {
     }
     if (found == null) return null;
     var body = _kid(found, 'txBody');
+    var headingLook = false;
     if (cell != null) {
       final table = _find(found, 'tbl');
+      final properties = table == null ? null : _kid(table, 'tblPr');
+      final styleId = properties == null ? null : _kid(properties, 'tableStyleId')?.innerText.trim();
+      headingLook = cell.$1 == 0 && properties != null && _at(properties, 'firstRow') == '1' && styleId != null && styleId.isNotEmpty;
       final rows = table == null ? const <XmlElement>[] : _kids(table, 'tr').toList();
       final cells = cell.$1 < rows.length ? _kids(rows[cell.$1], 'tc').toList() : const <XmlElement>[];
       if (cell.$2 >= cells.length) return null;
@@ -1415,7 +1427,9 @@ class PptxParser {
     final ph = _placeholderOf(found);
     final slot = _slotFor(found, layout, master);
     final role = _roleOf(found, ph?.type);
-    final fontColour = _fontRefColour(_kid(found, 'style'), colours);
+    final fontColour = headingLook
+        ? colours['lt1'] ?? colours['bg1']
+        : _fontRefColour(_kid(found, 'style'), colours);
     SlideTextLook look(_Level level, int depth) => SlideTextLook(
       size: level.size ?? kSlideTextSize,
       bold: level.bold ?? false,
@@ -1428,7 +1442,7 @@ class PptxParser {
       level: depth,
       bullet: level.bullet,
     );
-    final bases = _bases(body, colours, slot, role, master, fontColour);
+    final bases = _bases(body, colours, slot, role, master, fontColour, headingLook ? true : null);
     final levels = <SlideTextLook>[
       for (var i = 0; i < 9; i++) look(bases(i), i),
     ];
@@ -1466,8 +1480,9 @@ class PptxParser {
     _Slot? slot,
     SlideRole role,
     _Frame? master,
-    int? fontColour,
-  ) {
+    int? fontColour, [
+    bool? fontBold,
+  ]) {
     final own = body == null ? null : _kid(body, 'lstStyle');
     final ownLevels = own == null ? const <int, _Level>{} : _listStyle(own, colours);
     final fromMaster = master?.textStyles[switch (role) {
@@ -1481,7 +1496,10 @@ class PptxParser {
       for (final step in <_Level?>[
         fromMaster[level],
         slot?.levels[level],
-        if (fontColour != null) _Level()..colour = fontColour,
+        if (fontColour != null || fontBold != null)
+          _Level()
+            ..colour = fontColour
+            ..bold = fontBold,
         ownLevels[level],
       ]) {
         if (step != null) style.layer(step);
@@ -1636,6 +1654,7 @@ class PptxParser {
     SlideRole role, [
     _Frame? master,
     int? fontColour,
+    bool? fontBold,
   ]) {
     final own = _kid(body, 'lstStyle');
     final ownLevels = own == null
@@ -1661,7 +1680,10 @@ class PptxParser {
       for (final step in <_Level?>[
         fromMaster[level],
         slot?.levels[level],
-        if (fontColour != null) _Level()..colour = fontColour,
+        if (fontColour != null || fontBold != null)
+          _Level()
+            ..colour = fontColour
+            ..bold = fontBold,
         ownLevels[level],
       ]) {
         if (step != null) style.layer(step);
@@ -1777,25 +1799,52 @@ class PptxParser {
     ];
     final properties = _kid(tbl, 'tblPr');
     final banded = _at(properties ?? tbl, 'firstRow') == '1';
+    final bandRows = _at(properties ?? tbl, 'bandRow') == '1';
+    final styleId = properties == null ? null : _kid(properties, 'tableStyleId')?.innerText.trim().toUpperCase();
+    // PowerPoint's Medium Style 2, its own default, which a file names and
+    // never spells out: a heading row in the accent with light words, and
+    // rows in two tints of it.
+    final accent = switch (styleId) {
+      '{5C22544A-7EE6-4342-B048-85BDC9FD1C3A}' => 'accent1',
+      '{21E4AEA4-8DFA-4A89-87EB-49C32662AFE8}' => 'accent2',
+      '{F5AB1C69-6EDB-4FF4-983F-18BD219EF322}' => 'accent3',
+      '{00A15C55-8517-42AA-B614-E9B94910E393}' => 'accent4',
+      '{7DF18680-E054-41AD-8BC1-D1AEF772440D}' => 'accent5',
+      '{93296810-A885-4BE3-A3E7-6D5BEEA58F35}' => 'accent6',
+      '{073A0DAA-6AF3-43AB-8588-CEC1D06C72B9}' => 'dk1',
+      _ => null,
+    };
+    final styled = accent == null ? null : colours[accent];
+    final light = colours['lt1'] ?? colours['bg1'] ?? 0xFFFFFFFF;
 
     final rows = <DocRow>[];
     var first = true;
+    var index = 0;
     for (final tr in _kids(tbl, 'tr')) {
       final cells = <DocCell>[];
+      final heading = first && banded;
+      final body = heading || !banded ? index : index - 1;
       for (final tc in _kids(tr, 'tc')) {
-        final body = _kid(tc, 'txBody');
+        final text = _kid(tc, 'txBody');
         final cellProperties = _kid(tc, 'tcPr');
+        final own = cellProperties == null ? null : _solidFill(cellProperties, colours);
+        final stated = cellProperties != null && _statesFill(cellProperties);
+        final styleFill = styled == null || stated
+            ? null
+            : heading
+            ? styled
+            : _tint(styled, bandRows && body.isEven ? 0.4 : 0.2);
         cells.add(
           DocCell(
-            body == null
+            text == null
                 ? const <DocBlock>[]
-                : _textBody(body, colours, null, SlideRole.other),
+                : heading && styled != null
+                ? _textBody(text, colours, null, SlideRole.other, null, light, true)
+                : _textBody(text, colours, null, SlideRole.other),
             colSpan: int.tryParse(_at(tc, 'gridSpan') ?? '') ?? 1,
             rowSpan: int.tryParse(_at(tc, 'rowSpan') ?? '') ?? 1,
             merged: _at(tc, 'hMerge') == '1' || _at(tc, 'vMerge') == '1',
-            background: cellProperties == null
-                ? null
-                : _solidFill(cellProperties, colours),
+            background: own ?? styleFill,
             verticalAlign: cellProperties == null
                 ? null
                 : _anchorOf(cellProperties),
@@ -1812,6 +1861,7 @@ class PptxParser {
         ),
       );
       first = false;
+      index++;
     }
     return TableBlock(rows, columns: columns);
   }

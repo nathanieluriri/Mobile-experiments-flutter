@@ -600,4 +600,53 @@ void main() {
       expect(child.text, startsWith('Taken at 09:40'));
     });
   });
+
+  group('after the round one bar critic, the minors', () {
+    testWidgets('an empty placeholder prompts in its own size, weight and alignment', (tester) async {
+      final state = await open(tester);
+      await openSlide(tester, state, 0);
+      final deck = state.deck!;
+      final layout = deck.layouts.firstWhere((l) => l.type == 'obj');
+      await tester.tap(find.byKey(const ValueKey<String>('strip-add')));
+      await settle(tester);
+      await tester.tap(find.byKey(ValueKey<String>('layout-${layout.path}')));
+      await settle(tester);
+      final slide = deck.slides[state.current];
+      final title = deck.objects(slide).firstWhere((o) => o.placeholder == 'title');
+      final body = deck.objects(slide).firstWhere((o) => o.placeholder == 'body' || o.placeholder == 'obj');
+      final prompts = state.prompts;
+      final titlePrompt = prompts.firstWhere((p) => p.text == 'Tap to add title');
+      final bodyPrompt = prompts.firstWhere((p) => p.text == 'Tap to add text');
+      final titleLook = deck.looks(slide, title.id)!.levels.first;
+      final bodyLook = deck.looks(slide, body.id)!.levels.first;
+      expect(titlePrompt.size, titleLook.size);
+      expect(titlePrompt.bold, titleLook.bold);
+      expect(titlePrompt.align, titleLook.align);
+      expect(bodyPrompt.size, bodyLook.size);
+      expect(titlePrompt.size, isNot(bodyPrompt.size));
+    });
+
+    testWidgets('typing in a turned box turns the words with it', (tester) async {
+      final state = await open(tester);
+      await openSlide(tester, state, 3);
+      final deck = state.deck!;
+      final slide = deck.slides[3];
+      final caption = objectNamed(state, 'Caption');
+      deck.place(slide, caption.id, caption.box, rotation: 30);
+      await tester.tapAt(global(tester, state, const Offset(20, 520)));
+      await settle(tester);
+      final into = global(tester, state, middleOf(caption.box));
+      await tester.tapAt(into);
+      await settle(tester);
+      await tester.tapAt(into);
+      await settle(tester);
+      expect(state.typing, isNotNull);
+      final turns = find.ancestor(of: find.byType(QuillEditor), matching: find.byType(Transform));
+      final angles = <double>[
+        for (final e in turns.evaluate())
+          math.atan2((e.widget as Transform).transform.entry(1, 0), (e.widget as Transform).transform.entry(0, 0)) * 180 / math.pi,
+      ];
+      expect(angles.where((a) => (a - 30).abs() < 0.01), hasLength(1));
+    });
+  });
 }

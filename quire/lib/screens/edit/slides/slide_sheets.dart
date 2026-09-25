@@ -243,6 +243,24 @@ class _ShapeFormatSheetState extends State<ShapeFormatSheet> {
             onPick: (value) => _do((d, s, i) => d.setLineDash(s, i, value)),
           ),
         ),
+        if (picture) ...<Widget>[
+          FormatRow(
+            label: 'Brightness',
+            child: ChoiceRow<double>(
+              choices: const <(double, String)>[(-0.4, '-40%'), (-0.2, '-20%'), (0, '0%'), (0.2, '+20%'), (0.4, '+40%')],
+              chosen: <double>[-0.4, -0.2, 0, 0.2, 0.4].reduce((a, b) => (a - shape.brightness).abs() <= (b - shape.brightness).abs() ? a : b),
+              onPick: (value) => _do((d, s, i) => d.setPictureLight(s, i, brightness: value, contrast: shape.contrast)),
+            ),
+          ),
+          FormatRow(
+            label: 'Contrast',
+            child: ChoiceRow<double>(
+              choices: const <(double, String)>[(-0.4, '-40%'), (-0.2, '-20%'), (0, '0%'), (0.2, '+20%'), (0.4, '+40%')],
+              chosen: <double>[-0.4, -0.2, 0, 0.2, 0.4].reduce((a, b) => (a - shape.contrast).abs() <= (b - shape.contrast).abs() ? a : b),
+              onPick: (value) => _do((d, s, i) => d.setPictureLight(s, i, brightness: shape.brightness, contrast: value)),
+            ),
+          ),
+        ],
         if (picture)
           FormatRow(
             label: 'Transparency',

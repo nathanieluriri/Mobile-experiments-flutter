@@ -1114,25 +1114,40 @@ class SlideEditorState extends State<SlideEditor> {
     );
   }
 
-  List<(SlideBox, double, String)> _hints(PptxDeck deck, String slide, SlideBlock block) => <(SlideBox, double, String)>[
+  /// The prompts in the empty placeholders of the slide open.
+  @visibleForTesting
+  List<SlidePrompt> get prompts {
+    final deck = _deck!;
+    final slide = deck.slides[_current];
+    return _hints(deck, slide, deck.slide(slide));
+  }
+
+  /// Each empty placeholder's prompt, set in the placeholder's own first
+  /// level: its size, its weight and its alignment, where its words would be.
+  List<SlidePrompt> _hints(PptxDeck deck, String slide, SlideBlock block) => <SlidePrompt>[
     for (final object in deck.objects(slide))
       if (object.placeholder != null && object.id != _typing?.object)
         if (block.shapes.where((s) => !s.inherited && s.id == object.id).every((s) => s.blocks.isEmpty))
-          (
-            object.box,
-            object.rotation,
-            switch (object.placeholder) {
-              'title' || 'ctrTitle' => 'Tap to add title',
-              'subTitle' => 'Tap to add subtitle',
-              'pic' => 'Picture',
-              'chart' => 'Chart',
-              'tbl' => 'Table',
-              _ => 'Tap to add text',
-            },
-          ),
+          () {
+            final look = deck.looks(slide, object.id)?.levels.first;
+            return SlidePrompt(
+              object.box,
+              object.rotation,
+              switch (object.placeholder) {
+                'title' || 'ctrTitle' => 'Tap to add title',
+                'subTitle' => 'Tap to add subtitle',
+                'pic' => 'Picture',
+                'chart' => 'Chart',
+                'tbl' => 'Table',
+                _ => 'Tap to add text',
+              },
+              size: look?.size ?? kSlideTextSize,
+              bold: look?.bold ?? false,
+              align: look?.align ?? DocAlign.start,
+              anchor: deck.shape(slide, object.id)?.verticalAlign,
+            );
+          }(),
   ];
-
-
 
   /// The selection as the overlay draws it.
   _Frame? _frame(PptxDeck deck, String slide) {
@@ -2182,6 +2197,21 @@ class SlideEditorState extends State<SlideEditor> {
   }
 }
 
+/// An empty placeholder's prompt as the canvas draws it.
+@visibleForTesting
+class SlidePrompt {
+  const SlidePrompt(this.box, this.rotation, this.text, {required this.size, required this.bold, required this.align, this.anchor});
+  final SlideBox box;
+  final double rotation;
+  final String text;
+
+  /// Points.
+  final double size;
+  final bool bold;
+  final DocAlign align;
+  final DocVerticalAlign? anchor;
+}
+
 /// The selection as the canvas draws it.
 class _Frame {
   const _Frame({
@@ -2215,7 +2245,7 @@ class _Overlay extends CustomPainter {
     required this.size,
   });
 
-  final List<(SlideBox, double, String)> hints;
+  final List<SlidePrompt> hints;
   final _Frame? frame;
   final SlideBox? typingBox;
   final double typingTurn;
@@ -2244,24 +2274,36 @@ class _Overlay extends CustomPainter {
       ..color = const Color(0x99808080)
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1;
-    for (final (box, rotation, text) in hints) {
-      _turned(canvas, box, rotation, (rect) {
+    for (final hint in hints) {
+      _turned(canvas, hint.box, hint.rotation, (rect) {
         canvas.drawPath(dashedPath(Path()..addRect(rect), const <double>[4, 3], 1.5), hairline);
         final painter = TextPainter(
           text: TextSpan(
-            text: text,
+            text: hint.text,
             style: TextStyle(
               fontFamily: 'Inter',
-              fontSize: math.max(10, math.min(22, rect.height * 0.3)),
-              color: const Color(0xFF808080),
+              fontSize: math.max(8, hint.size * scale),
+              height: 1.22,
+              fontWeight: hint.bold ? FontWeight.w700 : FontWeight.w400,
+              color: const Color(0xFF8A8A8A),
               decoration: TextDecoration.none,
             ),
           ),
           textDirection: TextDirection.ltr,
+          textAlign: switch (hint.align) {
+            DocAlign.center => TextAlign.center,
+            DocAlign.end => TextAlign.right,
+            _ => TextAlign.left,
+          },
           maxLines: 1,
           ellipsis: '…',
-        )..layout(maxWidth: math.max(0, rect.width - 8));
-        painter.paint(canvas, rect.center - Offset(painter.width / 2, painter.height / 2));
+        )..layout(minWidth: math.max(0, rect.width - 8), maxWidth: math.max(0, rect.width - 8));
+        final y = switch (hint.anchor) {
+          DocVerticalAlign.center => rect.center.dy - painter.height / 2,
+          DocVerticalAlign.bottom => rect.bottom - painter.height - 4,
+          _ => rect.top + 4,
+        };
+        painter.paint(canvas, Offset(rect.left + 4, y));
       });
     }
     final guides = this.guides;

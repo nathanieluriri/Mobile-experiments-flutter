@@ -668,4 +668,62 @@ void main() {
       expect(inner(made), isNot(contains('Reviewer')));
     });
   });
+
+  group('after the round three critic', () {
+    String inner(XmlElement p) => p.toXmlString();
+
+    const chapter = '<w:p><w:pPr><w:pStyle w:val="Heading1"/><w:pageBreakBefore/><w:spacing w:before="480"/></w:pPr>'
+        '<w:r><w:t>Chapter Two</w:t></w:r></w:p>'
+        '<w:p><w:pPr><w:ind w:firstLine="720"/></w:pPr><w:bookmarkStart w:id="0" w:name="night"/>'
+        '<w:r><w:rPr><w:i/></w:rPr><w:t xml:space="preserve">It was a long night.</w:t></w:r><w:bookmarkEnd w:id="0"/>'
+        '<w:r><w:t xml:space="preserve"> The press ran until four in the morning.</w:t></w:r></w:p>';
+
+    test('both halves of a paragraph split near its start keep its own properties and marks', () {
+      final file = Opened(docx(chapter));
+      file.doc.insert(file.at('was a long'), '\n');
+      final saved = file.save();
+      final first = paragraphWith(saved, 'It ');
+      final second = paragraphWith(saved, 'was a long');
+      for (final half in <XmlElement>[first, second]) {
+        expect(inner(half), contains('w:firstLine="720"'));
+        expect(inner(half), isNot(contains('Heading1')));
+        expect(inner(half), isNot(contains('pageBreakBefore')));
+        expect(inner(half), contains('<w:i/>'));
+      }
+      expect(textOf(first), 'It ');
+      expect(inner(first), contains('<w:bookmarkStart w:id="0" w:name="night"/>'));
+      expect(inner(second), contains('<w:bookmarkEnd w:id="0"/>'));
+    });
+
+    test('Enter at a paragraph\'s start makes an empty paragraph like it, not like the heading above', () {
+      final file = Opened(docx(chapter));
+      file.doc.insert(file.at('It was'), '\n');
+      final body = bodyOf(file.save()).where((e) => e.name.local == 'p').toList();
+      expect(body, hasLength(3));
+      expect(textOf(body[1]), isEmpty);
+      expect(inner(body[1]), isNot(contains('pageBreakBefore')));
+      expect(inner(body[1]), isNot(contains('Heading1')));
+      expect(inner(body[1]), contains('w:firstLine="720"'));
+    });
+
+    test('a line typed after a heading has none of the heading\'s own breaks or spacing', () {
+      final file = Opened(docx('$chapter<w:p><w:pPr><w:pStyle w:val="Heading1"/><w:pageBreakBefore/><w:spacing w:before="480"/></w:pPr>'
+          '<w:r><w:t>Chapter Three</w:t></w:r></w:p>'));
+      file.enterAfter('Chapter Three', 'A typed line.');
+      final made = paragraphWith(file.save(), 'A typed line.');
+      expect(inner(made), isNot(contains('pageBreakBefore')));
+      expect(inner(made), isNot(contains('w:spacing')));
+      expect(inner(made), isNot(contains('Heading1')));
+    });
+
+    test('a pasted control character is a line break or nothing, never a bad character', () {
+      final file = Opened(docx('<w:p><w:r><w:t>Second body paragraph.</w:t></w:r></w:p>'));
+      final controls = String.fromCharCodes(<int>[for (var u = 0; u < 0x20; u++) if (u != 0x09 && u != 0x0A && u != 0x0B) u]);
+      file.type('Second body', 'Quoted from the deck:\u000Bsecond line$controls ');
+      final xml = documentXml(file.save());
+      expect(RegExp(r'&#x?[0-9A-Fa-f]+;').hasMatch(xml), isFalse);
+      expect(xml.runes.where((u) => u < 0x20), isEmpty);
+      expect(xml, contains('Quoted from the deck:</w:t><w:br/><w:t xml:space="preserve">second line '));
+    });
+  });
 }

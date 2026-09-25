@@ -1441,7 +1441,7 @@ class DocxDelta {
       }
       final written = _paragraphFor(
         line,
-        para ?? lastSource ?? _nextPara(lines, matches, i),
+        para ?? _freshSource(lines, matches, i, lastSource),
         fresh: para == null,
         before: lastList,
         after: _nextList(lines, matches, i),
@@ -1458,6 +1458,24 @@ class DocxDelta {
   }
 
   _Out _original(int index) => _Out.original(index, _children[index]);
+
+  /// The paragraph a line with none of its own takes after: the one before
+  /// it, or the one after it when the line is shaped like that one and not
+  /// the one before, as Enter at a paragraph's start makes it.
+  _Para? _freshSource(List<_Line> lines, List<int?> matches, int i, _Para? lastSource) {
+    final next = _nextPara(lines, matches, i);
+    if (lastSource == null) return next;
+    final shape = lines[i].attributes;
+    if (next != null && _sameShape(shape, next.lineAttributes) && !_sameShape(shape, lastSource.lineAttributes)) {
+      return next;
+    }
+    return lastSource;
+  }
+
+  static bool _sameShape(Map<String, Object?> a, Map<String, Object?> b) {
+    final keys = <String>{...a.keys, ...b.keys};
+    return keys.every((k) => a[k] == b[k]);
+  }
 
   /// The paragraph read from the file that the next line after [i] with one
   /// stands for, before any table or break.
@@ -1805,9 +1823,8 @@ class DocxDelta {
       }
       return;
     }
-    int score(int x, int y) {
-      final a = _units[gapA[x]] is _Para ? (_units[gapA[x]] as _Para).text : '';
-      final t = b[gapB[y]].text;
+    String paraText(int x) => _units[gapA[x]] is _Para ? (_units[gapA[x]] as _Para).text : '';
+    int shared(String a, String t) {
       var p = 0;
       while (p < a.length && p < t.length && a.codeUnitAt(p) == t.codeUnitAt(p)) {
         p++;
@@ -1819,26 +1836,54 @@ class DocxDelta {
       return p + q;
     }
 
+    // A line shares with a paragraph, with the paragraphs it joined, or
+    // with the lines split off after it, what their words have in common
+    // at the start and the end.
+    int score(int x, int k, int y, int l) => shared(
+      <String>[for (var c = x; c < x + k; c++) paraText(c)].join(),
+      <String>[for (var c = y; c < y + l; c++) b[gapB[c]].text].join(),
+    );
+    const most = 3;
     final table = List<List<int>>.generate(n + 1, (_) => List<int>.filled(m + 1, 0));
-    final scores = List<List<int>>.generate(n, (x) => List<int>.generate(m, (y) => score(x, y)));
+    final pick = List<List<(int, int)>>.generate(n + 1, (_) => List<(int, int)>.filled(m + 1, (0, 0)));
     for (var x = n - 1; x >= 0; x--) {
       for (var y = m - 1; y >= 0; y--) {
-        final take = scores[x][y] > 0 ? scores[x][y] + table[x + 1][y + 1] : -1;
-        table[x][y] = math.max(take, math.max(table[x + 1][y], table[x][y + 1]));
+        final one = score(x, 1, y, 1);
+        var best = table[x + 1][y];
+        var choice = (1, 0);
+        if (table[x][y + 1] > best) {
+          best = table[x][y + 1];
+          choice = (0, 1);
+        }
+        if (one > 0 && one + table[x + 1][y + 1] >= best) {
+          best = one + table[x + 1][y + 1];
+          choice = (1, 1);
+        }
+        // A join or a split has to share more than any plainer reading.
+        for (var k = 2; k <= most && x + k <= n; k++) {
+          final total = score(x, k, y, 1) + table[x + k][y + 1];
+          if (total > best) {
+            best = total;
+            choice = (k, 1);
+          }
+        }
+        for (var l = 2; l <= most && y + l <= m; l++) {
+          final total = score(x, 1, y, l) + table[x + 1][y + l];
+          if (total > best) {
+            best = total;
+            choice = (1, l);
+          }
+        }
+        table[x][y] = best;
+        pick[x][y] = choice;
       }
     }
     var x = 0, y = 0;
     while (x < n && y < m) {
-      final take = scores[x][y] > 0 ? scores[x][y] + table[x + 1][y + 1] : -1;
-      if (take >= 0 && take == table[x][y]) {
-        result[gapB[y]] = gapA[x];
-        x++;
-        y++;
-      } else if (table[x + 1][y] >= table[x][y + 1]) {
-        x++;
-      } else {
-        y++;
-      }
+      final (k, l) = pick[x][y];
+      if (k > 0 && l > 0) result[gapB[y]] = gapA[x];
+      x += k;
+      y += l;
     }
   }
 
@@ -1855,7 +1900,13 @@ class DocxDelta {
     _Slice? slice,
   }) {
     final p = XmlElement(_w('p'));
-    final props = source?.pPr?.copy() ?? XmlElement(_w('pPr'));
+    // A line typed after a heading or a quote is plain text, with none of
+    // that paragraph's own spacing, breaks or look.
+    final plain = fresh &&
+        source != null &&
+        (source.lineAttributes['header'] != line.attributes['header'] ||
+            source.lineAttributes['blockquote'] != line.attributes['blockquote']);
+    final props = (plain ? null : source?.pPr?.copy()) ?? XmlElement(_w('pPr'));
     // Section breaks are put back by their own lines.
     props.getElement('w:sectPr')?.remove();
     // A paragraph made from its neighbour is the writer's own, never a
@@ -1874,7 +1925,7 @@ class DocxDelta {
         source.lineAttributes['blockquote'] == line.attributes['blockquote'];
     final text = line.text;
     final share = slice ?? (fresh || source == null ? null : _sliceGroup(<String>[text], <_Para>[source]).single);
-    final bases = share?.bases ?? _freshBases(text, source);
+    final bases = share?.bases ?? _freshBases(text, plain ? null : source);
     final marks = <(int, XmlElement)>[...?share?.marks];
     _sortMarks(marks);
     var nextMark = 0;
@@ -2126,10 +2177,13 @@ class DocxDelta {
       if (unit == 0x09) {
         flush();
         r.children.add(XmlElement(_w('tab')));
-      } else if (unit == 0x2028) {
+      } else if (unit == 0x2028 || unit == 0x0B) {
+        // A vertical tab is the line break of text copied from Word or
+        // PowerPoint.
         flush();
         r.children.add(XmlElement(_w('br')));
-      } else {
+      } else if (unit >= 0x20 && unit != 0xFFFE && unit != 0xFFFF) {
+        // Other control characters cannot be written in XML.
         buffer.writeCharCode(unit);
       }
     }

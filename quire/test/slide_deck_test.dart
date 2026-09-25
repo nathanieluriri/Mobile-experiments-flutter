@@ -3,10 +3,13 @@ import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
+import 'package:flutter_quill/flutter_quill.dart' show Document, QuillController;
 import 'package:flutter_quill/quill_delta.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:quire/edit/pptx_deck.dart';
 import 'package:quire/edit/pptx_text.dart';
+import 'package:quire/edit/pptx_themes.dart';
 import 'package:quire/format/pptx_parser.dart';
 import 'package:quire/model/document.dart';
 import 'package:quire/screens/reader/bodies/slide_sheet.dart';
@@ -49,24 +52,45 @@ void _expectWhole(Uint8List bytes) {
   for (final o in overrides) {
     expect(names.contains(o), isTrue, reason: 'content type for missing $o');
   }
+  String resolve(String owner, String target) {
+    final dir = owner.contains('/') ? owner.substring(0, owner.lastIndexOf('/')) : '';
+    final steps = <String>[if (dir.isNotEmpty) ...dir.split('/')];
+    for (final step in target.split('/')) {
+      if (step == '..') {
+        steps.removeLast();
+      } else if (step.isNotEmpty && step != '.') {
+        steps.add(step);
+      }
+    }
+    return target.startsWith('/') ? target.substring(1) : steps.join('/');
+  }
   for (final entry in parts.entries) {
     if (!entry.key.endsWith('.rels')) continue;
     final owner = entry.key.replaceFirst('_rels/', '').replaceFirst(RegExp(r'\.rels$'), '');
     for (final rel in XmlDocument.parse(entry.value).rootElement.childElements) {
       if (rel.getAttribute('TargetMode') == 'External') continue;
-      final target = rel.getAttribute('Target')!;
-      final dir = owner.contains('/') ? owner.substring(0, owner.lastIndexOf('/')) : '';
-      final parts = <String>[if (dir.isNotEmpty) ...dir.split('/')];
-      for (final step in target.split('/')) {
-        if (step == '..') {
-          parts.removeLast();
-        } else if (step.isNotEmpty && step != '.') {
-          parts.add(step);
-        }
-      }
-      final resolved = target.startsWith('/') ? target.substring(1) : parts.join('/');
+      final resolved = resolve(owner, rel.getAttribute('Target')!);
       expect(names.contains(resolved), isTrue, reason: '${entry.key} points at missing $resolved');
     }
+  }
+  final reached = <String>{'[Content_Types].xml'};
+  final queue = <String>[''];
+  while (queue.isNotEmpty) {
+    final owner = queue.removeLast();
+    final cut = owner.lastIndexOf('/');
+    final rels = owner.isEmpty ? '_rels/.rels' : '${owner.substring(0, cut + 1)}_rels/${owner.substring(cut + 1)}.rels';
+    final xml = parts[rels];
+    if (xml == null) continue;
+    reached.add(rels);
+    for (final rel in XmlDocument.parse(xml).rootElement.childElements) {
+      if (rel.getAttribute('TargetMode') == 'External') continue;
+      final to = resolve(owner, rel.getAttribute('Target')!);
+      if (reached.add(to)) queue.add(to);
+    }
+  }
+  for (final name in names) {
+    if (name.endsWith('/')) continue;
+    expect(reached.contains(name), isTrue, reason: '$name is in the file with nothing pointing at it');
   }
 }
 
@@ -144,6 +168,65 @@ Uint8List _charted(Uint8List bytes) {
     out.addFile(text == null ? ArchiveFile.bytes(f.name, f.content) : ArchiveFile.string(f.name, text));
   }
   out.addFile(ArchiveFile.string('ppt/charts/chart1.xml', chart));
+  return ZipEncoder().encodeBytes(out);
+}
+
+/// The sample deck with slide 2's body holding a plain paragraph, a
+/// Japanese one in its own East Asian face, one with a link to a web page
+/// and one to slide 6, and a second-level one in Georgia.
+Uint8List _linked(Uint8List bytes) {
+  const body = '<p:txBody><a:bodyPr/><a:lstStyle/>'
+      '<a:p><a:r><a:rPr lang="en-GB"/><a:t>Forme three</a:t></a:r></a:p>'
+      '<a:p><a:r><a:rPr lang="ja-JP" altLang="en-US"><a:ea typeface="MS Mincho"/></a:rPr><a:t>\u65E5\u672C\u8A9E\u306E\u30C6\u30AD\u30B9\u30C8\u3067\u3059</a:t></a:r></a:p>'
+      '<a:p><a:r><a:rPr lang="en-GB"><a:hlinkClick r:id="rId2"/></a:rPr><a:t>Visit the site</a:t></a:r>'
+      '<a:r><a:rPr lang="en-GB"/><a:t> or </a:t></a:r>'
+      '<a:r><a:rPr lang="en-GB"><a:hlinkClick r:id="rId3" action="ppaction://hlinksldjump"/></a:rPr><a:t>jump to wrap up</a:t></a:r></a:p>'
+      '<a:p><a:pPr lvl="1"/><a:r><a:rPr lang="en-GB" sz="2000"><a:latin typeface="Georgia"/></a:rPr><a:t>Second level in Georgia</a:t></a:r></a:p>'
+      '</p:txBody>';
+  final archive = ZipDecoder().decodeBytes(bytes);
+  final out = Archive();
+  for (final f in archive.files) {
+    var text = f.name.endsWith('.xml') || f.name.endsWith('.rels') ? utf8.decode(f.content) : null;
+    if (f.name == 'ppt/slides/slide2.xml') {
+      final at = text!.indexOf('<p:txBody>', text.indexOf('name="Content 2"'));
+      final end = text.indexOf('</p:txBody>', at) + '</p:txBody>'.length;
+      text = text.replaceRange(at, end, body);
+    }
+    if (f.name == 'ppt/slides/_rels/slide2.xml.rels') {
+      text = text!.replaceFirst(
+        '</Relationships>',
+        '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" Target="https://example.com/" TargetMode="External"/>'
+            '<Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slide6.xml"/></Relationships>',
+      );
+    }
+    out.addFile(text == null ? ArchiveFile.bytes(f.name, f.content) : ArchiveFile.string(f.name, text));
+  }
+  return ZipEncoder().encodeBytes(out);
+}
+
+/// The sample deck with a table on its last slide that leaves its look
+/// to PowerPoint's Medium Style 2 in the first accent: a heading row and
+/// banded rows, no fills of its own.
+Uint8List _styledTable(Uint8List bytes) {
+  String row(String a, String b) => '<a:tr h="370840">'
+      '<a:tc><a:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:rPr lang="en-GB"/><a:t>$a</a:t></a:r></a:p></a:txBody><a:tcPr/></a:tc>'
+      '<a:tc><a:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:rPr lang="en-GB"/><a:t>$b</a:t></a:r></a:p></a:txBody><a:tcPr/></a:tc></a:tr>';
+  final frame = '<p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="31" name="Table 31"/><p:cNvGraphicFramePr><a:graphicFrameLocks noGrp="1"/></p:cNvGraphicFramePr><p:nvPr/></p:nvGraphicFramePr>'
+      '<p:xfrm><a:off x="914400" y="1828800"/><a:ext cx="4572000" cy="1112520"/></p:xfrm><a:graphic>'
+      '<a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/table"><a:tbl>'
+      '<a:tblPr firstRow="1" bandRow="1"><a:tableStyleId>{5C22544A-7EE6-4342-B048-85BDC9FD1C3A}</a:tableStyleId></a:tblPr>'
+      '<a:tblGrid><a:gridCol w="2286000"/><a:gridCol w="2286000"/></a:tblGrid>'
+      '${row('Forme', 'Stock')}${row('One', 'Laid')}${row('Two', 'Wove')}'
+      '</a:tbl></a:graphicData></a:graphic></p:graphicFrame>';
+  final archive = ZipDecoder().decodeBytes(bytes);
+  final out = Archive();
+  for (final f in archive.files) {
+    if (f.name == 'ppt/slides/slide6.xml') {
+      out.addFile(ArchiveFile.string(f.name, utf8.decode(f.content).replaceFirst('</p:spTree>', '$frame</p:spTree>')));
+    } else {
+      out.addFile(ArchiveFile.bytes(f.name, f.content));
+    }
+  }
   return ZipEncoder().encodeBytes(out);
 }
 
@@ -523,6 +606,187 @@ void main() {
       expect(items.first.level, 1);
       expect(items.first.marker, '–');
       expect(items.first.spans.first.fontSize, 17);
+    });
+  });
+
+  group('after the round one bar critic, the minors', () {
+    test('a change that changes nothing is no step to undo', () {
+      final deck = PptxDeck(bytes);
+      final slide = deck.slides[3];
+      final top = deck.objects(slide).last;
+      deck.order(slide, top.id, SlideOrder.front);
+      expect(deck.steps, 0);
+      final theme = kSlideThemes[2];
+      void paper() => deck.applyTheme(name: theme.name, colours: theme.colours, headings: theme.headings, body: theme.body, dark: theme.dark);
+      paper();
+      expect(deck.steps, 1);
+      paper();
+      expect(deck.steps, 1);
+      deck.setFill(slide, top.id, 0xFF112233);
+      deck.setFill(slide, top.id, 0xFF112233);
+      expect(deck.steps, 2);
+    });
+
+    test('a picture takes brightness and contrast', () {
+      final deck = PptxDeck(bytes);
+      final slide = deck.slides[3];
+      final picture = deck.objects(slide).firstWhere((o) => o.isPicture);
+      deck.setPictureLight(slide, picture.id, brightness: 0.2, contrast: -0.2);
+      expect(_parts(deck.write())['ppt/slides/slide4.xml'], contains('<a:lum bright="20000" contrast="-20000"/>'));
+      _expectWhole(deck.write());
+      final again = _reopen(deck);
+      final shape = again.shape(again.slides[3], picture.id)!;
+      expect(shape.brightness, closeTo(0.2, 1e-9));
+      expect(shape.contrast, closeTo(-0.2, 1e-9));
+    });
+
+    testWidgets('a lightened picture is drawn lighter', (tester) async {
+      final deck = PptxDeck((await tester.runAsync(() => documentBytes(kPressDayBriefing)))!);
+      final slide = deck.slides[3];
+      final picture = deck.objects(slide).firstWhere((o) => o.isPicture);
+      await tester.pumpWidget(MaterialApp(home: SlideSheet(slide: deck.slide(slide), assets: deck.assets, width: 400)));
+      expect(find.byType(ColorFiltered), findsNothing);
+      deck.setPictureLight(slide, picture.id, brightness: 0.4, contrast: 0);
+      await tester.pumpWidget(MaterialApp(home: SlideSheet(slide: deck.slide(slide), assets: deck.assets, width: 400)));
+      final filter = tester.widget<ColorFiltered>(find.byType(ColorFiltered));
+      expect(filter.colorFilter, const ColorFilter.matrix(<double>[1, 0, 0, 0, 102, 0, 1, 0, 0, 102, 0, 0, 1, 0, 102, 0, 0, 0, 1, 0]));
+    });
+
+    test('a table in PowerPoint\'s own style is drawn in it', () {
+      final deck = PptxDeck(_styledTable(bytes));
+      final table = deck.slide(deck.slides[5]).shapes.expand((s) => s.blocks).whereType<TableBlock>().single;
+      final accent = deck.themeColours(deck.masters.single)['accent1']!;
+      final head = table.rows.first.cells.first;
+      expect(head.background! & 0xFFFFFF, accent & 0xFFFFFF);
+      final span = head.blocks.whereType<ParagraphBlock>().first.spans.first;
+      expect(span.bold, isTrue);
+      expect(span.color! & 0xFFFFFF, deck.themeColours(deck.masters.single)['lt1']! & 0xFFFFFF);
+      final one = table.rows[1].cells.first.background;
+      final two = table.rows[2].cells.first.background;
+      expect(one, isNotNull);
+      expect(two, isNotNull);
+      expect(one, isNot(two));
+      final looks = deck.looks(deck.slides[5], 31, cell: (0, 0))!;
+      expect(looks.levels.first.bold, isTrue);
+    });
+
+    testWidgets('list numbers stand on one line in a slide as small as the strip draws', (tester) async {
+      final deck = PptxDeck((await tester.runAsync(() => documentBytes(kPressDayBriefing)))!);
+      final slide = deck.slides[1];
+      final body = deck.objects(slide).firstWhere((o) => o.placeholder == 'body');
+      final text = SlideText.read(deck.textBody(slide, body.id), deck.looks(slide, body.id)!);
+      final ops = <Map<String, dynamic>>[
+        for (var i = 1; i <= 12; i++) ...<Map<String, dynamic>>[
+          <String, dynamic>{'insert': 'Point $i'},
+          <String, dynamic>{'insert': '\n', 'attributes': <String, dynamic>{'list': 'ordered'}},
+        ],
+      ];
+      deck.setText(slide, body.id, text.write(deck.slideDoc(slide), ops));
+      await tester.pumpWidget(MaterialApp(home: Center(child: SlideSheet(slide: deck.slide(slide), assets: deck.assets, width: 100))));
+      final marker = find.text('12.', findRichText: true);
+      expect(marker, findsOneWidget);
+      final paragraph = tester.renderObject<RenderParagraph>(marker);
+      final boxes = paragraph.getBoxesForSelection(const TextSelection(baseOffset: 0, extentOffset: 3));
+      expect(boxes.map((b) => b.top.round()).toSet(), hasLength(1));
+    });
+  });
+
+  group('after the round one file critic', () {
+
+    /// Edits slide 2's body of [deck] through the editor's own controller
+    /// and saves the typing; returns the slide's written XML.
+    String typeInBody(PptxDeck deck, void Function(QuillController c) edit) {
+      final slide = deck.slides[1];
+      final text = SlideText.read(deck.textBody(slide, 3), deck.looks(slide, 3)!);
+      final c = QuillController(document: Document.fromJson(text.ops), selection: const TextSelection.collapsed(offset: 0));
+      edit(c);
+      deck.setText(slide, 3, text.write(deck.slideDoc(slide), c.document.toDelta().toJson()));
+      final out = deck.write();
+      _expectWhole(out);
+      return _parts(out)['ppt/slides/slide2.xml']!;
+    }
+
+    List<XmlElement> paragraphs(String xml) {
+      final doc = XmlDocument.parse(xml);
+      final body = doc.rootElement.descendantElements.where((e) => e.name.local == 'sp').elementAt(1);
+      return body.descendantElements.where((e) => e.name.local == 'p').toList();
+    }
+
+    String textOf(XmlElement p) => p.descendantElements.where((e) => e.name.local == 't').map((e) => e.innerText).join();
+
+    XmlElement runWith(XmlElement p, String words) =>
+        p.childElements.firstWhere((r) => r.name.local == 'r' && textOf(r).contains(words));
+
+    int at(QuillController c, String words) => c.document.toPlainText().indexOf(words);
+
+    test('a paragraph split before a link keeps that link on its words', () {
+      final xml = typeInBody(PptxDeck(_linked(bytes)), (c) => c.replaceText(at(c, 'jump to'), 0, '\n', null));
+      final ps = paragraphs(xml);
+      expect(ps.map(textOf), <String>['Forme three', '\u65E5\u672C\u8A9E\u306E\u30C6\u30AD\u30B9\u30C8\u3067\u3059', 'Visit the site or ', 'jump to wrap up', 'Second level in Georgia']);
+      expect(runWith(ps[3], 'jump').toXmlString(), contains('r:id="rId3"'));
+      expect(runWith(ps[2], 'Visit').toXmlString(), contains('r:id="rId2"'));
+      expect(runWith(ps[2], ' or ').toXmlString(), isNot(contains('hlinkClick')));
+    });
+
+    test('a line typed after a link is plain', () {
+      final xml = typeInBody(PptxDeck(_linked(bytes)), (c) {
+        final end = at(c, 'wrap up') + 'wrap up'.length;
+        c.replaceText(end, 0, '\n', null);
+        c.replaceText(end + 1, 0, 'A plain new point', null);
+      });
+      final ps = paragraphs(xml);
+      expect(textOf(ps[3]), 'A plain new point');
+      expect(ps[3].toXmlString(), isNot(contains('hlinkClick')));
+      expect(runWith(ps[2], 'jump').toXmlString(), contains('r:id="rId3"'));
+    });
+
+    test('joined paragraphs keep each word its own face, language and link', () {
+      final deck = PptxDeck(_linked(bytes));
+      var xml = typeInBody(deck, (c) => c.replaceText(at(c, 'Visit') - 1, 1, '', null));
+      var ps = paragraphs(xml);
+      expect(ps, hasLength(3));
+      final japanese = runWith(ps[1], '\u65E5\u672C').toXmlString();
+      expect(japanese, contains('lang="ja-JP"'));
+      expect(japanese, contains('<a:ea typeface="MS Mincho"/>'));
+      expect(japanese, isNot(contains('hlinkClick')));
+      expect(runWith(ps[1], 'Visit').toXmlString(), contains('r:id="rId2"'));
+      xml = typeInBody(deck, (c) => c.replaceText(at(c, 'Second level') - 1, 1, '', null));
+      ps = paragraphs(xml);
+      final georgia = runWith(ps.last, 'Second level').toXmlString();
+      expect(georgia, contains('<a:latin typeface="Georgia"/>'));
+      expect(georgia, isNot(contains('hlinkClick')));
+      expect(runWith(ps.last, 'jump').toXmlString(), contains('r:id="rId3"'));
+    });
+
+    test('a pasted control character is a line break or nothing, never a bad character', () {
+      final deck = PptxDeck(bytes);
+      final slide = deck.slides[0];
+      final title = deck.objects(slide).firstWhere((o) => o.placeholder == 'ctrTitle' || o.placeholder == 'title');
+      final text = SlideText.read(deck.textBody(slide, title.id), deck.looks(slide, title.id)!);
+      final c = QuillController(document: Document.fromJson(text.ops), selection: const TextSelection.collapsed(offset: 0));
+      final controls = String.fromCharCodes(<int>[for (var u = 0; u < 0x20; u++) if (u != 0x09 && u != 0x0A && u != 0x0D && u != 0x0B) u]);
+      c.replaceText(0, 0, 'Line one\u000Bline two$controls ', null);
+      deck.setText(slide, title.id, text.write(deck.slideDoc(slide), c.document.toDelta().toJson()));
+      final xml = _parts(deck.write())['ppt/slides/slide1.xml']!;
+      expect(RegExp(r'&#x?[0-9A-Fa-f]+;').hasMatch(xml), isFalse);
+      expect(xml.runes.where((u) => u < 0x20 && u != 0x09 && u != 0x0A && u != 0x0D), isEmpty);
+      expect(xml, contains('<a:t>Line one</a:t></a:r><a:br>'));
+      expect(xml, contains('<a:t>line two '));
+    });
+    test('a deleted slide takes the parts only it pointed at', () {
+      final deck = PptxDeck(bytes);
+      deck.deleteSlides(<String>{deck.slides[3]});
+      final out = deck.write();
+      _expectWhole(out);
+      expect(_names(out), isNot(contains('ppt/media/image1.png')));
+      final charted = PptxDeck(_charted(bytes));
+      final clip = charted.copySlides(<String>[charted.slides[5]]);
+      charted.deleteSlides(<String>{charted.slides[5]}, label: 'Cut');
+      charted.pasteSlides(clip, 0);
+      final pasted = charted.write();
+      _expectWhole(pasted);
+      expect(_names(pasted).where((n) => n.startsWith('ppt/charts/')), hasLength(1));
+      expect(_parts(pasted)['[Content_Types].xml'], isNot(contains('/ppt/charts/chart1.xml')));
     });
   });
 }

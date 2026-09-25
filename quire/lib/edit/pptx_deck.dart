@@ -327,9 +327,31 @@ class PptxDeck {
       _now = before;
       rethrow;
     }
+    if (_unchanged(before, _now)) {
+      _now = before;
+      return;
+    }
     _undo.add((before, label));
     _redo.clear();
     _moved(before, _now);
+  }
+
+  /// True when [b] holds the very parts [a] does, however they were
+  /// written again.
+  bool _unchanged(_State a, _State b) {
+    if (a.gone.length != b.gone.length || !a.gone.containsAll(b.gone)) return false;
+    if (a.bytes.length != b.bytes.length) return false;
+    for (final e in b.bytes.entries) {
+      if (!identical(a.bytes[e.key], e.value)) return false;
+    }
+    for (final key in <String>{...a.texts.keys, ...b.texts.keys}) {
+      final was = a.texts[key], now = b.texts[key];
+      if (identical(was, now) || was == now) continue;
+      final original = _zip.find(key);
+      final read = original == null ? null : utf8.decode(original.content, allowMalformed: true);
+      if ((was ?? read) != (now ?? read)) return false;
+    }
+    return true;
   }
 
   void undo() {
@@ -391,19 +413,89 @@ class PptxDeck {
   /// has changed.
   Uint8List write() {
     if (!changed) return original;
+    final lost = _unreached();
+    final replace = <String, List<int>>{
+      for (final entry in _now.texts.entries)
+        if (!_now.gone.contains(entry.key) && !lost.contains(entry.key)) entry.key: utf8.encode(entry.value),
+      for (final entry in _now.bytes.entries)
+        if (!_now.gone.contains(entry.key) && !lost.contains(entry.key)) entry.key: entry.value,
+    };
+    final types = lost.isEmpty ? null : _doc(_types);
+    if (types != null) {
+      final declared = types.rootElement.childElements
+          .where((e) => e.name.local == 'Override' && lost.contains((_at(e, 'PartName') ?? '').replaceFirst('/', '')))
+          .toList();
+      for (final e in declared) {
+        e.remove();
+      }
+      if (declared.isNotEmpty) replace[_types] = utf8.encode(types.toXmlString());
+    }
     return patchZip(
       original,
-      <String, List<int>>{
-        for (final entry in _now.texts.entries)
-          if (!_now.gone.contains(entry.key)) entry.key: utf8.encode(entry.value),
-        for (final entry in _now.bytes.entries)
-          if (!_now.gone.contains(entry.key)) entry.key: entry.value,
-      },
+      replace,
       remove: <String>{
-        for (final name in _now.gone)
+        for (final name in <String>{..._now.gone, ...lost})
           if (_zip.find(name) != null) name,
       },
     );
+  }
+
+  Set<String>? _reachedAtFirst;
+
+  /// The parts no relationship reaches any more: ones something pointed at
+  /// in the file as it was read, and ones an edit made. A part nothing
+  /// pointed at even then is another program's business and stays.
+  Set<String> _unreached() {
+    final first = _reachedAtFirst ??= _reach((name) {
+      final file = _zip.find(name);
+      return file == null ? null : utf8.decode(file.content, allowMalformed: true);
+    });
+    final now = _reach(_textOf);
+    final names = <String>{
+      for (final file in _zip.files)
+        if (file.isFile) file.name,
+      ..._now.texts.keys,
+      ..._now.bytes.keys,
+    }..removeAll(_now.gone);
+    return <String>{
+      for (final name in names)
+        if (name != _types && !now.contains(name) && (first.contains(name) || _zip.find(name) == null)) name,
+    };
+  }
+
+  /// Every part the package's relationships lead to, and the relationship
+  /// parts on the way, with the parts' texts as [text] gives them.
+  static Set<String> _reach(String? Function(String name) text) {
+    final seen = <String>{};
+    final queue = <String>[''];
+    while (queue.isNotEmpty) {
+      final part = queue.removeLast();
+      final rels = part.isEmpty ? '_rels/.rels' : _relsPath(part);
+      final xml = text(rels);
+      if (xml == null) continue;
+      seen.add(rels);
+      final XmlDocument doc;
+      try {
+        doc = XmlDocument.parse(xml);
+      } on XmlException {
+        continue;
+      }
+      for (final r in doc.rootElement.childElements) {
+        final target = _at(r, 'Target');
+        if (target == null || _at(r, 'TargetMode') == 'External') continue;
+        final to = _resolve(part, target);
+        String decoded;
+        try {
+          decoded = Uri.decodeFull(to);
+        } on ArgumentError {
+          decoded = to;
+        }
+        for (final name in <String>{to, decoded}) {
+          if (seen.add(name)) queue.add(name);
+        }
+      }
+    }
+    return seen;
   }
 
   // XML helpers.
@@ -1242,6 +1334,32 @@ class PptxDeck {
     }
     _put(slide, doc);
   });
+
+  /// Sets the picture [id]'s brightness and contrast, each from -1 to 1.
+  void setPictureLight(String slide, int id, {required double brightness, required double contrast}) =>
+      _change('Adjustments', () {
+        final doc = _doc(slide)!;
+        final el = _object(doc, id);
+        final fill = el == null ? null : _kid(el, 'blipFill');
+        final blip = fill == null ? null : _kid(fill, 'blip');
+        if (blip == null) return;
+        for (final c in blip.childElements.toList()) {
+          if (c.name.local == 'lum') c.remove();
+        }
+        if (brightness.abs() > 0.001 || contrast.abs() > 0.001) {
+          final lum = _el(doc, kNsA, 'a', 'lum', {
+            if (brightness.abs() > 0.001) 'bright': '${(brightness.clamp(-1, 1) * 100000).round()}',
+            if (contrast.abs() > 0.001) 'contrast': '${(contrast.clamp(-1, 1) * 100000).round()}',
+          });
+          final ext = _kid(blip, 'extLst');
+          if (ext == null) {
+            blip.children.add(lum);
+          } else {
+            blip.children.insert(blip.children.indexOf(ext), lum);
+          }
+        }
+        _put(slide, doc);
+      });
 
   /// Puts [body] in place of [id]'s words; [height], when given, is the
   /// height in points a box that grows with its words now needs.

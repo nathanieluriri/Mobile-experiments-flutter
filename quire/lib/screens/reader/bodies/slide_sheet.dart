@@ -225,6 +225,19 @@ class _Contents extends StatelessWidget {
     if (single && shape.opacity < 1) {
       body = Opacity(opacity: shape.opacity, child: body);
     }
+    if (single && (shape.brightness != 0 || shape.contrast != 0)) {
+      final scale = 1 + shape.contrast;
+      final offset = 255 * shape.brightness + 128 * (1 - scale);
+      body = ColorFiltered(
+        colorFilter: ColorFilter.matrix(<double>[
+          scale, 0, 0, 0, offset,
+          0, scale, 0, 0, offset,
+          0, 0, scale, 0, offset,
+          0, 0, 0, 1, 0,
+        ]),
+        child: body,
+      );
+    }
 
     final chart = shape.chart;
     Widget content = shape.blocks.isEmpty
