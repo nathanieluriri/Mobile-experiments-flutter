@@ -500,4 +500,99 @@ void main() {
       expect(RegExp('<w:numId w:val="$mine"/>').allMatches(xml).length, 1);
     });
   });
+  group('round three', () {
+    testWidgets('backspace under a table, or typing on it, never loses the table', (tester) async {
+      final state = await open(tester);
+      final start = offsetOf(state, 'Rules inside a table');
+      state.controller.updateSelection(TextSelection.collapsed(offset: start), ChangeSource.local);
+      state.controller.replaceText(start - 1, 1, '', TextSelection.collapsed(offset: start - 1));
+      await settle(tester);
+      final table = state.controller.document.toPlainText().lastIndexOf('￼', start);
+      state.controller.replaceText(table, 0, 'x', TextSelection.collapsed(offset: table + 1));
+      state.controller.replaceText(table + 1, 0, 'y', TextSelection.collapsed(offset: table + 2));
+      await settle(tester);
+      state.controller.replaceText(offsetOf(state, 'Most of what follows'), 0, 'Edited. ', null);
+      await settle(tester);
+      await save(tester);
+      expect(RegExp('<w:tbl>').allMatches(_documentXml(saved!)).length, 1);
+    });
+
+    testWidgets('bold that comes from a heading shows on the bar, and tapping it makes the words plain', (tester) async {
+      final state = await open(tester);
+      pickWords(state, 'measure');
+      final at = offsetOf(state, 'The measure and the leading') + 4;
+      state.controller.updateSelection(TextSelection(baseOffset: at, extentOffset: at + 7), ChangeSource.local);
+      await settle(tester);
+      Semantics bold() => tester.widget<Semantics>(find.bySemanticsLabel('Bold'));
+      final button = find.ancestor(of: find.bySemanticsLabel('Bold'), matching: find.byType(Container)).first;
+      expect((tester.widget<Container>(button).decoration! as BoxDecoration).color, isNotNull);
+      expect(bold().properties.label, 'Bold');
+      await tester.tap(find.bySemanticsLabel('Bold'));
+      await settle(tester);
+      expect(drawnStyle(tester, 'measure')?.fontWeight, FontWeight.w400);
+      await save(tester);
+      expect(_documentXml(saved!), contains('<w:b w:val="0"/>'));
+    });
+
+    testWidgets('the text sheet keeps the words being set in sight above it, with the page undimmed', (tester) async {
+      final state = await open(tester);
+      pickWords(state, 'lowercase alphabet');
+      await tester.tap(find.bySemanticsLabel('Text format'));
+      await settle(tester);
+      final sheetTop = tester.getTopLeft(find.text('Normal text')).dy - 60;
+      final render = state.renderEditor!;
+      final caret = render.localToGlobal(render.getLocalRectForCaret(TextPosition(offset: offsetOf(state, 'lowercase alphabet'))).bottomLeft);
+      expect(caret.dy, lessThan(sheetTop));
+    });
+
+    testWidgets('find marks are painted only over the page', (tester) async {
+      await open(tester);
+      await tester.tap(find.bySemanticsLabel('More options'));
+      await settle(tester);
+      await tester.tap(find.text('Find and replace'));
+      await settle(tester);
+      final painter = find.byWidgetPredicate((w) => w is CustomPaint && w.painter.runtimeType.toString() == '_FindPainter');
+      expect(find.ancestor(of: painter, matching: find.byType(ClipRect)), findsWidgets);
+    });
+
+    testWidgets('a long press on the page, keyboard down, selects with handles and the copy menu', (tester) async {
+      final state = await open(tester);
+      final render = state.renderEditor!;
+      final at = offsetOf(state, 'restraint') + 2;
+      final point = render.localToGlobal(render.getLocalRectForCaret(TextPosition(offset: at)).center);
+      await tester.longPressAt(point);
+      await settle(tester);
+      expect(state.controller.selection.isCollapsed, isFalse);
+      expect(find.text('Copy'), findsOneWidget);
+    });
+
+    testWidgets('Back closes find and replace before it leaves the editor', (tester) async {
+      original = (await tester.runAsync(() => documentBytes(kHouseStyle)))!;
+      await pumpScreen(
+        tester,
+        MaterialApp(
+          debugShowCheckedModeBanner: false,
+          home: Builder(
+            builder: (context) => GestureDetector(
+              onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(
+                builder: (_) => DocEditor(title: 'House style', bytes: original, onBack: () {}, onSave: (b, n) async => null),
+              )),
+              child: const Text('open'),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('open'));
+      await settle(tester);
+      await tester.tap(find.bySemanticsLabel('More options'));
+      await settle(tester);
+      await tester.tap(find.text('Find and replace'));
+      await settle(tester);
+      expect(find.byKey(const ValueKey<String>('doc-find')), findsOneWidget);
+      await tester.binding.handlePopRoute();
+      await settle(tester);
+      expect(find.byKey(const ValueKey<String>('doc-find')), findsNothing);
+      expect(find.byType(DocEditor), findsOneWidget);
+    });
+  });
 }

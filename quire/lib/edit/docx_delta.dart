@@ -54,10 +54,10 @@ class RunLook {
   /// What a piece of text in this look needs on top of a line drawn in
   /// [line], as attributes on the editor's text.
   Map<String, Object?> over(RunLook line) => <String, Object?>{
-        if (bold && !line.bold) 'bold': true,
-        if (italic && !line.italic) 'italic': true,
-        if (underline && !line.underline) 'underline': true,
-        if (strike && !line.strike) 'strike': true,
+        if (bold != line.bold) 'bold': bold,
+        if (italic != line.italic) 'italic': italic,
+        if (underline != line.underline) 'underline': underline,
+        if (strike != line.strike) 'strike': strike,
         if ((color ?? 0) != (line.color ?? 0)) 'color': _hexOf(color ?? 0),
         if (background != null && background != line.background) 'background': _hexOf(background!),
         if (size != line.size) 'size': _sizeText(size),
@@ -69,10 +69,10 @@ class RunLook {
   /// The look the editor draws text with [attributes] in, on a line of this
   /// look.
   RunLook withAttributes(Map<String, Object?> attributes) => RunLook(
-        bold: bold || attributes['bold'] == true,
-        italic: italic || attributes['italic'] == true,
-        underline: underline || attributes['underline'] == true,
-        strike: strike || attributes['strike'] == true,
+        bold: _flag(attributes['bold'], bold),
+        italic: _flag(attributes['italic'], italic),
+        underline: _flag(attributes['underline'], underline),
+        strike: _flag(attributes['strike'], strike),
         color: attributes['color'] == null ? color : _rgbOf(attributes['color']) ?? color,
         background: _rgbOf(attributes['background']) ?? background,
         size: _sizeOf(attributes['size']) ?? size,
@@ -129,6 +129,9 @@ class ParagraphLook {
   final String? align;
 }
 
+/// A flag the editor's text sets on or off, or leaves to the line's look.
+bool _flag(Object? value, bool line) => value is bool ? value : line;
+
 String _hexOf(int rgb) => '#${(rgb & 0xFFFFFF).toRadixString(16).padLeft(6, '0').toUpperCase()}';
 
 String _sizeText(double points) =>
@@ -163,8 +166,8 @@ class KeptInline {
   final double? width;
   final double? height;
 
-  /// 'image', 'shape', 'glyph', 'inserted', 'note', 'break', 'text' or
-  /// 'hidden'.
+  /// 'image', 'shape', 'glyph', 'inserted', 'deleted', 'note', 'break',
+  /// 'text' or 'hidden'.
   final String kind;
 }
 
@@ -662,7 +665,7 @@ class DocxDelta {
     final out = StringBuffer();
     for (final d in e.descendantElements) {
       switch (d.name.local) {
-        case 't':
+        case 't' || 'delText':
           out.write(d.innerText);
         case 'tab' || 'ptab':
           out.write('\t');
@@ -879,7 +882,9 @@ class DocxDelta {
             // Someone else's tracked insertion: shown, and kept as theirs.
             keep(KeptInline('i${inlines.length}', <XmlNode>[c], _plainText(c), kind: 'inserted'));
           case 'del' || 'moveFrom':
-            keep(KeptInline('i${inlines.length}', <XmlNode>[c], '', kind: 'hidden'));
+            // Someone else's tracked deletion: shown struck through, and
+            // kept as theirs.
+            keep(KeptInline('i${inlines.length}', <XmlNode>[c], _plainText(c), kind: 'deleted'));
           default:
             // A simple field, a content control, maths: kept whole and
             // shown by what it reads.
@@ -1494,7 +1499,7 @@ class DocxDelta {
               if (attributes != null && attributes.isNotEmpty) 'attributes': _inlineOnly(attributes),
             });
           }
-          lines.add(_Line(_merged(_clean(current)), _blockOnly(attributes)));
+          lines.addAll(_split(_Line(_merged(_clean(current)), _blockOnly(attributes))));
           current = <DeltaOp>[];
           rest = rest.substring(at + 1);
         }
@@ -1502,8 +1507,32 @@ class DocxDelta {
         current.add(<String, Object?>{'insert': Map<String, Object?>.of(insert.cast<String, Object?>())});
       }
     }
-    if (current.isNotEmpty) lines.add(_Line(_merged(_clean(current)), const <String, Object?>{}));
+    if (current.isNotEmpty) lines.addAll(_split(_Line(_merged(_clean(current)), const <String, Object?>{})));
     return lines;
+  }
+
+  /// [line] with anything kept whole at body level, such as a table, taken
+  /// onto a line of its own, so words typed beside it never take its place.
+  static List<_Line> _split(_Line line) {
+    if (line.ops.length < 2 || !line.ops.any(_isBlock)) return <_Line>[line];
+    final out = <_Line>[];
+    var words = <DeltaOp>[];
+    for (final op in line.ops) {
+      if (!_isBlock(op)) {
+        words.add(op);
+        continue;
+      }
+      if (words.isNotEmpty) out.add(_Line(words, line.attributes));
+      words = <DeltaOp>[];
+      out.add(_Line(<DeltaOp>[op], const <String, Object?>{}));
+    }
+    if (words.isNotEmpty) out.add(_Line(words, line.attributes));
+    return out;
+  }
+
+  static bool _isBlock(DeltaOp op) {
+    final insert = op['insert'];
+    return insert is Map && insert.containsKey(kBlockEmbed);
   }
 
   static const _blockKeys = <String>{'header', 'list', 'indent', 'align', 'blockquote'};
@@ -2205,7 +2234,9 @@ List<DeltaOp> normalizeOps(List<DeltaOp> ops) => <DeltaOp>[
           final clean = <String, Object?>{};
           for (final e in attributes.entries) {
             final value = e.value;
-            if (value == null || value == false) continue;
+            if (value == null) continue;
+            // Off is said only where the look of the line is on.
+            if (value == false && !_flags.contains(e.key)) continue;
             switch (e.key) {
               case 'size':
                 final size = _sizeOf(value);
@@ -2228,6 +2259,8 @@ List<DeltaOp> normalizeOps(List<DeltaOp> ops) => <DeltaOp>[
           };
         }(),
     ];
+
+const Set<String> _flags = <String>{'bold', 'italic', 'underline', 'strike'};
 
 /// Word's named highlight colours.
 const Map<String, int> kHighlights = <String, int>{

@@ -188,7 +188,8 @@ class DocEditorState extends State<DocEditor> {
     _controller = QuillController(
       document: document,
       selection: const TextSelection.collapsed(offset: 0),
-      onReplaceText: (index, len, data) => !_endsList(index, len, data),
+      onReplaceText: (index, len, data) =>
+          !_endsList(index, len, data) && !_keepsBlock(index, len, data) && !_skipsKept(index, len, data),
     )..addListener(_changed);
     _scroll.addListener(_placeMarks);
   }
@@ -223,6 +224,57 @@ class DocEditorState extends State<DocEditor> {
     return true;
   }
 
+  /// The piece of the document at [offset]: a kept embed, or null for
+  /// text.
+  Embed? _embedAt(int offset) {
+    if (offset < 0 || offset >= _controller.document.length) return null;
+    final query = _controller.document.queryChild(offset);
+    final line = query.node;
+    if (line is! Line) return null;
+    final leaf = line.queryChild(query.offset, true).node;
+    return leaf is Embed ? leaf : null;
+  }
+
+  bool _isBlockAt(int offset) => _embedAt(offset)?.value.type == kBlockEmbed;
+
+  /// A table, a field or a section break is never merged into the words
+  /// beside it, which would lose it from the file: backspace at the start
+  /// of the line under one does nothing, and words typed on its line are
+  /// not taken. Enter still makes a line before or after it.
+  bool _keepsBlock(int index, int len, Object? data) {
+    if (len == 1 && data is String && data.isEmpty) {
+      final text = _controller.document.toPlainText();
+      if (index < text.length && text[index] == '\n' && _isBlockAt(index - 1)) return true;
+    }
+    if (data is String && data.isNotEmpty && data != '\n' && len == 0) {
+      if (_isBlockAt(index) || _isBlockAt(index - 1)) return true;
+    }
+    return false;
+  }
+
+  bool _isTracked(int offset) {
+    final embed = _embedAt(offset);
+    if (embed == null || embed.value.type != kInlineEmbed) return false;
+    final kind = _source?.inlines[embed.value.data]?.kind;
+    return kind == 'hidden' || kind == 'deleted' || kind == 'inserted';
+  }
+
+  /// Backspace never takes away something the reader cannot see or someone
+  /// else's tracked change: it takes the letter before it, as it looks.
+  bool _skipsKept(int index, int len, Object? data) {
+    if (len != 1 || data is! String || data.isNotEmpty || !_isTracked(index)) return false;
+    var at = index - 1;
+    while (at >= 0 && _isTracked(at)) {
+      at--;
+    }
+    final text = _controller.document.toPlainText();
+    if (at < 0 || text[at] == '\n' || _embedAt(at) != null) return true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _controller.replaceText(at, 1, '', TextSelection.collapsed(offset: at));
+    });
+    return true;
+  }
+
   bool get _canSave => _source != null && _controller.hasUndo;
 
   Future<void> _save() async {
@@ -250,6 +302,37 @@ class DocEditorState extends State<DocEditor> {
   Map<String, Attribute> get _style => _controller.getSelectionStyle().attributes;
 
   bool _has(Attribute attribute) => _style[attribute.key]?.value == attribute.value;
+
+  /// Whether bold, italic, underline or strikethrough is on for the
+  /// selection as it looks: set on its words, or given by its paragraph
+  /// style.
+  bool _on(String key) {
+    final value = _style[key]?.value;
+    if (value is bool) return value;
+    final base = _lineBase;
+    return switch (key) {
+      'bold' => base.bold,
+      'italic' => base.italic,
+      'underline' => base.underline,
+      'strike' => base.strike,
+      _ => false,
+    };
+  }
+
+  /// Turns [key] the other way for the selection. Where that is what its
+  /// paragraph style gives, the words go back to the style; otherwise they
+  /// say so themselves, which is how a bold heading word is made plain.
+  void _flip(String key) {
+    final want = !_on(key);
+    final base = _lineBase;
+    final styled = switch (key) {
+      'bold' => base.bold,
+      'italic' => base.italic,
+      'underline' => base.underline,
+      _ => base.strike,
+    };
+    _set(want == styled ? Attribute<bool?>(key, AttributeScope.inline, null) : Attribute<bool?>(key, AttributeScope.inline, want));
+  }
 
   void _toggle(Attribute attribute) =>
       _quietly(() => _controller.formatSelection(_has(attribute) ? Attribute.clone(attribute, null) : attribute));
@@ -297,12 +380,12 @@ class DocEditorState extends State<DocEditor> {
   /// The page may not take focus while the sheet is up: the editor asks for
   /// the keyboard whenever its text changes, and the route under a sheet
   /// gives focus back to whatever last asked for it.
-  Future<T?> _sheet<T>(WidgetBuilder builder) async {
+  Future<T?> _sheet<T>(WidgetBuilder builder, {Color? barrier}) async {
     _focus
       ..unfocus()
       ..canRequestFocus = false;
     try {
-      return await showDeskSheet<T>(context, builder);
+      return await (barrier == null ? showDeskSheet<T>(context, builder) : showDeskSheet<T>(context, builder, barrier: barrier));
     } finally {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _focus.canRequestFocus = true;
@@ -328,7 +411,7 @@ class DocEditorState extends State<DocEditor> {
     final choice = await _sheet<int>(
       (context) => PaletteSheet(
         title: highlight ? 'Highlight colour' : 'Text colour',
-        colour: _colourOf(key),
+        colour: _colourOf(key) ?? (highlight ? _lineBase.background : _lineBase.color),
         none: highlight ? 'None' : 'Automatic',
       ),
     );
@@ -408,6 +491,8 @@ class DocEditorState extends State<DocEditor> {
   }
 
   Future<void> _textFormat() async {
+    // The words being set stay in sight above the sheet.
+    reveal(_controller.selection.start, top: true);
     await _sheet<void>(
       (context) => StatefulBuilder(
         builder: (context, refresh) {
@@ -492,8 +577,8 @@ class DocEditorState extends State<DocEditor> {
                     _Toggle(
                       icon: LucideIcons.strikethrough,
                       label: 'Strikethrough',
-                      on: _has(Attribute.strikeThrough),
-                      onTap: () => apply(() => _toggle(Attribute.strikeThrough)),
+                      on: _on('strike'),
+                      onTap: () => apply(() => _flip('strike')),
                     ),
                     _Toggle(
                       icon: LucideIcons.superscript,
@@ -520,6 +605,7 @@ class DocEditorState extends State<DocEditor> {
           );
         },
       ),
+      barrier: const Color(0x00000000),
     );
   }
 
@@ -718,6 +804,11 @@ class DocEditorState extends State<DocEditor> {
       onSave: _save,
       canSave: _canSave,
       saving: _saving,
+      covered: _finding,
+      onUncover: () {
+        setState(() => _finding = false);
+        _placeMarks();
+      },
       tools: <Widget>[
         EditButton(
           icon: LucideIcons.undo2,
@@ -775,10 +866,13 @@ class DocEditorState extends State<DocEditor> {
           style: base,
           child: Stack(
             key: _pageKey,
+            clipBehavior: Clip.hardEdge,
             children: <Widget>[
               Positioned.fill(
-                child: IgnorePointer(
-                  child: CustomPaint(painter: _FindPainter(_marks, _currentMark)),
+                child: ClipRect(
+                  child: IgnorePointer(
+                    child: CustomPaint(painter: _FindPainter(_marks, _currentMark)),
+                  ),
                 ),
               ),
               Builder(
@@ -789,6 +883,12 @@ class DocEditorState extends State<DocEditor> {
                   scrollController: _scroll,
                   config: QuillEditorConfig(
                     editorKey: _editorKey,
+                    // A long press on the page, keyboard down, still gives
+                    // the selection its handles and its menu.
+                    onSingleLongTapStart: (_, _) {
+                      if (!_focus.hasFocus) _focus.requestFocus();
+                      return false;
+                    },
                     padding: const EdgeInsets.fromLTRB(20, 20, 20, 40),
                     placeholder: 'Type here',
                     // The phone never leaves the app for a link in a document.
@@ -804,6 +904,14 @@ class DocEditorState extends State<DocEditor> {
                     // in the phone's face of the same kind when it lacks it.
                     customStyleBuilder: (attribute) {
                       final value = attribute.value;
+                      if (value == false) {
+                        return switch (attribute.key) {
+                          'bold' => const TextStyle(fontWeight: FontWeight.w400),
+                          'italic' => const TextStyle(fontStyle: FontStyle.normal),
+                          'underline' || 'strike' => const TextStyle(decoration: TextDecoration.none),
+                          _ => const TextStyle(),
+                        };
+                      }
                       if (attribute.key == Attribute.size.key && value != null) {
                         final points = double.tryParse('$value');
                         return points == null ? const TextStyle() : TextStyle(fontSize: points * kDocPoint);
@@ -881,8 +989,8 @@ class DocEditorState extends State<DocEditor> {
 
   Widget _bar() {
     final style = _style;
-    final colour = _colourOf(Attribute.color.key);
-    final highlight = _colourOf(Attribute.background.key);
+    final colour = _colourOf(Attribute.color.key) ?? _lineBase.color;
+    final highlight = _colourOf(Attribute.background.key) ?? _lineBase.background;
     final list = style[Attribute.list.key]?.value;
     return Listener(
       onPointerDown: (_) => _typing = _focus.hasFocus,
@@ -907,27 +1015,27 @@ class DocEditorState extends State<DocEditor> {
               _BarButton(
                 icon: LucideIcons.bold,
                 label: 'Bold',
-                on: _has(Attribute.bold),
+                on: _on('bold'),
                 onTap: () {
-                  _toggle(Attribute.bold);
+                  _flip('bold');
                   _keepTyping();
                 },
               ),
               _BarButton(
                 icon: LucideIcons.italic,
                 label: 'Italic',
-                on: _has(Attribute.italic),
+                on: _on('italic'),
                 onTap: () {
-                  _toggle(Attribute.italic);
+                  _flip('italic');
                   _keepTyping();
                 },
               ),
               _BarButton(
                 icon: LucideIcons.underline,
                 label: 'Underline',
-                on: _has(Attribute.underline),
+                on: _on('underline'),
                 onTap: () {
-                  _toggle(Attribute.underline);
+                  _flip('underline');
                   _keepTyping();
                 },
               ),
@@ -1594,6 +1702,15 @@ class KeptInlineEmbed extends EmbedBuilder {
         return Transform.translate(
           offset: Offset(0, -(style.fontSize ?? 14) * 0.35),
           child: Text(kept.text, style: style.copyWith(fontSize: (style.fontSize ?? 14) * 0.7)),
+        );
+      case 'deleted':
+        return Text(
+          kept.text,
+          style: style.copyWith(
+            color: const Color(0xFFB3261E),
+            decoration: TextDecoration.lineThrough,
+            decorationColor: const Color(0xFFB3261E),
+          ),
         );
       case 'inserted':
         return Text(

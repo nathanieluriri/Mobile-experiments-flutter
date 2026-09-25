@@ -2,12 +2,15 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_quill/flutter_quill.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:quire/edit/docx_delta.dart';
+import 'package:quire/screens/edit/doc_editor.dart';
 import 'package:xml/xml.dart';
 
 import 'support/fixtures.dart';
+import 'support/golden.dart';
 
 const _namespaces = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" '
     'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" '
@@ -450,5 +453,56 @@ void main() {
     expect(again['attributes'], isNull);
     final paragraph = paragraphWith(saved, 'A new paragraph');
     expect(paragraph.getElement('w:pPr')?.getElement('w:pStyle')?.getAttribute('w:val'), 'BodyText');
+  });
+  testWidgets('someone else\'s tracked deletion is shown struck through, and backspace beside it keeps it', (tester) async {
+    final bytes = docx(
+      '<w:p><w:r><w:t xml:space="preserve">We ship on </w:t></w:r>'
+      '<w:del w:id="1" w:author="Reviewer" w:date="2024-01-01T00:00:00Z"><w:r><w:delText xml:space="preserve">Tuesday and </w:delText></w:r></w:del>'
+      '<w:r><w:t>Friday mornings.</w:t></w:r></w:p>',
+    );
+    Uint8List? saved;
+    await pumpScreen(
+      tester,
+      MaterialApp(
+        debugShowCheckedModeBanner: false,
+        home: DocEditor(title: 'Review', bytes: bytes, onBack: () {}, onSave: (out, note) async {
+          saved = out;
+          return null;
+        }),
+      ),
+    );
+    await settle(tester);
+    final deleted = tester.widget<Text>(find.text('Tuesday and '));
+    expect(deleted.style?.decoration, TextDecoration.lineThrough);
+    final state = tester.state<DocEditorState>(find.byType(DocEditor));
+    final friday = state.controller.document.toPlainText().indexOf('Friday');
+    state.controller.updateSelection(TextSelection.collapsed(offset: friday), ChangeSource.local);
+    state.controller.replaceText(friday - 1, 1, '', TextSelection.collapsed(offset: friday - 1));
+    await settle(tester);
+    expect(state.controller.document.toPlainText(), startsWith('We ship on'));
+    expect(state.controller.document.toPlainText(), isNot(startsWith('We ship on ')));
+    await tester.tap(find.text('SAVE'));
+    await settle(tester);
+    final xml = documentXml(saved!);
+    expect(xml, contains('<w:del '));
+    expect(xml, contains('Tuesday and '));
+  });
+
+  test('a line that ends up holding a table and words is written as the table and the words apart', () {
+    final file = Opened(docx(
+      '<w:p><w:r><w:t>Before the table.</w:t></w:r></w:p>'
+      '<w:tbl><w:tr><w:tc><w:p><w:r><w:t>cell</w:t></w:r></w:p></w:tc></w:tr></w:tbl>'
+      '<w:p><w:r><w:t>After the table.</w:t></w:r></w:p>',
+    ));
+    final ops = file.doc.toDelta().toJson();
+    // The line break between the table and the words after it taken out,
+    // as a stray delete would.
+    final at = file.at('After the table.');
+    file.doc.delete(at - 1, 1);
+    expect(ops, isNotEmpty);
+    final saved = file.save();
+    final body = bodyOf(saved);
+    expect(body.where((e) => e.name.local == 'tbl'), hasLength(1));
+    expect(body.where((e) => e.name.local == 'p').map(textOf), contains('After the table.'));
   });
 }

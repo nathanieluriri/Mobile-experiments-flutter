@@ -373,12 +373,13 @@ class DeskSheetRule extends StatelessWidget {
 /// should not have to hold a controller for something it does not draw.
 Future<T?> showDeskSheet<T>(
   BuildContext context,
-  Widget Function(BuildContext context) builder,
-) {
+  Widget Function(BuildContext context) builder, {
+  Color barrier = AppColors.scrim,
+}) {
   return Navigator.of(context).push<T>(
     PageRouteBuilder<T>(
       opaque: false,
-      barrierColor: AppColors.scrim,
+      barrierColor: barrier,
       barrierDismissible: true,
       barrierLabel: 'Close',
       transitionDuration: kDeskSheetRise,
