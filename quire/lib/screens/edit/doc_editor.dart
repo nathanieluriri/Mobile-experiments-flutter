@@ -192,6 +192,67 @@ class DocEditorState extends State<DocEditor> {
           !_endsList(index, len, data) && !_keepsBlock(index, len, data) && !_skipsKept(index, len, data),
     )..addListener(_changed);
     _scroll.addListener(_placeMarks);
+    final lists = _source?.numberedLists ?? const <String?>[];
+    final lines = _linesOf(document);
+    for (var i = 0; i < lines.length && i < lists.length; i++) {
+      final list = lists[i];
+      if (list != null) _lists[lines[i]] = list;
+    }
+  }
+
+  /// The list each numbered line of the document as read is counted in.
+  final Expando<String> _lists = Expando<String>();
+  Map<Line, String>? _labels;
+
+  static List<Line> _linesOf(Document document) => <Line>[
+    for (final node in document.root.children)
+      if (node is Line) node else if (node is Block) ...node.children.whereType<Line>(),
+  ];
+
+  /// Each numbered line's number as the page shows it: counted on through
+  /// whatever stands between the items of one list, from where the list
+  /// starts, in the list's own format. A line numbered here takes the list
+  /// of the numbered line right above it, or starts one of its own.
+  Map<Line, String> get _numbers => _labels ??= () {
+    final source = _source;
+    final out = <Line, String>{};
+    final counts = <String, List<int?>>{};
+    String? previous;
+    var fresh = 0;
+    for (final line in _linesOf(_controller.document)) {
+      final attrs = line.style.attributes;
+      if (attrs[Attribute.list.key]?.value != 'ordered') {
+        previous = null;
+        continue;
+      }
+      final level = ((attrs[Attribute.indent.key]?.value as int?) ?? 0).clamp(0, 8);
+      final list = _lists[line] ?? previous ?? 'new:${fresh++}';
+      final own = source != null && !list.startsWith('new:');
+      int start(int at) => own ? source.numberStart(list, at) : 1;
+      final count = counts.putIfAbsent(list, () => List<int?>.filled(9, null));
+      count[level] = (count[level] ?? start(level) - 1) + 1;
+      for (var deeper = level + 1; deeper < 9; deeper++) {
+        count[deeper] = null;
+      }
+      final shown = <int>[for (var at = 0; at <= level; at++) count[at] ?? start(at)];
+      out[line] = own
+          ? source.numberLabel(list, level, shown)
+          : '${formatListNumber(shown[level], const <String>['decimal', 'lowerLetter', 'lowerRoman'][level % 3])}.';
+      previous = list;
+    }
+    return out;
+  }();
+
+  /// The widest number the page shows, at [fontSize].
+  double _widestNumber(double fontSize) {
+    var widest = 0.0;
+    for (final label in _numbers.values.toSet()) {
+      final painter = TextPainter(text: TextSpan(text: label, style: TextStyle(fontSize: fontSize)), textDirection: TextDirection.ltr)
+        ..layout();
+      widest = math.max(widest, painter.width);
+      painter.dispose();
+    }
+    return widest;
   }
 
   @override
@@ -206,6 +267,7 @@ class DocEditorState extends State<DocEditor> {
 
   void _changed() {
     if (!mounted) return;
+    _labels = null;
     setState(() {});
     if (_finding) WidgetsBinding.instance.addPostFrameCallback((_) => _placeMarks());
   }
@@ -900,6 +962,23 @@ class DocEditorState extends State<DocEditor> {
                     ],
                     unknownEmbedBuilder: KeptInlineEmbed(source),
                     customStyles: _styles(context),
+                    // The document's own numbers, which only this hook can
+                    // draw: quill counts each run of items from one.
+                    // ignore: experimental_member_use
+                    customLeadingBlockBuilder: (node, config) {
+                      final label = node is Line && config.attribute == Attribute.ol ? _numbers[node] : null;
+                      if (label == null) return null;
+                      return QuillNumberPoint(
+                        index: label,
+                        withDot: false,
+                        indentLevelCounts: config.indentLevelCounts,
+                        count: config.count,
+                        style: config.style!,
+                        attrs: config.attrs,
+                        width: config.width!,
+                        padding: config.padding!,
+                      );
+                    },
                     // Sizes are points and typefaces the document's own, drawn
                     // in the phone's face of the same kind when it lacks it.
                     customStyleBuilder: (attribute) {
@@ -981,6 +1060,10 @@ class DocEditorState extends State<DocEditor> {
         VerticalSpacing(0, math.min(body.after, 4) * kDocPoint),
         null,
         null,
+        numberPointWidthBuilder: (fontSize, count) => math.max(
+          TextBlockUtils.defaultNumberPointWidthBuilder(fontSize, count),
+          _widestNumber(fontSize) + fontSize / 2,
+        ),
       ),
       bold: const TextStyle(fontWeight: FontWeight.w700),
       link: TextStyle(color: theme.colorScheme.primary, decoration: TextDecoration.underline),

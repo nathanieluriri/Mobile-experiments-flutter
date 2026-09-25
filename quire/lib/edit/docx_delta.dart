@@ -381,6 +381,46 @@ List<int> alignText(String old, String now) {
   return out;
 }
 
+/// How the numbers of one level of a Word list are made: where it starts,
+/// its format, and the text that holds its number.
+typedef DocNumberLevel = ({int start, String format, String text});
+
+/// [n] written in the Word number format [format].
+String formatListNumber(int n, String format) {
+  String letters(int value) {
+    final letter = String.fromCharCode(97 + (value - 1) % 26);
+    return letter * ((value - 1) ~/ 26 + 1);
+  }
+
+  String roman(int value) {
+    if (value <= 0 || value >= 4000) return '$value';
+    const numerals = <(int, String)>[
+      (1000, 'm'), (900, 'cm'), (500, 'd'), (400, 'cd'), (100, 'c'), (90, 'xc'),
+      (50, 'l'), (40, 'xl'), (10, 'x'), (9, 'ix'), (5, 'v'), (4, 'iv'), (1, 'i'),
+    ];
+    final out = StringBuffer();
+    var left = value;
+    for (final (worth, numeral) in numerals) {
+      while (left >= worth) {
+        out.write(numeral);
+        left -= worth;
+      }
+    }
+    return out.toString();
+  }
+
+  return switch (format) {
+    'lowerLetter' => letters(n),
+    'upperLetter' => letters(n).toUpperCase(),
+    'lowerRoman' => roman(n),
+    'upperRoman' => roman(n).toUpperCase(),
+    'decimalZero' => n < 10 ? '0$n' : '$n',
+    'bullet' => '\u2022',
+    'none' => '',
+    _ => '$n',
+  };
+}
+
 /// One new line's share of the paragraphs it was made from: the character
 /// each of its characters takes its run from, and the marks that now fall
 /// in it.
@@ -1388,6 +1428,12 @@ class DocxDelta {
     if (doc == null) return;
     final root = doc.rootElement;
     final abstracts = <String, Map<int, String>>{};
+    final defined = <String, Map<int, DocNumberLevel>>{};
+    DocNumberLevel levelOf(XmlElement lvl, int at) => (
+      start: int.tryParse(lvl.getElement('w:start')?.getAttribute('w:val') ?? '') ?? 1,
+      format: lvl.getElement('w:numFmt')?.getAttribute('w:val') ?? 'decimal',
+      text: lvl.getElement('w:lvlText')?.getAttribute('w:val') ?? '%${at + 1}.',
+    );
     for (final an in root.childElements.where((e) => e.name.local == 'abstractNum')) {
       final id = an.getAttribute('w:abstractNumId');
       if (id == null) continue;
@@ -1396,6 +1442,11 @@ class DocxDelta {
           int.tryParse(lvl.getAttribute('w:ilvl') ?? '0') ?? 0:
               lvl.getElement('w:numFmt')?.getAttribute('w:val') ?? 'bullet',
       };
+      final levels = defined[id] = <int, DocNumberLevel>{};
+      for (final lvl in an.childElements.where((e) => e.name.local == 'lvl')) {
+        final at = int.tryParse(lvl.getAttribute('w:ilvl') ?? '0') ?? 0;
+        levels[at] = levelOf(lvl, at);
+      }
     }
     for (final num in root.childElements.where((e) => e.name.local == 'num')) {
       final id = num.getAttribute('w:numId');
@@ -1403,7 +1454,45 @@ class DocxDelta {
       if (id == null || abstract == null) continue;
       final formats = abstracts[abstract];
       if (formats != null) _numFormats[id] = formats;
+      final levels = <int, DocNumberLevel>{...?defined[abstract]};
+      for (final override in num.childElements.where((e) => e.name.local == 'lvlOverride')) {
+        final at = int.tryParse(override.getAttribute('w:ilvl') ?? '');
+        if (at == null) continue;
+        final lvl = override.getElement('w:lvl');
+        if (lvl != null) levels[at] = levelOf(lvl, at);
+        final start = int.tryParse(override.getElement('w:startOverride')?.getAttribute('w:val') ?? '');
+        final was = levels[at];
+        if (start != null && was != null) levels[at] = (start: start, format: was.format, text: was.text);
+      }
+      _numLevels[id] = levels;
     }
+  }
+
+  final Map<String, Map<int, DocNumberLevel>> _numLevels = <String, Map<int, DocNumberLevel>>{};
+
+  /// For each line as read, the list a numbered paragraph is counted in,
+  /// or null for any other line.
+  List<String?> get numberedLists => <String?>[
+    for (final unit in _units)
+      if (unit is _Para && unit.lineAttributes['list'] == 'ordered')
+        _numberingOf(unit.pPr, unit.styleId).$1
+      else
+        null,
+  ];
+
+  /// The number the list [numId] starts [level] at.
+  int numberStart(String numId, int level) => _numLevels[numId]?[level]?.start ?? 1;
+
+  /// The number of an item at [level] of the list [numId], with [counts] the
+  /// count at each level down to it, written as the file's own numbering
+  /// writes it, such as 3., 1.2, (b) or Step 4:.
+  String numberLabel(String numId, int level, List<int> counts) {
+    final levels = _numLevels[numId];
+    final text = levels?[level]?.text ?? '%${level + 1}.';
+    return text.replaceAllMapped(RegExp(r'%([1-9])'), (m) {
+      final at = int.parse(m.group(1)!) - 1;
+      return formatListNumber(at < counts.length ? counts[at] : 1, levels?[at]?.format ?? 'decimal');
+    });
   }
 
   // Writing.

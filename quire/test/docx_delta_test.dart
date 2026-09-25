@@ -704,6 +704,33 @@ void main() {
       expect(level.getElement('w:numFmt')!.getAttribute('w:val'), 'bullet');
     });
 
+    testWidgets('the page counts a list on through a note and a table, from its own start and in its own words', (tester) async {
+      final bytes = docx(
+        '<w:p><w:pPr><w:pStyle w:val="ListNumber"/></w:pPr><w:r><w:t>Mix the ink.</w:t></w:r></w:p>'
+        '<w:p><w:pPr><w:pStyle w:val="ListNumber"/></w:pPr><w:r><w:t>Ink the forme.</w:t></w:r></w:p>'
+        '<w:p><w:r><w:t>Note: wear gloves.</w:t></w:r></w:p>'
+        '<w:p><w:pPr><w:pStyle w:val="ListNumber"/></w:pPr><w:r><w:t>Pull a proof.</w:t></w:r></w:p>'
+        '<w:tbl><w:tblPr/><w:tblGrid><w:gridCol w:w="2000"/></w:tblGrid><w:tr><w:tc><w:p><w:r><w:t>cell</w:t></w:r></w:p></w:tc></w:tr></w:tbl>'
+        '<w:p><w:pPr><w:pStyle w:val="ListNumber"/></w:pPr><w:r><w:t>Check the proof.</w:t></w:r></w:p>'
+        '<w:p><w:r><w:t>Then the finishing.</w:t></w:r></w:p>'
+        '<w:p><w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="3"/></w:numPr></w:pPr><w:r><w:t>Fold.</w:t></w:r></w:p>'
+        '<w:p><w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="3"/></w:numPr></w:pPr><w:r><w:t>Trim.</w:t></w:r></w:p>',
+        styles: listStyles,
+        numbering: '<w:abstractNum w:abstractNumId="7"><w:lvl w:ilvl="0"><w:start w:val="3"/><w:numFmt w:val="decimal"/><w:lvlText w:val="Step %1:"/></w:lvl></w:abstractNum>'
+            '$listNumbering<w:num w:numId="3"><w:abstractNumId w:val="7"/></w:num>',
+      );
+      await pumpScreen(
+        tester,
+        MaterialApp(
+          debugShowCheckedModeBanner: false,
+          home: DocEditor(title: 'Steps', bytes: bytes, onBack: () {}, onSave: (out, note) async => null),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final labels = tester.widgetList<QuillNumberPoint>(find.byType(QuillNumberPoint)).map((p) => p.index).toList();
+      expect(labels, <String>['1.', '2.', '3.', '4.', 'Step 3:', 'Step 4:']);
+    });
+
     test('a paragraph numbered between two style-numbered steps joins their list', () {
       final file = Opened(docx(
         '<w:p><w:pPr><w:pStyle w:val="ListNumber"/></w:pPr><w:r><w:t>Step one.</w:t></w:r></w:p>'
