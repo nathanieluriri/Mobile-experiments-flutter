@@ -481,6 +481,26 @@ void main() {
       expect(line.style.attributes[Attribute.list.key], isNull);
     });
 
+    testWidgets('Enter on an empty item in the middle of a list ends the list there', (tester) async {
+      final state = await open(tester);
+      final words = 'Letterspace small capitals';
+      final line = state.controller.document.queryChild(offsetOf(state, words)).node! as Line;
+      final end = offsetOf(state, words) + line.length - 1;
+      state.controller.replaceText(end, 0, '\n', TextSelection.collapsed(offset: end + 1));
+      await settle(tester);
+      final empty = state.controller.document.queryChild(end + 1).node! as Line;
+      expect(empty.length, 1);
+      expect(empty.style.attributes[Attribute.list.key], Attribute.ul);
+      final before = state.controller.document.toPlainText();
+      state.controller.replaceText(end + 1, 0, '\n', TextSelection.collapsed(offset: end + 2));
+      await settle(tester);
+      expect(state.controller.document.toPlainText(), before);
+      final plain = state.controller.document.queryChild(end + 1).node! as Line;
+      expect(plain.style.attributes[Attribute.list.key], isNull);
+      final next = state.controller.document.queryChild(offsetOf(state, 'Never fake them')).node! as Line;
+      expect(next.style.attributes[Attribute.list.key], Attribute.ul);
+    });
+
     testWidgets('numbering a paragraph starts a list of its own, and the later list still counts from 1', (tester) async {
       final state = await open(tester);
       pickWords(state, 'Numerals follow the company');

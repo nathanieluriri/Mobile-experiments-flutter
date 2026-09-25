@@ -841,6 +841,26 @@ void main() {
       expect(rel.getAttribute('TargetMode'), 'External');
     });
 
+    test('a comment keeps what is left of its range when the paragraph holding its end is deleted', () {
+      final file = Opened(docx(
+        '<w:p><w:r><w:t xml:space="preserve">One two </w:t></w:r><w:commentRangeStart w:id="1"/><w:r><w:t>three.</w:t></w:r></w:p>'
+        '<w:p><w:r><w:t>Four five six seven.</w:t></w:r></w:p>'
+        '<w:p><w:r><w:t xml:space="preserve">Eight nine</w:t></w:r><w:commentRangeEnd w:id="1"/><w:r><w:commentReference w:id="1"/></w:r><w:r><w:t xml:space="preserve"> ten.</w:t></w:r></w:p>'
+        '<w:p><w:r><w:t>Eleven.</w:t></w:r></w:p>',
+      ));
+      final start = file.at('Eight nine');
+      file.doc.delete(start, file.doc.queryChild(start).node!.length);
+      final saved = file.save();
+      final body = bodyOf(saved).where((e) => e.name.local == 'p').toList();
+      expect(body.map(textOf), <String>['One two three.', 'Four five six seven.', 'Eleven.']);
+      final xml = documentXml(saved);
+      expect(RegExp(r'<w:commentRangeStart w:id="1"/>').allMatches(xml), hasLength(1));
+      expect(RegExp(r'<w:commentRangeEnd w:id="1"/>').allMatches(xml), hasLength(1));
+      expect(RegExp(r'<w:commentReference w:id="1"/>').allMatches(xml), hasLength(1));
+      final second = body[1].toXmlString();
+      expect(second.indexOf('commentRangeEnd'), greaterThan(second.indexOf('seven.')));
+    });
+
     test('a paragraph numbered between two style-numbered steps joins their list', () {
       final file = Opened(docx(
         '<w:p><w:pPr><w:pStyle w:val="ListNumber"/></w:pPr><w:r><w:t>Step one.</w:t></w:r></w:p>'

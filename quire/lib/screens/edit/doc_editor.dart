@@ -188,7 +188,10 @@ class DocEditorState extends State<DocEditor> {
       document: document,
       selection: const TextSelection.collapsed(offset: 0),
       onReplaceText: (index, len, data) =>
-          !_endsList(index, len, data) && !_keepsBlock(index, len, data) && !_skipsKept(index, len, data),
+          !_endsList(index, len, data) &&
+          !_leavesList(index, len, data) &&
+          !_keepsBlock(index, len, data) &&
+          !_skipsKept(index, len, data),
     )..addListener(_changed);
     _scroll.addListener(_placeMarks);
     final lists = _source?.numberedLists ?? const <String?>[];
@@ -282,6 +285,19 @@ class DocEditorState extends State<DocEditor> {
     if (line is! Line || query.offset != 0) return false;
     if (line.style.attributes[Attribute.list.key] == null) return false;
     _controller.formatText(index + 1, 0, Attribute.clone(Attribute.list, null));
+    return true;
+  }
+
+  /// Enter on an empty list item, wherever it stands in its list, makes it
+  /// a plain paragraph and so ends the list there, as Docs does.
+  bool _leavesList(int index, int len, Object? data) {
+    if (len != 0 || data != '\n') return false;
+    final query = _controller.document.queryChild(index);
+    final line = query.node;
+    if (line is! Line || line.length != 1 || line.style.attributes[Attribute.list.key] == null) return false;
+    _controller.formatText(index, 0, Attribute.clone(Attribute.list, null));
+    final indent = line.style.attributes[Attribute.indent.key];
+    if (indent != null) _controller.formatText(index, 0, Attribute.clone(Attribute.indent, null));
     return true;
   }
 

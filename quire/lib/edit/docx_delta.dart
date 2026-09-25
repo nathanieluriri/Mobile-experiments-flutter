@@ -1513,6 +1513,7 @@ class DocxDelta {
       return _package.original;
     }
     final matches = _match(lines);
+    _joined.clear();
     final slices = _slices(lines, matches);
     // What a paragraph written as it was holds stays its own; the same
     // thing met anywhere else is a pasted copy.
@@ -1527,6 +1528,7 @@ class DocxDelta {
     _copies.clear();
     final out = <_Out>[];
     final used = <int>{};
+    final at = <int, int>{};
     _Para? lastSource;
     _ListRef? lastList;
     for (var i = 0; i < lines.length; i++) {
@@ -1579,6 +1581,7 @@ class DocxDelta {
         }
         lastSource = para;
         lastList = _listOf(out.last.element);
+        at[source] = out.length - 1;
         continue;
       }
       final written = _paragraphFor(
@@ -1590,9 +1593,11 @@ class DocxDelta {
         slice: slices[i],
       );
       out.add(_Out.made(written));
+      if (para != null && first) at[source] = out.length - 1;
       if (para != null) lastSource = para;
       lastList = _listOf(written);
     }
+    _carryMarks(out, at, used);
     out.addAll(_trailing.map(_original));
     if (_sectPr != null) out.add(_original(_sectPr!));
     _package.replace(_part, _splice(out));
@@ -1600,6 +1605,59 @@ class DocxDelta {
   }
 
   _Out _original(int index) => _Out.original(index, _children[index]);
+
+  /// The paragraphs a join took into the line before them, in a write.
+  final Set<int> _joined = <int>{};
+
+  /// Gives the marks of each paragraph deleted outright to its neighbours,
+  /// so a comment or bookmark whose end or start it held keeps what is
+  /// left of its range: an end, with a comment's reference, goes to the end
+  /// of the paragraph written before it, and a start to the start of the
+  /// one after. A range wholly inside it goes with it.
+  void _carryMarks(List<_Out> out, Map<int, int> at, Set<int> used) {
+    XmlElement ownOf(int position) {
+      final held = out[position];
+      if (held.made) return held.element;
+      final copy = held.element.copy();
+      out[position] = _Out.made(copy);
+      return copy;
+    }
+
+    for (var k = 0; k < _units.length; k++) {
+      final unit = _units[k];
+      if (unit is! _Para || used.contains(k) || _joined.contains(k) || unit.marks.isEmpty) continue;
+      final marks = <XmlElement>[for (final (_, mark) in unit.marks) mark];
+      final opened = <String>{for (final m in marks) if (_opens(m)) _rangeKey(m)};
+      final closed = <String>{for (final m in marks) if (!_opens(m)) _rangeKey(m)};
+      final whole = opened.intersection(closed);
+      final closing = <XmlElement>[for (final m in marks) if (!_opens(m) && !whole.contains(_rangeKey(m))) m];
+      final opening = <XmlElement>[for (final m in marks) if (_opens(m) && !whole.contains(_rangeKey(m))) m];
+      final comments = <String>{
+        for (final m in closing)
+          if (m.name.local == 'commentRangeEnd') ?m.getAttribute('w:id'),
+      };
+      final references = <XmlElement>[
+        for (final e in unit.element.descendantElements)
+          if (e.name.local == 'commentReference' && comments.contains(e.getAttribute('w:id')) && e.parentElement?.name.local == 'r')
+            e.parentElement!,
+      ];
+      int? before, after;
+      for (var j = k - 1; j >= 0 && before == null; j--) {
+        before = at[j];
+      }
+      for (var j = k + 1; j < _units.length && after == null; j++) {
+        after = at[j];
+      }
+      if (closing.isNotEmpty && before != null) {
+        ownOf(before).children.addAll(<XmlNode>[for (final m in <XmlElement>[...closing, ...references]) m.copy()]);
+      }
+      if (opening.isNotEmpty && after != null) {
+        final p = ownOf(after);
+        final properties = p.getElement('w:pPr');
+        p.children.insertAll(properties == null ? 0 : p.children.indexOf(properties) + 1, <XmlNode>[for (final m in opening) m.copy()]);
+      }
+    }
+  }
 
   Map<XmlElement, String>? _noteMarks;
 
@@ -1767,7 +1825,10 @@ class DocxDelta {
       final next = source + 1 < _units.length ? _units[source + 1] : null;
       if (next is _Para && !paired.contains(source + 1) && next.text.isNotEmpty) {
         final tail = next.text.substring(math.max(0, next.text.length - 8));
-        if (lines[members.last].text.endsWith(tail)) olds.add(next);
+        if (lines[members.last].text.endsWith(tail)) {
+          olds.add(next);
+          _joined.add(source + 1);
+        }
       }
       if (members.length > 1 || olds.length > 1 || lines[i].key != _lines[source].key) {
         final shares = _sliceGroup(<String>[for (final m in members) lines[m].text], olds);
