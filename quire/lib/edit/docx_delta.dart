@@ -1507,6 +1507,17 @@ class DocxDelta {
     }
     final matches = _match(lines);
     final slices = _slices(lines, matches);
+    // What a paragraph written as it was holds stays its own; the same
+    // thing met anywhere else is a pasted copy.
+    _placed
+      ..clear()
+      ..addAll(<String>{
+        for (var i = 0; i < lines.length; i++)
+          if (matches[i] case final source? when lines[i].blockId == null && lines[i].key == _lines[source].key)
+            for (final op in lines[i].ops)
+              if (op['insert'] case {kInlineEmbed: final String id}) id,
+      });
+    _copies.clear();
     final out = <_Out>[];
     final used = <int>{};
     _Para? lastSource;
@@ -1517,7 +1528,20 @@ class DocxDelta {
       if (blockId != null) {
         final unit = _blockUnit[blockId];
         final block = blocks[blockId];
-        if (unit == null || block == null || !used.add(unit)) continue;
+        if (unit == null || block == null) continue;
+        if (!used.add(unit)) {
+          // A table or a control pasted again is a copy of its own.
+          if (block.kind != 'section') {
+            for (final at in _blockAt[blockId]!) {
+              for (final copy in _pasted(<XmlNode>[_children[at]]).whereType<XmlElement>()) {
+                out.add(_Out.made(copy));
+              }
+            }
+            lastList = null;
+            lastSource = null;
+          }
+          continue;
+        }
         out.addAll(_before[unit].map(_original));
         if (block.kind == 'section') {
           _placeSection(out, block);
@@ -1569,6 +1593,98 @@ class DocxDelta {
   }
 
   _Out _original(int index) => _Out.original(index, _children[index]);
+
+  /// The kept things placed so far in a write.
+  final Set<String> _placed = <String>{};
+
+  /// How many copies of each note a write has made so far.
+  final Map<String, int> _copies = <String, int>{};
+
+  /// The notes made for pasted note marks, by kind, note and copy, so a
+  /// second save makes no more of them.
+  final Map<String, String> _madeNotes = <String, String>{};
+
+  int? _lastId;
+  int? _lastDrawing;
+
+  /// A number no w:id in the document has, for a pasted tracked change or
+  /// control.
+  int _freshId() => _lastId = (_lastId ?? _topOf('id')) + 1;
+
+  /// A number no drawing in the document has.
+  int _freshDrawing() => _lastDrawing = (_lastDrawing ?? _topOf('docPr')) + 1;
+
+  int _topOf(String what) {
+    var top = 0;
+    final doc = _package.part(_part);
+    for (final e in doc?.rootElement.descendantElements ?? const <XmlElement>[]) {
+      final value = what == 'docPr'
+          ? (e.name.local == 'docPr' ? e.getAttribute('id') : null)
+          : e.getAttribute('w:id') ?? (e.name.local == 'id' ? e.getAttribute('w:val') : null);
+      final n = int.tryParse(value ?? '');
+      if (n != null && n > top && n < 0x7FFFFFFF) top = n;
+    }
+    return top;
+  }
+
+  /// Copies of [nodes] for a second place in the document, as a paste makes
+  /// them: a note they mark gets a copy of its own, ids that must be unique
+  /// are made so, and bookmarks and comment anchors stay with the original.
+  List<XmlNode> _pasted(Iterable<XmlNode> nodes) {
+    final out = <XmlNode>[for (final n in nodes) n.copy()];
+    for (final root in out.whereType<XmlElement>().toList()) {
+      for (final e in <XmlElement>[root, ...root.descendantElements].toList()) {
+        e.attributes.removeWhere((a) => a.name.local == 'paraId' || a.name.local == 'textId');
+        switch (e.name.local) {
+          case 'bookmarkStart' || 'bookmarkEnd' || 'commentRangeStart' || 'commentRangeEnd' || 'permStart' || 'permEnd':
+            e.parent == null ? out.remove(e) : e.remove();
+          case 'commentReference':
+            final run = e.parentElement;
+            final alone = run != null && run.name.local == 'r' && run.childElements.every((c) => c.name.local == 'rPr' || identical(c, e));
+            final gone = alone ? run : e;
+            gone.parent == null ? out.remove(gone) : gone.remove();
+          case 'footnoteReference' || 'endnoteReference':
+            final id = e.getAttribute('w:id');
+            final made = id == null ? null : _copyNote(e.name.local == 'footnoteReference' ? 'footnote' : 'endnote', id);
+            if (made != null) e.setAttribute('w:id', made);
+          case 'ins' || 'del' || 'moveFrom' || 'moveTo' || 'rPrChange' || 'pPrChange' || 'tblPrChange' || 'trPrChange' || 'tcPrChange' || 'cellIns' || 'cellDel':
+            if (e.getAttribute('w:id') != null) e.setAttribute('w:id', '${_freshId()}');
+          case 'docPr':
+            if (e.getAttribute('id') != null) e.setAttribute('id', '${_freshDrawing()}');
+          case 'id' when e.parentElement?.name.local == 'sdtPr':
+            e.setAttribute('w:val', '${_freshId()}');
+        }
+      }
+    }
+    return out;
+  }
+
+  /// A copy of the footnote or endnote [id] under a number of its own, for
+  /// a pasted mark; returns its number, or null where there is no such note.
+  String? _copyNote(String kind, String id) {
+    final count = _copies[kind + id] = (_copies[kind + id] ?? 0) + 1;
+    final key = '$kind:$id:$count';
+    final held = _madeNotes[key];
+    if (held != null) return held;
+    final name = kind == 'footnote' ? 'word/footnotes.xml' : 'word/endnotes.xml';
+    final doc = _package.part(name);
+    if (doc == null) return null;
+    final notes = doc.rootElement.childElements.where((e) => e.name.local == kind).toList();
+    final source = notes.where((e) => e.getAttribute('w:id') == id).firstOrNull;
+    if (source == null) return null;
+    var top = 0;
+    for (final note in notes) {
+      top = math.max(top, int.tryParse(note.getAttribute('w:id') ?? '') ?? 0);
+    }
+    final copy = source.copy()..setAttribute('w:id', '${top + 1}');
+    for (final e in copy.descendantElements.toList()) {
+      e.attributes.removeWhere((a) => a.name.local == 'paraId' || a.name.local == 'textId');
+      if (const <String>{'bookmarkStart', 'bookmarkEnd', 'commentRangeStart', 'commentRangeEnd'}.contains(e.name.local)) e.remove();
+    }
+    doc.rootElement.children.add(copy);
+    _package.touch(name);
+    return _madeNotes[key] = '${top + 1}';
+  }
 
   /// The paragraph a line with none of its own takes after: the one before
   /// it, or the one after it when the line is shaped like that one and not
@@ -2066,7 +2182,7 @@ class DocxDelta {
         if (kept == null) continue;
         link = null;
         linkTarget = null;
-        p.children.addAll(kept.nodes.map((n) => n.copy()));
+        p.children.addAll(_placed.add(id as String) ? kept.nodes.map((n) => n.copy()) : _pasted(kept.nodes));
         continue;
       }
       final chunk = insert! as String;

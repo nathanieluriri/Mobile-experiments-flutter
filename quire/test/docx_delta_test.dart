@@ -27,7 +27,14 @@ const _landscape = '<w:sectPr><w:pgSz w:w="15840" w:h="12240" w:orient="landscap
 
 /// A Word package holding [body], with the styles, numbering and document
 /// relationships given.
-Uint8List docx(String body, {String styles = '', String numbering = '', String rels = '', String sectPr = _landscape}) {
+Uint8List docx(
+  String body, {
+  String styles = '',
+  String numbering = '',
+  String rels = '',
+  String sectPr = _landscape,
+  Map<String, (String, String)> parts = const <String, (String, String)>{},
+}) {
   const main = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
   final files = <String, String>{
     '[Content_Types].xml': '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
@@ -37,6 +44,7 @@ Uint8List docx(String body, {String styles = '', String numbering = '', String r
         '<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>'
         '<Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>'
         '${numbering.isEmpty ? '' : '<Override PartName="/word/numbering.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml"/>'}'
+        '${parts.entries.map((e) => '<Override PartName="/${e.key}" ContentType="${e.value.$1}"/>').join()}'
         '</Types>',
     '_rels/.rels': '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
         '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
@@ -60,6 +68,7 @@ Uint8List docx(String body, {String styles = '', String numbering = '', String r
     if (numbering.isNotEmpty)
       'word/numbering.xml': '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
           '<w:numbering xmlns:w="$main">$numbering</w:numbering>',
+    for (final e in parts.entries) e.key: e.value.$2,
   };
   final archive = Archive();
   for (final e in files.entries) {
@@ -729,6 +738,55 @@ void main() {
       await tester.pumpAndSettle();
       final labels = tester.widgetList<QuillNumberPoint>(find.byType(QuillNumberPoint)).map((p) => p.index).toList();
       expect(labels, <String>['1.', '2.', '3.', '4.', 'Step 3:', 'Step 4:']);
+    });
+
+    test('a table pasted below its original is a second table, and one pasted above leaves the original in place', () {
+      const table = '<w:tbl><w:tblPr/><w:tblGrid><w:gridCol w:w="2000"/></w:tblGrid><w:tr><w:tc><w:p><w:r><w:t>People cell</w:t></w:r></w:p></w:tc></w:tr></w:tbl>';
+      final file = Opened(docx('<w:p><w:r><w:t>Overview.</w:t></w:r></w:p><w:p><w:r><w:t>People</w:t></w:r></w:p>$table<w:p><w:r><w:t>Last words of the plan.</w:t></w:r></w:p>'));
+      final ops = file.delta.ops;
+      final at = ops.indexWhere((o) => o['insert'] is Map);
+      final tableOps = <Map<String, Object?>>[ops[at], ops[at + 1]];
+      List<String> order(Uint8List bytes) => <String>[
+        for (final e in bodyOf(bytes))
+          if (e.name.local == 'tbl') 'table' else if (e.name.local == 'p') textOf(e),
+      ];
+      final below = file.delta.write(<Map<String, Object?>>[...ops, ...tableOps]);
+      expect(order(below), <String>['Overview.', 'People', 'table', 'Last words of the plan.', 'table']);
+      final above = file.delta.write(<Map<String, Object?>>[...tableOps, ...ops]);
+      expect(order(above), <String>['table', 'Overview.', 'People', 'table', 'Last words of the plan.']);
+    });
+
+    test('a pasted note mark gets a note of its own, and comment and bookmark stay with the original', () {
+      const w = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"';
+      final file = Opened(docx(
+        '<w:p><w:bookmarkStart w:id="0" w:name="plan"/><w:commentRangeStart w:id="1"/><w:r><w:t xml:space="preserve">A reviewer said so</w:t></w:r>'
+        '<w:r><w:rPr><w:rStyle w:val="FootnoteReference"/></w:rPr><w:footnoteReference w:id="1"/></w:r>'
+        '<w:commentRangeEnd w:id="1"/><w:r><w:commentReference w:id="1"/></w:r><w:bookmarkEnd w:id="0"/></w:p>'
+        '<w:p><w:r><w:t>Last line.</w:t></w:r></w:p>',
+        rels: '<Relationship Id="rId9" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footnotes" Target="footnotes.xml"/>',
+        parts: <String, (String, String)>{
+          'word/footnotes.xml': (
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.footnotes+xml',
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:footnotes $w>'
+                '<w:footnote w:type="separator" w:id="-1"><w:p><w:r><w:separator/></w:r></w:p></w:footnote>'
+                '<w:footnote w:id="1"><w:p><w:r><w:t>As the note explains.</w:t></w:r></w:p></w:footnote></w:footnotes>',
+          ),
+        },
+      ));
+      final ops = file.delta.ops;
+      final end = ops.indexWhere((o) => o['insert'] == '\n');
+      final first = <Map<String, Object?>>[for (final op in ops.take(end + 1)) Map<String, Object?>.from(op)];
+      final saved = file.delta.write(<Map<String, Object?>>[...ops, ...first]);
+      final xml = documentXml(saved);
+      final notes = RegExp(r'<w:footnoteReference w:id="(\d+)"/>').allMatches(xml).map((m) => m.group(1)).toList();
+      expect(notes, hasLength(2));
+      expect(notes.toSet(), hasLength(2));
+      final footnotes = documentXml(saved, 'word/footnotes.xml');
+      expect(footnotes, contains('<w:footnote w:id="${notes.last}"><w:p><w:r><w:t>As the note explains.</w:t></w:r></w:p></w:footnote>'));
+      expect(RegExp('commentReference').allMatches(xml), hasLength(1));
+      expect(RegExp('bookmarkStart').allMatches(xml), hasLength(1));
+      final again = DocxDelta.read(saved);
+      expect(again.ops, isNotEmpty);
     });
 
     test('a paragraph numbered between two style-numbered steps joins their list', () {
