@@ -175,7 +175,7 @@ Uint8List patchZip(
       ..setUint32(0, 0x02014b50, Endian.little)
       ..setUint16(4, 20, Endian.little)
       ..setUint16(6, 20, Endian.little)
-      ..setUint16(8, 0x0800)
+      ..setUint16(8, 0x0800, Endian.little)
       ..setUint16(10, 8, Endian.little)
       ..setUint16(12, 0, Endian.little)
       ..setUint16(14, 0x21, Endian.little)

@@ -143,9 +143,9 @@ void main() {
         if (sig == 0x04034b50) data.setUint16(i + 6, data.getUint16(i + 6, Endian.little) | 0x0800, Endian.little);
         if (sig == 0x02014b50) data.setUint16(i + 8, data.getUint16(i + 8, Endian.little) | 0x0800, Endian.little);
       }
-      final out = patchZip(bytes, {'a.xml': utf8.encode('<changed/>')});
+      final out = patchZip(bytes, {'a.xml': utf8.encode('<changed/>'), 'c.xml': utf8.encode('<new/>')});
       final pairs = _headerPairs(out);
-      expect(pairs.keys, containsAll(<String>['a.xml', 'b.xml']));
+      expect(pairs.keys, containsAll(<String>['a.xml', 'b.xml', 'c.xml']));
       for (final MapEntry(key: name, value: (local, central)) in pairs.entries) {
         expect(central, local, reason: name);
       }
