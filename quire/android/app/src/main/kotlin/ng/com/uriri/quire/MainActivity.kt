@@ -39,8 +39,11 @@ class MainActivity : FlutterActivity() {
     private var screen: MethodChannel? = null
     private var arrival: MethodChannel? = null
 
-    /** True from launch until Android 12's splash has been handed over. */
+    /** True from launch until Android 12's splash has been dealt with. */
     private var splashUp = false
+
+    /** True once the system has given the app its splash to hand over. */
+    private var handing = false
 
     /** Whether Dart has had its first chance to say how the bars should be. */
     private var resumedOnce = false
@@ -61,15 +64,7 @@ class MainActivity : FlutterActivity() {
                 }
             }
         }
-        arrival = MethodChannel(messenger, ARRIVAL).also { handover ->
-            handover.setMethodCallHandler { call, result ->
-                if (call.method == HANDS_OVER) {
-                    result.success(splashUp)
-                } else {
-                    result.notImplemented()
-                }
-            }
-        }
+        arrival = MethodChannel(messenger, ARRIVAL)
         screen = MethodChannel(messenger, SCREEN).also { hold ->
             hold.setMethodCallHandler { call, result ->
                 if (call.method == HOLD) {
@@ -110,14 +105,48 @@ class MainActivity : FlutterActivity() {
         pending = copyOf(intent)
     }
 
+    /**
+     * Tells Dart, before its first frame, that Android owns the splash.
+     *
+     * It is the one thing the first frame cannot wait to be told: on Android
+     * 12 and later the splash may have no mark at all, so the first frame is
+     * drawn bare until the splash has said what it showed.
+     */
+    override fun getDartEntrypointArgs(): List<String>? {
+        val given = super.getDartEntrypointArgs() ?: emptyList()
+        return if (splashUp) given + HANDS_OVER else given
+    }
+
+    /**
+     * Android 12's splash without an icon, and a relaunch with no splash at
+     * all, never reach the exit listener. Whatever is up is bare ground then,
+     * so once the first frame has been up long enough for the listener to
+     * have come, Dart is told so and lifts off quietly.
+     */
+    override fun onFlutterUiDisplayed() {
+        super.onFlutterUiDisplayed()
+        if (!splashUp || handing) return
+        window.decorView.postDelayed({
+            if (splashUp && !handing) {
+                splashUp = false
+                arrival?.invokeMethod(
+                    PLACE,
+                    mapOf("showedMark" to false, "showedName" to false),
+                )
+                arrival?.invokeMethod(GONE, null)
+            }
+        }, BARE_AFTER_MS)
+    }
+
     override fun onPostResume() {
         super.onPostResume()
         // The engine puts its own system ui flags back on every resume, and
         // below Android 11 those flags are what lets the app under the
         // navigation bar. The first time, Dart has not yet asked for edge to
         // edge, so the first frame would be laid out short of the splash it
-        // replaces. After that the engine keeps whatever Dart asked for.
-        if (!resumedOnce) {
+        // replaces. Below Android 10 the engine never honours edge to edge,
+        // so every later resume would bring the app back short as well.
+        if (!resumedOnce || Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
             resumedOnce = true
             reachTheEdges()
         }
@@ -141,8 +170,11 @@ class MainActivity : FlutterActivity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             window.setDecorFitsSystemWindows(false)
         } else {
+            // Added to the engine's flags rather than put in their place, so
+            // a presentation's hidden bars stay hidden.
             window.decorView.systemUiVisibility =
-                View.SYSTEM_UI_FLAG_LAYOUT_STABLE or
+                window.decorView.systemUiVisibility or
+                    View.SYSTEM_UI_FLAG_LAYOUT_STABLE or
                     View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or
                     View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
         }
@@ -162,6 +194,18 @@ class MainActivity : FlutterActivity() {
      */
     @TargetApi(Build.VERSION_CODES.S)
     private fun handOver(splash: SplashScreenView) {
+        if (!splashUp) {
+            // The listener came after Dart was told there was no splash to
+            // wait for, and the app under it has moved on. It goes softly
+            // rather than being cut away.
+            splash.animate()
+                .alpha(0f)
+                .setDuration(LATE_FADE_MS)
+                .withEndAction { splash.remove() }
+                .start()
+            return
+        }
+        handing = true
         val channel = arrival
         val flutter = findViewById<View>(FLUTTER_VIEW_ID)
         var finished = false
@@ -287,6 +331,17 @@ class MainActivity : FlutterActivity() {
         return null
     }
 
+    override fun onNewIntent(next: Intent) {
+        super.onNewIntent(next)
+        val path = copyOf(next) ?: return
+        val open = channel
+        if (open == null) {
+            pending = path
+            return
+        }
+        open.invokeMethod(OPENED, path)
+    }
+
     /**
      * The document [intent] carries, copied somewhere this app can read it
      * later, or null when it carries none.
@@ -348,5 +403,7 @@ class MainActivity : FlutterActivity() {
         const val PLACE = "place"
         const val GONE = "gone"
         const val HANDOVER_LIMIT_MS = 600L
+        const val BARE_AFTER_MS = 300L
+        const val LATE_FADE_MS = 200L
     }
 }

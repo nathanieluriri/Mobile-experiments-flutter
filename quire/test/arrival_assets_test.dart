@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:quire/arrival/arrival_handoff.dart';
 import 'package:quire/arrival/quire_mark.dart';
 import 'package:quire/arrival/quire_mark_data.dart';
 import 'package:quire/theme/colors.dart';
@@ -50,7 +51,91 @@ class _Launch extends CustomPainter {
   bool shouldRepaint(_Launch old) => old.name != name;
 }
 
+/// The body of the Kotlin function [signature] in [source].
+String _kotlin(String source, String signature) {
+  final start = source.indexOf(signature);
+  expect(start, isNot(-1), reason: signature);
+  return source.substring(start, source.indexOf('\n    }\n', start));
+}
+
+String _constant(String source, String name) => RegExp(
+  'const val $name = "([^"]+)"',
+).firstMatch(source)!.group(1)!;
+
 void main() {
+  group('Android tells the first frame what its splash showed', () {
+    final activity = _read(
+      'android/app/src/main/kotlin/ng/com/uriri/quire/MainActivity.kt',
+    );
+
+    test('on the channel Dart listens on', () {
+      expect(_constant(activity, 'ARRIVAL'), kArrivalChannel);
+      expect(_constant(activity, 'HANDS_OVER'), kArrivalHandsOver);
+      expect(_constant(activity, 'PLACE'), 'place');
+      expect(_constant(activity, 'GONE'), 'gone');
+    });
+
+    test('before the first frame, that it owns a splash', () {
+      final args = _kotlin(
+        activity,
+        'override fun getDartEntrypointArgs()',
+      );
+      expect(args, contains('super.getDartEntrypointArgs()'));
+      expect(args, contains('if (splashUp) given + HANDS_OVER else given'));
+      final created = _kotlin(activity, 'override fun onCreate(');
+      expect(
+        created,
+        matches(
+          RegExp(
+            r'SDK_INT >= Build\.VERSION_CODES\.S\) \{\s*splashUp = true\s*'
+            r'splashScreen\.setOnExitAnimationListener',
+          ),
+        ),
+      );
+    });
+
+    test('that it was bare, when the system never hands it over', () {
+      final shown = _kotlin(activity, 'override fun onFlutterUiDisplayed()');
+      expect(shown, contains('if (!splashUp || handing) return'));
+      expect(shown, contains('if (splashUp && !handing)'));
+      expect(
+        shown,
+        matches(
+          RegExp(
+            r'invokeMethod\(\s*PLACE,\s*'
+            r'mapOf\("showedMark" to false, "showedName" to false\),?\s*\)',
+          ),
+        ),
+      );
+      expect(shown, contains('invokeMethod(GONE, null)'));
+      final handing = _kotlin(activity, 'private fun handOver(');
+      expect(
+        handing,
+        matches(RegExp(r'if \(!splashUp\) \{[^}]*\.alpha\(0f\)')),
+      );
+      expect(handing, contains('handing = true'));
+    });
+
+    test('from under both bars, every time it comes back below Android 10', () {
+      final resumed = _kotlin(activity, 'override fun onPostResume()');
+      expect(
+        resumed,
+        contains(
+          'if (!resumedOnce || Build.VERSION.SDK_INT < Build.VERSION_CODES.Q)',
+        ),
+      );
+      final edges = _kotlin(activity, 'private fun reachTheEdges()');
+      expect(
+        edges,
+        matches(
+          RegExp(
+            r'systemUiVisibility =\s*window\.decorView\.systemUiVisibility or',
+          ),
+        ),
+      );
+    });
+  });
+
   group('the splash drawn natively and the first frame agree', () {
     test('on the mark and the name, stroke for stroke', () {
       expect(kMarkPathData, _pathData('quire_splash_icon.xml'));
@@ -125,6 +210,17 @@ void main() {
               '<item name="android:navigationBarColor">@android:color/transparent</item>',
             ),
           );
+          // Android 10 and 11 lay a scrim under a transparent bar unless told
+          // not to, and the app window is told not to.
+          for (final bar in ['Status', 'Navigation']) {
+            expect(
+              theme,
+              contains(
+                '<item name="android:enforce${bar}BarContrast" '
+                'tools:targetApi="q">false</item>',
+              ),
+            );
+          }
         }
       }
     });
@@ -184,6 +280,32 @@ void main() {
         matches(
           RegExp(
             r'<key>UIStatusBarStyle</key>\s*<string>UIStatusBarStyleLightContent</string>',
+          ),
+        ),
+      );
+    });
+
+    test('on the status bar iOS starts the app with', () {
+      final board = _read('$_ios/Base.lproj/Main.storyboard');
+      final root = RegExp(
+        r'initialViewController="([^"]+)"',
+      ).firstMatch(board)!.group(1)!;
+      expect(
+        board,
+        contains(
+          '<viewController id="$root" customClass="QuireViewController" '
+          'customModule="Runner" customModuleProvider="target"',
+        ),
+      );
+      final swift = _read('$_ios/AppDelegate.swift');
+      expect(
+        swift,
+        matches(
+          RegExp(
+            r'class QuireViewController: FlutterViewController \{\s*'
+            r'override var preferredStatusBarStyle: UIStatusBarStyle \{\s*'
+            r'let asked = super\.preferredStatusBarStyle\s*'
+            r'return asked == \.default \? \.lightContent : asked',
           ),
         ),
       );

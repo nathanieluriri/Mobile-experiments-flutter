@@ -38,8 +38,12 @@ class ArrivalPose {
     required this.panes,
     required this.blob,
     required this.blobCorner,
-    required this.tension,
+    required this.settle,
+    required this.join,
+    required this.reach,
+    required this.opening,
     required this.stubRound,
+    required this.zip,
     required this.flapMelt,
     required this.deskScale,
   });
@@ -58,8 +62,12 @@ class ArrivalPose {
     panes: [PanePose.rest, PanePose.rest, PanePose.rest, PanePose.rest],
     blob: Rect.zero,
     blobCorner: 0,
-    tension: 0,
+    settle: 0,
+    join: 0,
+    reach: 0,
+    opening: 0,
     stubRound: 0,
+    zip: 0,
     flapMelt: 0,
     deskScale: kArrivalDeskScale,
   );
@@ -78,8 +86,12 @@ class ArrivalPose {
     panes: [PanePose.rest, PanePose.rest, PanePose.rest, PanePose.rest],
     blob: Rect.zero,
     blobCorner: 0,
-    tension: 0,
+    settle: 0,
+    join: 0,
+    reach: 0,
+    opening: 0,
     stubRound: 0,
+    zip: 0,
     flapMelt: 0,
     deskScale: 1,
   );
@@ -110,14 +122,24 @@ class ArrivalPose {
   final List<PanePose> panes;
 
   /// The one soft window the holes are pulled into, its corner radius as a
-  /// share of its half width, and how much of its size it has grown to from
-  /// the middle of the mark.
+  /// share of its half width, and how far the holes have settled into it.
   final Rect blob;
   final double blobCorner;
-  final double tension;
+  final double settle;
+
+  /// How far the outlines' inner corners, and then the holes', have been
+  /// drawn out toward the middle, where 1 is all the way, and how wide the
+  /// opening is that widens there once the holes have met.
+  final double join;
+  final double reach;
+  final double opening;
 
   /// How rounded the ends of the bars are as they part and draw back.
   final double stubRound;
+
+  /// How much harder than elsewhere the outlines are drawn together near the
+  /// middle, which closes the gaps between the panes from there outwards.
+  final double zip;
 
   /// How far the dog ear has melted down into its pane.
   final double flapMelt;
@@ -163,8 +185,10 @@ ArrivalPose arrivalPoseAt(double ms, ArrivalGeometry geometry, Size size) {
   final end = kArrivalReveal.inMilliseconds.toDouble();
   if (ms >= end) return ArrivalPose.gone;
 
-  final soften = easeInOutQuad.transform(_span(ms, 0, 320));
-  final gather = _spring(AppSprings.gooRise, ms - 40);
+  // The goo takes over from the exact mark while it still has the mark's
+  // shape, and only then begins to move.
+  final soften = easeInOutQuad.transform(_span(ms, _moveFrom, 380));
+  final gather = _spring(AppSprings.gooRise, ms - _moveFrom);
   final panes = [
     for (var i = 0; i < 4; i++) _pane(i, ms, gather, soften),
   ];
@@ -186,29 +210,53 @@ ArrivalPose arrivalPoseAt(double ms, ArrivalGeometry geometry, Size size) {
     math.log(cover) * math.pow(swellAt / kArrivalCovered, 2),
   );
   final rimDp = _rimFrom + (_rimTo - _rimFrom) * swellAt * swellAt;
+  // Opening from nothing, slowly at first, so the bars' ends are seen to be
+  // drawn back rather than cut.
+  final opening = _openTo * _easeInQuad(_span(ms, _metAt - 15, _openBy));
 
   return ArrivalPose(
     nameOpacity: 1 - easeInOutQuad.transform(_span(ms, 0, 220)),
     nameDrop: 10 * easeInOutQuad.transform(_span(ms, 0, 220)),
-    exactMark: 1 - _span(ms, 0, 90),
+    exactMark: 1 - _smooth(_span(ms, 0, _handOver)),
     window: easeOutCubic.transform(_span(ms, 20, 240)),
     swell: growth,
-    gooOutline: 8 * easeInOutQuad.transform(_span(ms, 40, 320)),
-    gooHole: 6 * easeInOutQuad.transform(_span(ms, 160, 420)),
+    gooOutline: 8 * easeInOutQuad.transform(_span(ms, _moveFrom, 320)),
+    gooHole: 6 * easeInOutQuad.transform(_span(ms, 120, 330)),
     rim: rimDp / (geometry.unit * growth),
     morph: easeInOutCubic.transform(_span(ms, 300, 620)),
     panes: panes,
     blob: blob,
     blobCorner: _blobCorner,
-    tension: easeOutCubic.transform(_span(ms, 300, 620)),
-    stubRound: 8,
-    flapMelt: easeInOutCubic.transform(_span(ms, 60, 380)),
+    settle: easeInOutCubic.transform(_span(ms, _metAt, 640)),
+    join: _easeInOutSine(_span(ms, _moveFrom, 170)),
+    reach: _easeInOutSine(_span(ms, 170, _metAt)),
+    opening: opening,
+    stubRound: math.min(_stubRound, 0.8 * opening),
+    zip: _zip,
+    flapMelt: easeInOutCubic.transform(_span(ms, 80, 420)),
     deskScale:
         1 +
         (kArrivalDeskScale - 1) *
-            (1 - easeOutCubic.transform(_span(ms, 240, end))),
+            (1 - easeOutCubic.transform(_span(ms, 240, _deskSettled))),
   );
 }
+
+/// How long the exact mark takes to hand over to the goo, and when the goo
+/// starts to move.
+const _handOver = 80.0;
+const _moveFrom = 60.0;
+
+/// When the holes' inner corners meet in the middle, and how wide the
+/// opening there grows, and by when.
+const _metAt = 300.0;
+const _openTo = 20.0;
+const _openBy = 450.0;
+const _stubRound = 8.0;
+const _zip = 1.2;
+
+/// When the desk has settled back to where it stays, which is some frames
+/// before the arrival is taken away, so taking it away changes nothing.
+const _deskSettled = 1000.0;
 
 const _stagger = [0.0, 40.0, 70.0, 100.0];
 const _holeOpen = 1.22;
@@ -217,7 +265,7 @@ const _holeRound = 7.0;
 const _rimRest = 7.57;
 const _rimFrom = 6.0;
 const _rimTo = 2.0;
-const _wobbleFrom = 560.0;
+const _wobbleFrom = 580.0;
 const _wobbleDepth = 0.07;
 const _wobbleDecay = 140.0;
 const _wobblePeriod = 300.0;
@@ -236,7 +284,7 @@ const _blobCorner = 0.46;
 
 PanePose _pane(int i, double ms, double gather, double soften) {
   final pane = QuireMark.panes[i];
-  final open = _spring(AppSprings.gooSpread, ms - 140 - _stagger[i]);
+  final open = _spring(AppSprings.gooSpread, ms - 150 - _stagger[i]);
   final hole = 1 + (_holeOpen - 1) * open;
   final holeSize = pane.holes.last.getBounds().width;
   return PanePose(
@@ -258,6 +306,12 @@ Offset _towardMiddle(int i) {
 
 double _span(double t, double from, double to) =>
     ((t - from) / (to - from)).clamp(0.0, 1.0);
+
+double _smooth(double t) => t * t * (3 - 2 * t);
+
+double _easeInQuad(double t) => t * t;
+
+double _easeInOutSine(double t) => 0.5 - 0.5 * math.cos(math.pi * t);
 
 /// A spring from 0 to 1 released at time 0, [ms] later.
 double _spring(SpringDescription spring, double ms) {

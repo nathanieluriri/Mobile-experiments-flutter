@@ -1133,11 +1133,12 @@ class LibraryStore extends ChangeNotifier {
         final imported = await catalogue.load();
         if (imported.isNotEmpty) _entries.insertAll(0, imported);
         _applyState(await catalogue.loadState());
-        notifyListeners();
       } finally {
         // Whatever the phone had to say about this desk, it has said. One
-        // that could not be read still holds what it holds.
+        // that could not be read still holds what it holds. Told after the
+        // flag is up, so whatever wakes on it finds the desk read.
         _booted = true;
+        notifyListeners();
       }
     }
     if (parse) await hydrate();

@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:quire/app.dart';
+import 'package:quire/arrival/arrival_painter.dart';
+import 'package:quire/painting/spinner_painter.dart' show kSpinnerPeriod;
 import 'package:quire/data/library.dart';
 import 'package:quire/screens/desk/desk_screen.dart';
 import 'package:quire/screens/desk/document_card.dart' show chromaFor;
@@ -246,6 +248,19 @@ void main() {
       await pumpScreen(tester, _app());
       await turnUntil(tester, find.byType(OpeningScreen));
       await fade(tester);
+      // The arrival opens onto the screen that names the document; the golden
+      // is of that screen, not of the mark still standing over it. The wait is
+      // made up to whole turns of the spinner, so the loop is where it was.
+      final over = find.byWidgetPredicate(
+        (widget) => widget is CustomPaint && widget.painter is ArrivalPainter,
+      );
+      var waited = 0;
+      while (over.evaluate().isNotEmpty && waited < 5000) {
+        await pumpMs(tester, 16);
+        waited += 16;
+      }
+      final period = kSpinnerPeriod.inMilliseconds;
+      await pumpMs(tester, (period - waited % period) % period);
       await capture(tester, 'opening__document');
 
       await pumpMs(tester, kOpeningLimit.inMilliseconds);

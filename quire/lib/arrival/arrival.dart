@@ -16,9 +16,11 @@ import 'arrival_painter.dart';
 /// the older Android starting window is gone sooner.
 const kArrivalSplashFade = Duration(milliseconds: 300);
 
-/// The longest the arrival waits for Android 12 to report and take its splash
-/// away. It normally does so within a frame or two of the first one.
-const kArrivalHandoffLimit = Duration(milliseconds: 700);
+/// The longest the arrival waits for Android 12 to say its splash has gone.
+/// Android says so within a few frames of the first one, and a third of a
+/// second after it for a splash with nothing to hand over, so this is only
+/// for a platform side that has stopped answering.
+const kArrivalHandoffBackstop = Duration(milliseconds: 2000);
 
 /// The arrival for anyone who has asked for less motion, and for a splash that
 /// came up without the mark: the ground simply lifts off the screen.
@@ -41,11 +43,17 @@ class Arrival extends StatefulWidget {
     super.key,
     required this.ready,
     required this.child,
+    this.handsOver = false,
     this.handoff,
   });
 
   /// True once the screen under the mark has something to show.
   final ValueListenable<bool> ready;
+
+  /// Whether the platform owns its splash: it will report what it showed and
+  /// say when it has taken it away. Until it reports, the first frame is
+  /// bare, since the splash may have had no mark to match.
+  final bool handsOver;
 
   final ArrivalHandoff? handoff;
 
@@ -57,20 +65,22 @@ class Arrival extends StatefulWidget {
 }
 
 class _ArrivalState extends State<Arrival> with SingleTickerProviderStateMixin {
+  // Preserved, because a controller left to the platform's reduce motion
+  // setting runs at a twentieth of its length, which would turn the quiet
+  // lift-off meant for exactly those readers into a cut.
   late final AnimationController _reveal = AnimationController(
     vsync: this,
     duration: kArrivalReveal,
+    animationBehavior: AnimationBehavior.preserve,
   );
   late final ArrivalHandoff _handoff = widget.handoff ?? ArrivalHandoff();
 
   ui.FragmentShader? _shader;
   bool _shaderSettled = false;
   SplashReport? _report;
-  Timer? _fadeLimit;
-  Timer? _handoffLimit;
+  Timer? _splashLimit;
   Timer? _shaderLimit;
   bool _splashGone = false;
-  bool _handing = false;
   bool _started = false;
   bool _quiet = false;
   bool _stillness = false;
@@ -82,23 +92,25 @@ class _ArrivalState extends State<Arrival> with SingleTickerProviderStateMixin {
     _reveal.addStatusListener((status) {
       if (status == AnimationStatus.completed && mounted) {
         setState(() => _done = true);
+        // Nothing of the arrival outlives it: the arrival itself stays in the
+        // tree for as long as the app does.
+        _report?.dispose();
+        _report = null;
+        _shader?.dispose();
+        _shader = null;
       }
     });
     widget.ready.addListener(_maybeStart);
     _handoff
       ..onReport = _onReport
       ..onGone = _onGone;
-    // Both clocks start at the first frame, whatever the platform says, and
-    // an answer that never comes is the same as no.
+    _handoff.start();
     SchedulerBinding.instance.addPostFrameCallback((_) {
       if (!mounted || _splashGone) return;
-      _fadeLimit = Timer(kArrivalSplashFade, () {
-        if (!_handing) _onGone();
-      });
-      _handoffLimit = Timer(kArrivalHandoffLimit, _onGone);
-    });
-    _handoff.start().then((handsOver) {
-      if (handsOver) _handing = true;
+      _splashLimit = Timer(
+        widget.handsOver ? kArrivalHandoffBackstop : kArrivalSplashFade,
+        _onGone,
+      );
     });
     _loadShader();
   }
@@ -118,7 +130,6 @@ class _ArrivalState extends State<Arrival> with SingleTickerProviderStateMixin {
 
   Future<void> _onReport(SplashReport report) async {
     if (!mounted) return;
-    _handing = true;
     final old = _report;
     setState(() => _report = report);
     old?.dispose();
@@ -126,8 +137,7 @@ class _ArrivalState extends State<Arrival> with SingleTickerProviderStateMixin {
   }
 
   void _onGone() {
-    _fadeLimit?.cancel();
-    _handoffLimit?.cancel();
+    _splashLimit?.cancel();
     if (_splashGone) return;
     _splashGone = true;
     _maybeStart();
@@ -144,10 +154,7 @@ class _ArrivalState extends State<Arrival> with SingleTickerProviderStateMixin {
     }
     _shaderLimit?.cancel();
     _started = true;
-    _quiet =
-        _shader == null ||
-        _report?.showedMark == false ||
-        _stillness;
+    _quiet = _shader == null || _markShown == 0 || _stillness;
     if (_quiet) _reveal.duration = kArrivalQuietReveal;
     // A frame for the screen under the mark to be laid out and painted before
     // the window opens onto it.
@@ -170,8 +177,7 @@ class _ArrivalState extends State<Arrival> with SingleTickerProviderStateMixin {
   @override
   void dispose() {
     widget.ready.removeListener(_maybeStart);
-    _fadeLimit?.cancel();
-    _handoffLimit?.cancel();
+    _splashLimit?.cancel();
     _shaderLimit?.cancel();
     _handoff.stop();
     _reveal.dispose();
@@ -179,6 +185,17 @@ class _ArrivalState extends State<Arrival> with SingleTickerProviderStateMixin {
     _report?.dispose();
     super.dispose();
   }
+
+  /// How much of the mark, and of the name, the splash showed: all of them
+  /// unless a platform that reports says otherwise, and none of them from a
+  /// platform that reports until it has.
+  double get _markShown => _shown(_report?.showedMark);
+  double get _nameShown =>
+      _markShown == 0 ? 0 : _shown(_report?.showedName);
+
+  double _shown(bool? reported) => widget.handsOver
+      ? (reported ?? false ? 1 : 0)
+      : (reported ?? true ? 1 : 0);
 
   ArrivalGeometry _geometry(Size size) {
     final report = _report;
@@ -211,8 +228,6 @@ class _ArrivalState extends State<Arrival> with SingleTickerProviderStateMixin {
         final geometry = _geometry(size);
         final pose = _done ? ArrivalPose.gone : _pose(geometry, size);
         final report = _report;
-        final markShown = report?.showedMark == false ? 0.0 : 1.0;
-        final nameShown = report?.showedName == false ? 0.0 : markShown;
         Widget? overlay;
         if (!_done) {
           overlay = CustomPaint(
@@ -222,8 +237,8 @@ class _ArrivalState extends State<Arrival> with SingleTickerProviderStateMixin {
               geometry: geometry,
               shader: _quiet ? null : _shader,
               pixelRatio: pixelRatio,
-              showMark: markShown,
-              showName: nameShown,
+              showMark: _markShown,
+              showName: _nameShown,
               markPixels: report?.markPixels,
               markPixelsRect: report?.markPixelsRect,
               namePixels: report?.namePixels,

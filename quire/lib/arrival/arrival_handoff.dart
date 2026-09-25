@@ -7,6 +7,10 @@ import 'package:flutter/services.dart';
 /// The channel the platform's own splash is handed over on.
 const kArrivalChannel = 'ng.com.uriri.quire/arrival';
 
+/// The entrypoint argument Android passes when it owns the splash and will
+/// report it and take it away itself.
+const kArrivalHandsOver = 'handsOver';
+
 /// What the platform's splash showed, as it measured it, in logical pixels of
 /// the Flutter view.
 class SplashReport {
@@ -53,9 +57,10 @@ class SplashReport {
 /// The Flutter side of the handover.
 ///
 /// On Android 12 and later the system keeps its splash over the app until it
-/// is told to take it away, and tells the app where it drew everything first.
-/// So the first frame can be moved to where the splash really is, drawn, and
-/// only then can the splash go: it goes from over an identical picture.
+/// is told to take it away, and tells the app what it drew and where first.
+/// So the frame under it can be made to match, drawn, and only then can the
+/// splash go: it goes from over an identical picture. A splash that showed
+/// nothing is reported as bare.
 ///
 /// Everywhere else there is nothing to be told. The launch screen is laid out
 /// to match the standard place, and it goes on its own once the first frame
@@ -73,18 +78,7 @@ class ArrivalHandoff {
   /// Called once the platform's splash is off the screen.
   VoidCallback? onGone;
 
-  /// Starts listening, and says whether the platform will report and then
-  /// take its splash away itself.
-  Future<bool> start() async {
-    _channel.setMethodCallHandler(_handle);
-    try {
-      return await _channel.invokeMethod<bool>('handsOver') ?? false;
-    } on MissingPluginException {
-      return false;
-    } on PlatformException {
-      return false;
-    }
-  }
+  void start() => _channel.setMethodCallHandler(_handle);
 
   void stop() => _channel.setMethodCallHandler(null);
 

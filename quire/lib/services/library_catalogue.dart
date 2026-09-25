@@ -52,6 +52,8 @@ class LibraryCatalogue {
     } on FormatException {
       // A file somebody or something has damaged. Starting over loses at
       // most a reading position; refusing to start loses the app.
+    } on FileSystemException {
+      // The same, damaged below the JSON: bytes that are not text at all.
     }
     return <String, Object?>{};
   }
