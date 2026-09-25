@@ -27,6 +27,9 @@ String rowMeta(LibraryEntry entry, DocumentStore? store) {
     entry.mark,
     if (units != null) '${groupedNumber(units.count)} ${units.lower}',
     entry.sizeLabel,
+    // Read where it lies rather than held by quire, which is worth a word
+    // because it is gone from the desk if it is gone from the phone.
+    if (entry.onDevice) 'on the phone',
   ].join(' - ');
 }
 

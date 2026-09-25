@@ -1,6 +1,7 @@
 import 'package:flutter/widgets.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
+import '../../services/device_storage.dart';
 import '../../theme/colors.dart';
 import '../../theme/feedback.dart';
 import '../../theme/metrics.dart';
@@ -38,6 +39,11 @@ class FolderBody extends StatelessWidget {
     required this.onOpen,
     required this.onRemove,
     this.onMake,
+    this.onAdopt,
+    this.deviceFolders = const <AdoptedFolder>[],
+    this.isMissing,
+    this.onOpenDevice,
+    this.onDeviceActions,
     this.padding = EdgeInsets.zero,
     this.controller,
     this.footer,
@@ -47,6 +53,9 @@ class FolderBody extends StatelessWidget {
   /// way a file manager puts it where the folders are.
   final VoidCallback? onMake;
 
+  /// Asks the phone for one of its own folders to read from.
+  final VoidCallback? onAdopt;
+
   final List<String> folders;
   final int Function(String folder) countIn;
   final ValueChanged<String> onOpen;
@@ -55,6 +64,13 @@ class FolderBody extends StatelessWidget {
   /// press, the way a file manager offers what can be done to a folder.
   final ValueChanged<String> onRemove;
 
+  /// Folders on the phone the reader handed over, listed after quire's own
+  /// and behaving the same: tap to go in, hold for what can be done.
+  final List<AdoptedFolder> deviceFolders;
+  final bool Function(AdoptedFolder folder)? isMissing;
+  final ValueChanged<AdoptedFolder>? onOpenDevice;
+  final ValueChanged<AdoptedFolder>? onDeviceActions;
+
   final EdgeInsets padding;
   final ScrollController? controller;
   final Widget? footer;
@@ -62,27 +78,57 @@ class FolderBody extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final footer = this.footer;
-    final make = onMake;
-    final lead = make == null ? 0 : 1;
-    return ListView.builder(
+    final rows = <Widget>[
+      if (onMake case final make?) NewFolderRow(onTap: make),
+      if (onAdopt case final adopt?) AdoptFolderRow(onTap: adopt),
+      for (var i = 0; i < folders.length; i++)
+        _FolderRow(
+          name: folders[i],
+          label: _heldLabel(countIn(folders[i])),
+          onOpen: () => onOpen(folders[i]),
+          onRemove: () => onRemove(folders[i]),
+          last: i == folders.length - 1 && deviceFolders.isEmpty,
+        ),
+      for (var i = 0; i < deviceFolders.length; i++)
+        _FolderRow(
+          name: deviceFolders[i].name,
+          label: (isMissing?.call(deviceFolders[i]) ?? false)
+              ? 'Not on the phone any more'
+              : 'On the phone',
+          icon: LucideIcons.smartphone,
+          onOpen: () => onOpenDevice?.call(deviceFolders[i]),
+          onRemove: () => onDeviceActions?.call(deviceFolders[i]),
+          last: i == deviceFolders.length - 1,
+        ),
+      ?footer,
+    ];
+    return ListView(
       controller: controller,
       padding: padding,
-      itemCount: lead + folders.length + (footer == null ? 0 : 1),
-      itemBuilder: (context, at) {
-        if (make != null && at == 0) return NewFolderRow(onTap: make);
-        final index = at - lead;
-        if (index >= folders.length) return footer;
-        final folder = folders[index];
-        return _FolderRow(
-          name: folder,
-          held: countIn(folder),
-          onOpen: () => onOpen(folder),
-          onRemove: () => onRemove(folder),
-          last: index == folders.length - 1,
-        );
-      },
+      children: rows,
     );
   }
+}
+
+String _heldLabel(int held) => switch (held) {
+  0 => 'Empty',
+  1 => '1 document',
+  _ => '$held documents',
+};
+
+/// The row that hands one of the phone's own folders to quire. The phone
+/// asks which, and quire can read only that folder and what is inside it.
+class AdoptFolderRow extends StatelessWidget {
+  const AdoptFolderRow({super.key, required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => _PlusRow(
+    onTap: onTap,
+    label: 'A folder on this phone',
+    icon: LucideIcons.smartphone,
+  );
 }
 
 /// The row that makes a folder, drawn as a folder row with a plus on its
@@ -94,10 +140,29 @@ class NewFolderRow extends StatelessWidget {
   final VoidCallback onTap;
 
   @override
+  Widget build(BuildContext context) => _PlusRow(
+    onTap: onTap,
+    label: 'New folder',
+    icon: LucideIcons.folderPlus,
+  );
+}
+
+class _PlusRow extends StatelessWidget {
+  const _PlusRow({
+    required this.onTap,
+    required this.label,
+    required this.icon,
+  });
+
+  final VoidCallback onTap;
+  final String label;
+  final IconData icon;
+
+  @override
   Widget build(BuildContext context) {
     return PaperPress(
       onTap: onTap,
-      semanticLabel: 'New folder',
+      semanticLabel: label,
       washRadius: kListRowWashRadius,
       child: SizedBox(
         height: kFolderRowHeight,
@@ -113,15 +178,15 @@ class NewFolderRow extends StatelessWidget {
                   borderRadius: BorderRadius.circular(kFolderPlateRadius),
                   border: Border.all(color: AppColors.hairline),
                 ),
-                child: const Icon(
-                  LucideIcons.folderPlus,
+                child: Icon(
+                  icon,
                   size: kFolderGlyph,
                   color: AppColors.accentBright,
                 ),
               ),
               const SizedBox(width: kFolderGap),
               Text(
-                'New folder',
+                label,
                 style: AppText.rowTitle.copyWith(color: AppColors.ink),
               ),
             ],
@@ -132,26 +197,46 @@ class NewFolderRow extends StatelessWidget {
   }
 }
 
-class _FolderRow extends StatelessWidget {
-  const _FolderRow({
+/// One folder in a list of them, quire's own or the phone's.
+class DeviceFolderRow extends StatelessWidget {
+  const DeviceFolderRow({
+    super.key,
     required this.name,
-    required this.held,
     required this.onOpen,
-    required this.onRemove,
-    required this.last,
+    this.last = false,
   });
 
   final String name;
-  final int held;
+  final VoidCallback onOpen;
+  final bool last;
+
+  @override
+  Widget build(BuildContext context) => _FolderRow(
+    name: name,
+    label: 'Folder',
+    icon: LucideIcons.folder,
+    onOpen: onOpen,
+    onRemove: onOpen,
+    last: last,
+  );
+}
+
+class _FolderRow extends StatelessWidget {
+  const _FolderRow({
+    required this.name,
+    required this.label,
+    required this.onOpen,
+    required this.onRemove,
+    required this.last,
+    this.icon = LucideIcons.folder,
+  });
+
+  final String name;
+  final String label;
+  final IconData icon;
   final VoidCallback onOpen;
   final VoidCallback onRemove;
   final bool last;
-
-  String get _label => switch (held) {
-    0 => 'Empty',
-    1 => '1 document',
-    _ => '$held documents',
-  };
 
   @override
   Widget build(BuildContext context) {
@@ -178,8 +263,8 @@ class _FolderRow extends StatelessWidget {
                       color: AppColors.surfaceHigh,
                       borderRadius: BorderRadius.circular(kFolderPlateRadius),
                     ),
-                    child: const Icon(
-                      LucideIcons.folder,
+                    child: Icon(
+                      icon,
                       size: kFolderGlyph,
                       color: AppColors.accentBright,
                     ),
@@ -200,7 +285,7 @@ class _FolderRow extends StatelessWidget {
                         ),
                         const SizedBox(height: kFolderTitleGap),
                         Text(
-                          _label,
+                          label,
                           style: AppText.docMeta.copyWith(
                             color: AppColors.inkSoft,
                           ),
@@ -339,6 +424,61 @@ class EmptyFolderPanel extends StatelessWidget {
             style: AppText.destinationBody.copyWith(color: AppColors.inkSoft),
           ),
         ),
+      ],
+    ),
+  );
+}
+
+/// What a folder on the phone says when there is nothing to list: it has gone,
+/// or it holds nothing quire reads.
+class DevicePanel extends StatelessWidget {
+  const DevicePanel({
+    super.key,
+    required this.headline,
+    required this.body,
+    this.action,
+    this.onAction,
+  });
+
+  final String headline;
+  final String body;
+  final String? action;
+  final VoidCallback? onAction;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(top: 48),
+    child: Column(
+      children: [
+        Text(
+          headline,
+          textAlign: TextAlign.center,
+          style: AppText.destinationTitle.copyWith(color: AppColors.ink),
+        ),
+        const SizedBox(height: 10),
+        SizedBox(
+          width: kEmptyFolderWidth,
+          child: Text(
+            body,
+            textAlign: TextAlign.center,
+            style: AppText.destinationBody.copyWith(color: AppColors.inkSoft),
+          ),
+        ),
+        if (action case final label?) ...[
+          const SizedBox(height: 20),
+          PaperPress(
+            onTap: onAction ?? () {},
+            semanticLabel: label,
+            washRadius: kFolderPlateRadius,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              child: Text(
+                label,
+                style: AppText.rowTitle.copyWith(color: AppColors.accentBright),
+              ),
+            ),
+          ),
+        ],
       ],
     ),
   );

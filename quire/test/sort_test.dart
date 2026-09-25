@@ -167,14 +167,14 @@ void main() {
   test('the sort is one comparison, and the direction only reverses it', () {
     final tabbed = shellEntries(
       libraryEntries,
-      DeskTab.recent,
+      DeskTab.all,
       SortField.name,
       SortOrder.newToOld,
       (entry) => null,
     );
     final back = shellEntries(
       libraryEntries,
-      DeskTab.recent,
+      DeskTab.all,
       SortField.name,
       SortOrder.oldToNew,
       (entry) => null,

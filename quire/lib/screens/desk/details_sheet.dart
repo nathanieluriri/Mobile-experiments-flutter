@@ -39,6 +39,7 @@ class DetailsSheet extends StatelessWidget {
   String get _where => switch (entry.source) {
     DocSource.asset => 'Shipped with quire',
     DocSource.file => 'Brought in from the phone',
+    DocSource.device => 'Read in place from a folder on the phone',
   };
 
   String get _reading {

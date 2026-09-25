@@ -4,11 +4,12 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../data/library.dart';
 import '../../services/document_store.dart';
 
-/// The five tabs across the top of the library.
+/// The tabs across the top of the library.
 ///
-/// A tab is a filter over formats, not a folder: nothing moves when you change
-/// one, which is why the list is allowed to reorder without a dissolve.
+/// A tab is a filter, not a folder: nothing moves when you change one, which
+/// is why the list is allowed to reorder without a dissolve.
 enum DeskTab {
+  all('ALL'),
   recent('RECENT'),
   pdf('PDF'),
   docs('DOCS'),
@@ -20,13 +21,17 @@ enum DeskTab {
   /// Written uppercase in the source so a golden reads what the source says.
   final String label;
 
-  /// True when [entry] belongs under this tab.
+  /// True when [entry] belongs under this tab. [store] is its store, if one
+  /// has been made, which is what knows whether it has been opened.
   ///
+  /// ALL is everything quire can see, what it holds and what it reads in
+  /// place on the phone. RECENT is what has been opened, and nothing else.
   /// SHEETS holds both spreadsheet formats, because the difference between a
   /// workbook and a comma separated file is a parser's problem and not a
   /// reader's.
-  bool holds(LibraryEntry entry) => switch (this) {
-        DeskTab.recent => true,
+  bool holds(LibraryEntry entry, [DocumentStore? store]) => switch (this) {
+        DeskTab.all => true,
+        DeskTab.recent => store?.opened ?? false,
         DeskTab.pdf => entry.format == DocFormat.pdf,
         DeskTab.docs => entry.format == DocFormat.docx,
         DeskTab.sheets =>
@@ -181,7 +186,16 @@ List<LibraryEntry> shellEntries(
   SortOrder order,
   DocumentStore? Function(LibraryEntry entry) storeOf,
 ) {
-  final out = visible.where(tab.holds).toList();
+  final out = visible.where((e) => tab.holds(e, storeOf(e))).toList();
+  // RECENT is an order as much as a filter: the last opened first, whatever
+  // the sort menu says for the other tabs.
+  if (tab == DeskTab.recent) {
+    return out
+      ..sort(
+        (a, b) => (storeOf(b)?.lastOpened ?? 0)
+            .compareTo(storeOf(a)?.lastOpened ?? 0),
+      );
+  }
   final natural = <LibraryEntry>[...out]..sort(
       (a, b) => _compare(a, b, field, visible, storeOf),
     );

@@ -593,9 +593,10 @@ class _ReaderHostState extends State<ReaderHost> with TickerProviderStateMixin {
   Future<void> _drawByPhone(PdfPages pages) async {
     final store = widget.store;
     final entry = store.entry;
+    final inPlace = entry.source != DocSource.asset;
     final native = await NativePdf.open(
-      path: entry.source == DocSource.file ? entry.path : null,
-      bytes: entry.source == DocSource.file ? null : store.bytes,
+      path: inPlace ? entry.path : null,
+      bytes: inPlace ? null : store.bytes,
     );
     if (!mounted || !identical(pages, _pages)) {
       unawaited(native?.close());

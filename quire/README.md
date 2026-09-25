@@ -43,6 +43,11 @@ puts the slide alone on the screen with the deck's own titles to jump by.
 **A PDF can be sealed with a password,** in the file itself, so it asks for the
 password in any other reader too.
 
+**It reads your folders where they are.** Hand quire a folder on the phone,
+Downloads to start with, and everything in it that quire reads is on the desk
+under ALL, found by the search and opened in place. No permission is asked
+for; the phone grants that one folder and nothing else.
+
 **The reading can be fastened down.** Lock the way out, so a hand on the edge of
 the screen cannot close the document, or lock the page as well and every bar
 leaves the screen.

@@ -583,6 +583,10 @@ class _AppState extends State<App> with WidgetsBindingObserver {
     final library = _library;
     if (library == null) return;
     final document = library.storeFor(entry)..markOpened();
+    // A document on the phone is read the first time it is opened.
+    if (document.state == ParseState.loading) {
+      unawaited(library.readNow(entry));
+    }
     _navigator.currentState?.pushNamed(
       kReaderRoute,
       arguments: (store: document, outside: outside),

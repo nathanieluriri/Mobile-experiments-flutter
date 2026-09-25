@@ -39,6 +39,7 @@ class GridBody extends StatefulWidget {
     this.controller,
     this.padding = const EdgeInsets.all(kGridPadding),
     this.footer,
+    this.header,
   });
 
   /// The desk itself, which is what has been read of each document.
@@ -73,6 +74,10 @@ class GridBody extends StatefulWidget {
 
   /// What goes under the last row of cards, once there is one.
   final Widget? footer;
+
+  /// What stands above the first document, scrolling with them: the
+  /// subfolders of a folder on the phone.
+  final Widget? header;
 
   @override
   State<GridBody> createState() => _GridBodyState();
@@ -143,6 +148,12 @@ class _GridBodyState extends State<GridBody>
       widget.library.addListener(_onLibrary);
       _onDesk = _held();
     }
+    // A folder on the phone gone into lists documents the desk never held,
+    // which arrive with the list rather than with the library.
+    _onDesk.addAll(<String>{
+      for (final entry in widget.entries)
+        if (entry.onDevice) entry.path,
+    });
     _sync();
   }
 
@@ -162,12 +173,22 @@ class _GridBodyState extends State<GridBody>
   /// Everything this body counts as still here.
   Set<String> _held() {
     final holds = widget.holds;
+    // A document on the phone is never taken off the desk by quire, so it
+    // is here for as long as it is listed.
+    final onPhone = <String>{
+      for (final entry in widget.entries)
+        if (entry.onDevice) entry.path,
+    };
     if (holds == null) {
-      return <String>{for (final entry in widget.library.entries) entry.path};
+      return <String>{
+        for (final entry in widget.library.entries) entry.path,
+        ...onPhone,
+      };
     }
     return <String>{
       for (final entry in widget.library.allEntries)
         if (holds(entry)) entry.path,
+      ...onPhone,
     };
   }
 
@@ -396,6 +417,7 @@ class _GridBodyState extends State<GridBody>
               crossAxisAlignment: CrossAxisAlignment.stretch,
               mainAxisSize: MainAxisSize.min,
               children: <Widget>[
+                ?widget.header,
                 Wrap(
                   spacing: kGridGap,
                   runSpacing: kGridGap,

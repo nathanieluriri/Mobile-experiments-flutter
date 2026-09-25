@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.pdf.PdfRenderer
+import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.os.ParcelFileDescriptor
@@ -24,7 +25,7 @@ import java.util.concurrent.Executors
  * because PdfRenderer reads only from a seekable file, and that copy is
  * deleted when the document is closed.
  */
-class PageRenderer(context: Context, messenger: BinaryMessenger) {
+class PageRenderer(private val context: Context, messenger: BinaryMessenger) {
     private val cache = File(context.cacheDir, "pages")
     private val worker = Executors.newSingleThreadExecutor()
     private val main = Handler(Looper.getMainLooper())
@@ -65,6 +66,20 @@ class PageRenderer(context: Context, messenger: BinaryMessenger) {
 
     private fun open(call: MethodCall): Map<String, Any> {
         val path = call.argument<String>("path")
+        if (path != null && path.startsWith("content://")) {
+            // A document read in place from a folder the reader handed over.
+            val descriptor = context.contentResolver.openFileDescriptor(Uri.parse(path), "r")
+                ?: throw java.io.FileNotFoundException("unreadable")
+            val renderer = try {
+                PdfRenderer(descriptor)
+            } catch (error: Throwable) {
+                descriptor.close()
+                throw error
+            }
+            val id = next++
+            open[id] = Held(renderer, descriptor, null)
+            return mapOf("id" to id, "pages" to renderer.pageCount)
+        }
         var copy: File? = null
         val file = if (path != null) {
             File(path)

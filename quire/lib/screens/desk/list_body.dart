@@ -44,6 +44,7 @@ class ListBody extends StatefulWidget {
     this.controller,
     this.padding = EdgeInsets.zero,
     this.footer,
+    this.header,
   });
 
   /// The desk itself, which is what says whether a document has been taken off
@@ -84,6 +85,10 @@ class ListBody extends StatefulWidget {
 
   /// What goes under the last row, once there is a last row.
   final Widget? footer;
+
+  /// What stands above the first document, scrolling with them: the
+  /// subfolders of a folder on the phone.
+  final Widget? header;
 
   @override
   State<ListBody> createState() => _ListBodyState();
@@ -147,6 +152,12 @@ class _ListBodyState extends State<ListBody>
       widget.library.addListener(_onLibrary);
       _onDesk = _held();
     }
+    // A folder on the phone gone into lists documents the desk never held,
+    // which arrive with the list rather than with the library.
+    _onDesk.addAll(<String>{
+      for (final entry in widget.entries)
+        if (entry.onDevice) entry.path,
+    });
     _sync();
   }
 
@@ -168,12 +179,22 @@ class _ListBodyState extends State<ListBody>
   /// Everything this body counts as still here.
   Set<String> _held() {
     final holds = widget.holds;
+    // A document on the phone is never taken off the desk by quire, so it
+    // is here for as long as it is listed.
+    final onPhone = <String>{
+      for (final entry in widget.entries)
+        if (entry.onDevice) entry.path,
+    };
     if (holds == null) {
-      return <String>{for (final entry in widget.library.entries) entry.path};
+      return <String>{
+        for (final entry in widget.library.entries) entry.path,
+        ...onPhone,
+      };
     }
     return <String>{
       for (final entry in widget.library.allEntries)
         if (holds(entry)) entry.path,
+      ...onPhone,
     };
   }
 
@@ -435,6 +456,7 @@ class _ListBodyState extends State<ListBody>
           crossAxisAlignment: CrossAxisAlignment.stretch,
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
+            ?widget.header,
             for (final entry in _rows) _slot(entry),
             if (widget.footer case final footer? when _rows.isNotEmpty) footer,
           ],

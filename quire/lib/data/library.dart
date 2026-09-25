@@ -43,6 +43,10 @@ enum DocSource {
 
   /// In the app's own storage, copied there when the reader opened it.
   file,
+
+  /// In a folder on the phone the reader handed to quire, read where it lies
+  /// and never copied. quire does not own it.
+  device,
 }
 
 /// One document on the desk.
@@ -53,7 +57,28 @@ class LibraryEntry {
     required this.format,
     required this.bytes,
     this.source = DocSource.asset,
+    this.displayName,
   });
+
+  /// A document in a folder on the phone, at [uri], called [name] there.
+  factory LibraryEntry.onDevice({
+    required String uri,
+    required String name,
+    required DocFormat format,
+    required int bytes,
+  }) =>
+      LibraryEntry(
+        path: uri,
+        title: titleFor(name),
+        format: format,
+        bytes: bytes,
+        source: DocSource.device,
+        displayName: name,
+      );
+
+  /// The file's own name where its address does not end in one, which is a
+  /// document on the phone reached through the address the phone gave it.
+  final String? displayName;
 
   /// A document the reader opened from the phone, described by its file.
   ///
@@ -85,9 +110,14 @@ class LibraryEntry {
     format: format,
     bytes: bytes,
     source: source,
+    displayName: displayName,
   );
 
-  /// Where the bytes are: an asset path, or a path on the file system.
+  /// True when the document is read in place from a folder on the phone.
+  bool get onDevice => source == DocSource.device;
+
+  /// Where the bytes are: an asset path, a path on the file system, or the
+  /// address the phone gave a document in a folder it handed over.
   final String path;
 
   /// The display title: the file name, hyphens turned to spaces, title cased.
@@ -102,6 +132,8 @@ class LibraryEntry {
 
   /// The file name with its extension, for the back of the card.
   String get fileName {
+    final named = displayName;
+    if (named != null) return named;
     final slash = path.lastIndexOf('/');
     final backslash = path.lastIndexOf('\\');
     final cut = slash > backslash ? slash : backslash;

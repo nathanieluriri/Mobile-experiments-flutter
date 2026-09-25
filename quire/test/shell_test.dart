@@ -1,5 +1,6 @@
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:quire/data/library.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:quire/screens/desk/desk_top_bar.dart';
 import 'package:quire/screens/desk/search_pill.dart';
@@ -8,16 +9,18 @@ import 'package:quire/screens/desk/sort_row.dart';
 import 'package:quire/screens/desk/tab_strip.dart';
 import 'package:quire/theme/metrics.dart';
 
-import 'desk_test.dart' show deskApp, deskStore;
+import 'desk_test.dart' show deskApp, deskStore, kReadFileNames;
 import 'support/fixtures.dart';
 import 'support/golden.dart';
 
 /// The tab pill carrying [label], rather than the type mark of a document that
 /// happens to spell the same three letters.
-Finder tabNamed(String label) => find.descendant(
-      of: find.byType(TabStrip),
-      matching: find.text(label),
-    );
+/// The tab called [label]. The strip draws its row twice, once for the
+/// labels and once for the fill that slides under them, so the first is the
+/// one to find.
+Finder tabNamed(String label) => find
+    .descendant(of: find.byType(TabStrip), matching: find.text(label))
+    .first;
 
 /// Brings a tab into the strip's own scroll and taps it.
 ///
@@ -112,10 +115,19 @@ void main() {
     for (final tab in DeskTab.values) {
       expect(tabNamed(tab.label), findsOneWidget, reason: tab.label);
     }
-    // RECENT holds everything, and the four format tabs partition it.
+    // ALL holds everything and the four format tabs partition it. RECENT
+    // holds only what has been opened.
     expect(
-      find.descendant(of: find.byType(TabStrip), matching: find.text('6')),
-      findsOneWidget,
+      find.descendant(
+        of: find.byType(TabStrip),
+        matching: find.text('${libraryEntries.length}'),
+      ),
+      findsWidgets,
+    );
+    await tapTab(tester, 'RECENT');
+    expect(
+      titlesInOrder(tester, kTitles).length,
+      kReadFileNames.length,
     );
 
     // PDF is already under the thumb, so the strip is where a reader first

@@ -17,6 +17,7 @@ import 'package:share_plus/share_plus.dart';
 import '../../constants/gooey_fab.dart';
 import '../../data/library.dart';
 import '../../pdf/writer.dart' show PdfWriteError;
+import '../../services/device_storage.dart';
 import '../../services/document_store.dart';
 import '../../theme/colors.dart';
 import '../../theme/feedback.dart';
@@ -130,7 +131,15 @@ class _DeskScreenState extends State<DeskScreen> with TickerProviderStateMixin {
 
   /// The folder the desk is inside, or null on the open desk.
   String? _folder;
-  DeskTab _tab = DeskTab.recent;
+
+  /// The folder on the phone the desk is inside, the subfolders gone into
+  /// from it, and what the innermost holds: null while it is being read.
+  AdoptedFolder? _deviceRoot;
+  final List<DeviceItem> _deviceTrail = <DeviceItem>[];
+  List<DeviceItem>? _deviceItems;
+  bool _deviceGone = false;
+
+  DeskTab _tab = DeskTab.all;
   SortField _sortField = SortField.dateModified;
   SortOrder _sortOrder = SortOrder.newToOld;
   DeskView _view = DeskView.list;
@@ -321,6 +330,8 @@ class _DeskScreenState extends State<DeskScreen> with TickerProviderStateMixin {
     setState(() {
       _destination = destination;
       _folder = null;
+      _deviceRoot = null;
+      _deviceTrail.clear();
     });
     _settleDrawer(open: false, velocity: 0);
   }
@@ -380,7 +391,7 @@ class _DeskScreenState extends State<DeskScreen> with TickerProviderStateMixin {
     Feel.commit.ring();
     setState(() {
       _destination = DrawerDestination.allFiles;
-      _tab = DeskTab.recent;
+      _tab = DeskTab.all;
     });
     if (_scroll.hasClients) _scroll.jumpTo(0);
   }
@@ -938,8 +949,14 @@ class _DeskScreenState extends State<DeskScreen> with TickerProviderStateMixin {
           .where((e) => widget.store.peek(e)?.signed ?? false)
           .toList(),
     DrawerDestination.bin => widget.store.binned,
+    DrawerDestination.folders when _deviceRoot != null => <LibraryEntry>[
+      for (final item in _deviceItems ?? const <DeviceItem>[])
+        if (!item.folder && item.format != null) item.entry,
+    ],
     DrawerDestination.folders => widget.store.inFolder(_folder ?? ''),
-    _ => widget.store.entries,
+    // Everything quire can see: what it holds, and what it reads in place in
+    // the folders on the phone it was handed.
+    _ => <LibraryEntry>[...widget.store.entries, ...widget.store.onDevice],
   };
 
   /// [_pool] after the search.
@@ -952,7 +969,9 @@ class _DeskScreenState extends State<DeskScreen> with TickerProviderStateMixin {
       _destination.library &&
       widget.store.entries.isNotEmpty &&
       _pool.isNotEmpty &&
-      !(_destination == DrawerDestination.folders && _folder == null);
+      !(_destination == DrawerDestination.folders &&
+          _folder == null &&
+          _deviceRoot == null);
 
   /// What the body shows: the destination, then the search, then the tab,
   /// then the sort.
@@ -962,7 +981,8 @@ class _DeskScreenState extends State<DeskScreen> with TickerProviderStateMixin {
   /// How much each tab holds, before the search is applied, so a count is a
   /// fact about the destination rather than about what you have typed.
   Map<DeskTab, int> get _counts => <DeskTab, int>{
-    for (final tab in DeskTab.values) tab: _pool.where(tab.holds).length,
+    for (final tab in DeskTab.values)
+      tab: _pool.where((e) => tab.holds(e, widget.store.peek(e))).length,
   };
 
   /// What [entry] can have done to it, here and now, in the one place.
@@ -1015,9 +1035,15 @@ class _DeskScreenState extends State<DeskScreen> with TickerProviderStateMixin {
           // Back inside a folder leaves the folder, the way it does in a file
           // manager, rather than leaving the app from the middle of it.
           PopScope(
-            canPop: _folder == null,
+            canPop: _folder == null && _deviceRoot == null,
             onPopInvokedWithResult: (didPop, result) {
-              if (didPop || _folder == null) return;
+              if (didPop) return;
+              if (_deviceRoot != null) {
+                Feel.tap.ring();
+                _leaveDevice();
+                return;
+              }
+              if (_folder == null) return;
               Feel.tap.ring();
               setState(() => _folder = null);
             },
@@ -1106,6 +1132,18 @@ class _DeskScreenState extends State<DeskScreen> with TickerProviderStateMixin {
         // same reason a destination with nothing in it does: they are chrome
         // about a list, and there is no list.
         // Inside a folder, the crumb says which one and is the way out of it.
+        if (_deviceRoot case final root?) ...[
+          const SizedBox(height: kFolderCrumbGap),
+          FolderCrumb(
+            folder: _deviceTrail.isEmpty ? root.name : _deviceTrail.last.name,
+            held: _pool.length,
+            onLeave: () {
+              Feel.tap.ring();
+              _leaveDevice();
+            },
+            onMore: _deviceTrail.isEmpty ? () => _deviceActions(root) : null,
+          ),
+        ],
         if (_folder != null) ...[
           const SizedBox(height: kFolderCrumbGap),
           FolderCrumb(
@@ -1142,12 +1180,17 @@ class _DeskScreenState extends State<DeskScreen> with TickerProviderStateMixin {
       return DestinationPanel(destination: _destination);
     }
     if (bare) return const DeskEmpty(onOpen: null);
+    if (_destination == DrawerDestination.folders && _deviceRoot != null) {
+      return _deviceBody(bottom);
+    }
     if (_destination == DrawerDestination.folders && _folder == null) {
       final folders = widget.store.folders;
-      if (folders.isEmpty) {
+      final onPhone = widget.store.adopted;
+      if (folders.isEmpty && onPhone.isEmpty) {
         return Column(
           children: <Widget>[
             NewFolderRow(onTap: _makeFolder),
+            AdoptFolderRow(onTap: _adopt),
             DestinationPanel(destination: _destination),
           ],
         );
@@ -1158,6 +1201,11 @@ class _DeskScreenState extends State<DeskScreen> with TickerProviderStateMixin {
         onOpen: (folder) => setState(() => _folder = folder),
         onRemove: _folderActions,
         onMake: _makeFolder,
+        onAdopt: _adopt,
+        deviceFolders: onPhone,
+        isMissing: widget.store.isMissing,
+        onOpenDevice: _openDevice,
+        onDeviceActions: _deviceActions,
         controller: _scroll,
         padding: EdgeInsets.only(bottom: bottom + kBodyBottomPadding),
       );
@@ -1199,7 +1247,180 @@ class _DeskScreenState extends State<DeskScreen> with TickerProviderStateMixin {
   Future<void> _refresh() async {
     await widget.store.refresh();
     if (!mounted) return;
+    if (_deviceRoot != null) await _loadDevice();
+    if (!mounted) return;
     setState(() {});
+  }
+
+  // Folders on the phone.
+
+  /// A folder on the phone, from the inside: a new folder, its subfolders,
+  /// then its documents under the same tabs and sort as the desk's.
+  Widget _deviceBody(double bottom) {
+    final root = _deviceRoot!;
+    if (_deviceGone) {
+      return DevicePanel(
+        headline: 'This folder is not on the phone any more',
+        body: 'It was moved or deleted, or the phone took back the right to '
+            'read it. Nothing quire held has been lost.',
+        action: 'Stop showing it',
+        onAction: () async {
+          await widget.store.forgetFolder(root);
+          if (mounted) _leaveDevice(all: true);
+        },
+      );
+    }
+    final items = _deviceItems;
+    if (items == null) return const Center(child: QuireSpinner());
+    final subfolders = <DeviceItem>[
+      for (final item in items)
+        if (item.folder) item,
+    ];
+    final header = Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        NewFolderRow(onTap: _makeDeviceFolder),
+        for (var i = 0; i < subfolders.length; i++)
+          DeviceFolderRow(
+            name: subfolders[i].name,
+            onOpen: () => _enterDevice(subfolders[i]),
+            last: i == subfolders.length - 1,
+          ),
+      ],
+    );
+    if (_pool.isEmpty) {
+      return ListView(
+        controller: _scroll,
+        padding: EdgeInsets.only(bottom: bottom + kBodyBottomPadding),
+        children: <Widget>[
+          header,
+          const DevicePanel(
+            headline: 'Nothing here quire reads',
+            body: 'PDF, Word, Excel, PowerPoint, CSV and Markdown files in '
+                'this folder are listed here, where they lie.',
+          ),
+        ],
+      );
+    }
+    final colophon = DeskColophon(
+      documents: _entries.length,
+      words: widget.store.wordsIn(_entries),
+      minutes: widget.store.minutesIn(_entries),
+    );
+    return PullToRefresh(
+      onRefresh: _refresh,
+      child: _list(bottom, colophon, header: header),
+    );
+  }
+
+  void _openDevice(AdoptedFolder folder) {
+    Feel.tap.ring();
+    setState(() {
+      _deviceRoot = folder;
+      _deviceTrail.clear();
+    });
+    unawaited(_loadDevice());
+  }
+
+  void _enterDevice(DeviceItem folder) {
+    Feel.tap.ring();
+    setState(() => _deviceTrail.add(folder));
+    unawaited(_loadDevice());
+  }
+
+  void _leaveDevice({bool all = false}) {
+    if (_deviceTrail.isNotEmpty && !all) {
+      setState(_deviceTrail.removeLast);
+      unawaited(_loadDevice());
+      return;
+    }
+    setState(() {
+      _deviceRoot = null;
+      _deviceTrail.clear();
+      _deviceItems = null;
+      _deviceGone = false;
+    });
+  }
+
+  /// Reads what the folder the desk is inside holds.
+  Future<void> _loadDevice() async {
+    final root = _deviceRoot;
+    if (root == null) return;
+    final at = _deviceTrail.isEmpty ? null : _deviceTrail.last.document;
+    setState(() {
+      _deviceItems = null;
+      _deviceGone = false;
+    });
+    try {
+      final items = await widget.store.device.list(root.tree, folder: at);
+      if (!mounted || _deviceRoot != root) return;
+      setState(() => _deviceItems = items);
+    } on DeviceFolderGone {
+      if (!mounted || _deviceRoot != root) return;
+      setState(() => _deviceGone = true);
+    }
+  }
+
+  /// Asks the phone for one of its folders, and reads it.
+  Future<void> _adopt() async {
+    final folder = await widget.store.adoptFolder();
+    if (folder == null || !mounted) return;
+    _notify('${folder.name} is on the desk, where it lies.');
+  }
+
+  /// Makes a folder on the phone, inside the one the desk is in.
+  Future<void> _makeDeviceFolder() async {
+    final root = _deviceRoot;
+    if (root == null) return;
+    final name = await showDeskSheet<String>(
+      context,
+      (context) => const RenameSheet(
+        title: '',
+        heading: 'New folder',
+        note: 'Made on the phone, inside this folder.',
+        action: 'Make the folder',
+      ),
+    );
+    final clean = name?.trim() ?? '';
+    if (clean.isEmpty || !mounted) return;
+    final made = await widget.store.device.makeFolder(
+      root.tree,
+      clean,
+      folder: _deviceTrail.isEmpty ? null : _deviceTrail.last.document,
+    );
+    if (!mounted) return;
+    _notify(
+      made == null
+          ? 'The phone would not make that folder.'
+          : '${made.name} is made.',
+    );
+    await _loadDevice();
+  }
+
+  /// What can be done with a folder on the phone: stop reading it.
+  Future<void> _deviceActions(AdoptedFolder folder) async {
+    final forget = await showDeskSheet<bool>(
+      context,
+      (context) => DeskSheet(
+        title: folder.name,
+        note: 'quire stops reading this folder and gives the phone back the '
+            'right to it. Nothing on the phone is touched.',
+        children: <Widget>[
+          DeskSheetRow(
+            label: 'Stop reading this folder',
+            icon: LucideIcons.folderMinus,
+            destructive: true,
+            onTap: () => Navigator.of(context).pop(true),
+          ),
+        ],
+      ),
+    );
+    if (forget != true || !mounted) return;
+    await widget.store.forgetFolder(folder);
+    if (!mounted) return;
+    if (_deviceRoot == folder) _leaveDevice(all: true);
+    _notify('${folder.name} is no longer read.');
   }
 
   /// What the body being shown is a view of, which is what tells a document
@@ -1213,9 +1434,10 @@ class _DeskScreenState extends State<DeskScreen> with TickerProviderStateMixin {
   bool Function(LibraryEntry entry)? get _holds =>
       _destination == DrawerDestination.bin ? widget.store.isBinned : null;
 
-  Widget _list(double bottom, Widget colophon) {
+  Widget _list(double bottom, Widget colophon, {Widget? header}) {
     if (_view == DeskView.list) {
       return DeskListBody(
+        header: header,
         library: widget.store,
         entries: _entries,
         holds: _holds,
@@ -1228,6 +1450,7 @@ class _DeskScreenState extends State<DeskScreen> with TickerProviderStateMixin {
       );
     }
     return GridBody(
+      header: header,
       library: widget.store,
       entries: _entries,
       holds: _holds,

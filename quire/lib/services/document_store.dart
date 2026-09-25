@@ -16,6 +16,7 @@ import '../pdf/display_list.dart';
 import '../pdf/document.dart';
 import '../pdf/seal.dart';
 import '../pdf/writer.dart';
+import 'device_storage.dart';
 import 'library_catalogue.dart';
 import 'picture.dart';
 import 'recent_signatures.dart';
@@ -905,8 +906,11 @@ class DocumentStore extends ChangeNotifier {
 /// The desk: the six bundled documents, the shelf, the query, and whatever has
 /// been removed but not yet forgotten.
 class LibraryStore extends ChangeNotifier {
-  LibraryStore({List<LibraryEntry> entries = libraryEntries, this._catalogue})
-    : _entries = List<LibraryEntry>.of(entries) {
+  LibraryStore({
+    List<LibraryEntry> entries = libraryEntries,
+    this._catalogue,
+    this._device = const DeviceStorage(),
+  }) : _entries = List<LibraryEntry>.of(entries) {
     // A desk with nowhere to read from, which is a desk a test built, holds
     // everything it will ever hold from its first frame.
     _booted = _catalogue == null;
@@ -918,6 +922,25 @@ class LibraryStore extends ChangeNotifier {
   /// Where brought in documents are kept between runs, or null for a desk
   /// that only ever holds the shipped six, which is what a test builds.
   final LibraryCatalogue? _catalogue;
+
+  /// The phone's folders, through the platform.
+  final DeviceStorage _device;
+
+  /// Folders on the phone the reader has handed over, in the order they
+  /// were.
+  final List<AdoptedFolder> _adopted = <AdoptedFolder>[];
+
+  /// Those of [_adopted] that could not be read the last time they were
+  /// asked, because the grant was taken back or the folder went.
+  final Set<String> _missing = <String>{};
+
+  /// The documents quire reads in the adopted folders, as last scanned.
+  List<LibraryEntry> _onDevice = const <LibraryEntry>[];
+
+  /// What earlier runs remembered about documents not yet on the desk this
+  /// run, such as one in a folder on the phone that has not been scanned.
+  /// A store made for one of them takes its memory back.
+  final Map<String, Object?> _savedDocuments = <String, Object?>{};
 
   /// Documents the reader has starred.
   final Set<String> _starred = <String>{};
@@ -1089,6 +1112,8 @@ class LibraryStore extends ChangeNotifier {
   DocumentStore storeFor(LibraryEntry entry) =>
       _stores.putIfAbsent(entry.path, () {
         final store = DocumentStore(entry);
+        final saved = _savedDocuments.remove(entry.path);
+        if (saved is Map<String, Object?>) store.restore(saved);
         store.addListener(_onDocumentChanged);
         return store;
       });
@@ -1113,6 +1138,7 @@ class LibraryStore extends ChangeNotifier {
 
   /// Everything the desk remembers, as plain data.
   Map<String, Object?> _stateJson() => <String, Object?>{
+    'adopted': <Object?>[for (final folder in _adopted) folder.toJson()],
     'folders': _folders,
     'signatures': <Object?>[
       for (final signature in _recentSignatures) signature.toJson(),
@@ -1123,6 +1149,7 @@ class LibraryStore extends ChangeNotifier {
     'binned': _binned.toList(),
     'gone': _gone.toList(),
     'documents': <String, Object?>{
+      ..._savedDocuments,
       for (final entry in _stores.entries) entry.key: entry.value.toJson(),
     },
   };
@@ -1133,6 +1160,14 @@ class LibraryStore extends ChangeNotifier {
     void fill(Set<String> into, Object? list) {
       if (list is! List<Object?>) return;
       into.addAll(list.whereType<String>().where(known.contains));
+    }
+
+    final adopted = state['adopted'];
+    if (adopted is List<Object?>) {
+      for (final json in adopted) {
+        final folder = AdoptedFolder.fromJson(json);
+        if (folder != null && !_adopted.contains(folder)) _adopted.add(folder);
+      }
     }
 
     final signatures = state['signatures'];
@@ -1167,10 +1202,21 @@ class LibraryStore extends ChangeNotifier {
       }
     }
     fill(_starred, state['starred']);
+    // A document on the phone is not known until its folder is scanned, and
+    // a star on it should not be lost for being early.
+    final starred = state['starred'];
+    if (starred is List<Object?>) {
+      _starred.addAll(
+        starred.whereType<String>().where((p) => p.startsWith('content://')),
+      );
+    }
     fill(_binned, state['binned']);
     fill(_gone, state['gone']);
     final documents = state['documents'];
     if (documents is! Map<String, Object?>) return;
+    _savedDocuments
+      ..clear()
+      ..addAll(documents);
     for (final entry in _entries) {
       final saved = documents[entry.path];
       if (saved is Map<String, Object?>) storeFor(entry).restore(saved);
@@ -1225,7 +1271,82 @@ class LibraryStore extends ChangeNotifier {
         return data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes);
       case DocSource.file:
         return File(entry.path).readAsBytes();
+      case DocSource.device:
+        return _device.read(entry.path);
     }
+  }
+
+  /// Reads [entry] now if nothing has yet, which a document on the phone
+  /// waits for: it is only read when it is opened, so a folder of hundreds
+  /// is not read to find out what is in it.
+  Future<void> readNow(LibraryEntry entry) => _hydrateOne(entry);
+
+  // The phone's folders.
+
+  /// Every folder on the phone the reader has handed over.
+  List<AdoptedFolder> get adopted => List<AdoptedFolder>.unmodifiable(_adopted);
+
+  /// True when [folder] could not be read the last time it was asked.
+  bool isMissing(AdoptedFolder folder) => _missing.contains(folder.tree);
+
+  /// The documents quire reads in the adopted folders, as last scanned.
+  List<LibraryEntry> get onDevice => _onDevice;
+
+  /// Where the phone's folders are read from, for the desk to browse.
+  DeviceStorage get device => _device;
+
+  /// Asks the reader for a folder on the phone and, given one, keeps it and
+  /// reads what is in it. Null when none was chosen.
+  Future<AdoptedFolder?> adoptFolder() async {
+    final folder = await _device.adopt();
+    if (folder == null) return null;
+    if (!_adopted.contains(folder)) _adopted.add(folder);
+    _missing.remove(folder.tree);
+    _scheduleSave();
+    notifyListeners();
+    await scanDevice();
+    return folder;
+  }
+
+  /// Lets go of [folder]: the grant goes back to the phone and its documents
+  /// leave the desk. Nothing on the phone is touched.
+  Future<void> forgetFolder(AdoptedFolder folder) async {
+    _adopted.remove(folder);
+    _missing.remove(folder.tree);
+    _onDevice = <LibraryEntry>[
+      for (final entry in _onDevice)
+        if (!_underTree(entry, folder)) entry,
+    ];
+    _scheduleSave();
+    notifyListeners();
+    await _device.release(folder.tree);
+  }
+
+  bool _underTree(LibraryEntry entry, AdoptedFolder folder) =>
+      _treeOf[entry.path] == folder.tree;
+
+  final Map<String, String> _treeOf = <String, String>{};
+
+  /// Reads the adopted folders again. A folder that cannot be read is kept
+  /// and marked missing, so it is shown as gone rather than vanishing.
+  Future<void> scanDevice() async {
+    if (_adopted.isEmpty) return;
+    final found = <LibraryEntry>[];
+    final seen = <String>{};
+    for (final folder in List<AdoptedFolder>.of(_adopted)) {
+      try {
+        for (final item in await _device.documents(folder.tree)) {
+          if (!seen.add(item.uri)) continue;
+          _treeOf[item.uri] = folder.tree;
+          found.add(item.entry);
+        }
+        _missing.remove(folder.tree);
+      } on DeviceFolderGone {
+        _missing.add(folder.tree);
+      }
+    }
+    _onDevice = found;
+    notifyListeners();
   }
 
   /// Brings back the documents the reader opened in earlier runs, ahead of
@@ -1246,6 +1367,7 @@ class LibraryStore extends ChangeNotifier {
         if (imported.isNotEmpty) _entries.insertAll(0, imported);
         _applyState(await catalogue.loadState());
         notifyListeners();
+        unawaited(scanDevice());
       } on Object catch (error) {
         // A read that fails here used to take the rest of the boot with it,
         // and the caller reads the documents in the line after this one. So
@@ -1310,6 +1432,7 @@ class LibraryStore extends ChangeNotifier {
 
     _applyState(await catalogue.loadState());
     notifyListeners();
+    await scanDevice();
     await hydrate();
   }
 

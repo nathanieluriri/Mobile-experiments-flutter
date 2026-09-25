@@ -38,6 +38,7 @@ class MainActivity : FlutterActivity() {
     private var channel: MethodChannel? = null
     private var screen: MethodChannel? = null
     private var arrival: MethodChannel? = null
+    private var storage: DeviceStorage? = null
 
     /** True from launch until Android 12's splash has been dealt with. */
     private var splashUp = false
@@ -66,6 +67,7 @@ class MainActivity : FlutterActivity() {
         }
         arrival = MethodChannel(messenger, ARRIVAL)
         PageRenderer(this, messenger)
+        storage = DeviceStorage(this, messenger)
         screen = MethodChannel(messenger, SCREEN).also { hold ->
             hold.setMethodCallHandler { call, result ->
                 if (call.method == HOLD) {
@@ -310,6 +312,12 @@ class MainActivity : FlutterActivity() {
             return child
         }
         return null
+    }
+
+    @Deprecated("The picker still answers through here on every version quire runs on")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        if (storage?.onActivityResult(requestCode, resultCode, data) == true) return
+        super.onActivityResult(requestCode, resultCode, data)
     }
 
     override fun onNewIntent(next: Intent) {

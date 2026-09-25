@@ -90,29 +90,46 @@ enum DeskAction {
     required bool binned,
     required bool signed,
     required bool canCopy,
-  }) =>
+  }) {
+    // A document read in place on the phone belongs to the phone: quire
+    // opens, signs, converts and copies it, and leaves its name, its folder
+    // and its existence to the phone.
+    if (entry.onDevice) {
       switch (this) {
-        DeskAction.read => true,
-        DeskAction.sign => !binned && entry.format == DocFormat.pdf,
-        DeskAction.convert => !binned && canCopy,
-        DeskAction.rename => !binned,
-        DeskAction.star => !binned && !starred,
-        DeskAction.unstar => !binned && starred,
-        DeskAction.more => !binned,
-        DeskAction.remove => !binned,
-        DeskAction.restore => binned,
-        DeskAction.deleteForever => binned,
-        DeskAction.duplicate => !binned && canCopy,
-        DeskAction.shareOriginal => !binned,
-        // Sharing a signed PDF shares it signed, the way it looks on the
-        // desk. The file as it came in is still there, under a name that
-        // cannot be mistaken for it.
-        DeskAction.shareUnsigned =>
-          !binned && signed && entry.format == DocFormat.pdf,
-        DeskAction.dogEar => !binned,
-        DeskAction.move => !binned,
-        DeskAction.details => true,
-      };
+        case DeskAction.rename ||
+            DeskAction.remove ||
+            DeskAction.restore ||
+            DeskAction.deleteForever ||
+            DeskAction.move ||
+            DeskAction.shareOriginal ||
+            DeskAction.shareUnsigned:
+          return false;
+        default:
+      }
+    }
+    return switch (this) {
+      DeskAction.read => true,
+      DeskAction.sign => !binned && entry.format == DocFormat.pdf,
+      DeskAction.convert => !binned && canCopy,
+      DeskAction.rename => !binned,
+      DeskAction.star => !binned && !starred,
+      DeskAction.unstar => !binned && starred,
+      DeskAction.more => !binned,
+      DeskAction.remove => !binned,
+      DeskAction.restore => binned,
+      DeskAction.deleteForever => binned,
+      DeskAction.duplicate => !binned && canCopy,
+      DeskAction.shareOriginal => !binned,
+      // Sharing a signed PDF shares it signed, the way it looks on the
+      // desk. The file as it came in is still there, under a name that
+      // cannot be mistaken for it.
+      DeskAction.shareUnsigned =>
+        !binned && signed && entry.format == DocFormat.pdf,
+      DeskAction.dogEar => !binned,
+      DeskAction.move => !binned,
+      DeskAction.details => true,
+    };
+  }
 }
 
 /// The menu behind a row's three dots.

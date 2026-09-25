@@ -91,6 +91,7 @@ String cardMeta(LibraryEntry entry, DocumentStore? store) {
     entry.mark,
     if (units != null) '${groupedNumber(units.count)} ${units.upper}',
     entry.sizeLabel,
+    if (entry.onDevice) 'ON THE PHONE',
   ];
   return parts.join(' · ');
 }
