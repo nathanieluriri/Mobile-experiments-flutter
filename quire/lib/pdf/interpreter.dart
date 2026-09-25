@@ -95,11 +95,14 @@ class ContentInterpreter {
   /// Draws [page]: its content, then its annotations. [skipAnnotations]
   /// leaves out the annotations at those places in the page's /Annots, and
   /// [onlyAnnotation] draws that one annotation and nothing else, which is
-  /// how an editor lifts a mark off the page to move it.
+  /// how an editor lifts a mark off the page to move it. [annotationsOnly]
+  /// draws every annotation and none of the content, for a page whose content
+  /// something else has drawn.
   PageDisplayList run(
     Map<String, Object?> page, {
     Set<int> skipAnnotations = const <int>{},
     int? onlyAnnotation,
+    bool annotationsOnly = false,
   }) {
     final mb = doc.mediaBox(page);
     final cropRaw = doc.resolve(page['CropBox']);
@@ -142,7 +145,7 @@ class ContentInterpreter {
     final base = unit == 1 ? turn : turn.mul(Mat(unit, 0, 0, unit, 0, 0));
     final content = doc.pageContent(page);
     final res = doc.dict(page['Resources']) ?? const {};
-    if (onlyAnnotation == null) _exec(content, res, base, out, 0);
+    if (onlyAnnotation == null && !annotationsOnly) _exec(content, res, base, out, 0);
     _drawAnnotations(page, res, base, out,
         skip: skipAnnotations, only: onlyAnnotation);
     return out;

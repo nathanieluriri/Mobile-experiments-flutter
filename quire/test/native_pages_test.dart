@@ -1,12 +1,18 @@
+import 'dart:ui' as ui;
+
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:quire/painting/pdf_page_painter.dart';
+import 'package:quire/pdf/document.dart';
+import 'package:quire/pdf/writer.dart';
 import 'package:quire/screens/reader/bodies/pdf_body.dart';
 import 'package:quire/screens/reader/reader_screen.dart';
 import 'package:quire/services/native_pdf.dart';
 import 'package:quire/theme/metrics.dart';
 
+import 'support/evidence.dart';
 import 'support/fixtures.dart';
 import 'support/golden.dart';
 
@@ -155,6 +161,58 @@ void main() {
     expect(pages.pageCount, greaterThan(1));
     expect(pages.wantsRaster(1, 1024), isFalse);
     expect(fake.count('render'), 0);
+    pages.dispose();
+  });
+
+  testWidgets('marks saved into the file are drawn over a page the phone '
+      'draws without them', (tester) async {
+    _install(tester);
+    final bytes = PdfAnnotator.annotated(PdfFile.open(await documentBytes(kPressLease)), [
+      const InkEdit(0, strokes: <List<Offset>>[<Offset>[Offset(100, 100), Offset(300, 300)]], width: 10, color: 0xFFD23B3B),
+      const TextBoxEdit(0, rect: Rect.fromLTWH(60, 400, 200, 20), text: 'Checked', size: 14),
+    ]);
+    final store = await storeFor(kPressLease);
+    final pages = PdfPages.open(bytes);
+    pages.attachNative(await NativePdf.open(bytes: bytes));
+    await pumpScreen(
+      tester,
+      evidenceFrame(MaterialApp(
+        debugShowCheckedModeBanner: false,
+        home: ReaderScreen(
+          store: store,
+          bodyBuilder: (context) => PdfBody(store: store, pages: pages),
+        ),
+      )),
+    );
+    for (var i = 0; i < 10 && !_paintedByPhone(tester); i++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 20)),
+      );
+      await tester.pump();
+    }
+    expect(_paintedByPhone(tester), isTrue);
+    expect(pages.pageAt(0).marks?.texts.map((t) => t.text).join(), contains('Checked'));
+    // The page fades in once it has something to show.
+    await tester.pump(const Duration(seconds: 1));
+    await screenshot(tester, 'N', 'marks_over_native');
+    // On the line of ink, what shows is the ink, not the grey the phone drew.
+    final page = find.byType(PdfPageView).first;
+    final scale = tester.getSize(page).width / pages.sizeOf(0).width;
+    final at = tester.getTopLeft(page) + const Offset(200, 200) * scale;
+    final boundary = tester.renderObject<RenderRepaintBoundary>(find.byKey(kEvidenceKey));
+    final origin = boundary.localToGlobal(Offset.zero);
+    final read = await tester.runAsync(() async {
+      final image = await boundary.toImage(pixelRatio: 1);
+      final data = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
+      final width = image.width;
+      image.dispose();
+      return (data!, width);
+    });
+    final (data, width) = read!;
+    final p = at - origin;
+    final i = (p.dy.round() * width + p.dx.round()) * 4;
+    expect(data.getUint8(i), greaterThan(0xA0));
+    expect(data.getUint8(i + 1), lessThan(0x70));
     pages.dispose();
   });
 

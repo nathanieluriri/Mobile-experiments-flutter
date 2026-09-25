@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:ui' as ui;
 
+import 'package:flutter/foundation.dart' show TargetPlatform, defaultTargetPlatform;
 import 'package:flutter/services.dart';
 
 /// The channel the phone's own PDF renderer answers on: PdfRenderer on
@@ -24,9 +25,15 @@ const kNativePageMaxPixels = 4096 * 4096;
 /// a page it will not draw, or a phone with no renderer at all, as under
 /// test, all leave quire drawing the page itself.
 class NativePdf {
-  NativePdf._(this._id, this.pageCount);
+  NativePdf._(this._id, this.pageCount)
+    : drawsMarks = defaultTargetPlatform == TargetPlatform.iOS || defaultTargetPlatform == TargetPlatform.macOS;
 
   final int _id;
+
+  /// Whether the phone draws a page's annotations with it. PDFKit does.
+  /// Android's PdfRenderer never does, so there a mark saved into the file,
+  /// words, ink, a highlight or a picture, is drawn by quire over the page.
+  final bool drawsMarks;
 
   /// How many pages the phone found, which may disagree with quire's count on
   /// a damaged file. A page past it is drawn by quire.

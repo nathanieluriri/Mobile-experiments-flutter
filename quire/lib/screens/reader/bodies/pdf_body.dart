@@ -116,6 +116,9 @@ class PdfPageRender {
     this.runs = const <LaidOutRun>[],
     this.images = const <String, ui.Image>{},
     this.raster,
+    this.marks,
+    this.markRuns = const <LaidOutRun>[],
+    this.markImages = const <String, ui.Image>{},
   });
 
   /// Zero based, though the page prints [index] + 1 in its corner.
@@ -139,6 +142,12 @@ class PdfPageRender {
   /// The page as the phone's own renderer drew it, in the file's own fonts,
   /// or null while quire draws it itself.
   final ui.Image? raster;
+
+  /// The page's annotations alone, for quire to draw over a [raster] the
+  /// phone drew without them, with their words and their pictures.
+  final PageDisplayList? marks;
+  final List<LaidOutRun> markRuns;
+  final Map<String, ui.Image> markImages;
 
   /// True once there is something real to draw. A damaged page counts: the
   /// tear is the drawing.
@@ -265,6 +274,12 @@ class PdfPages extends ChangeNotifier {
   final void Function(int page, PageDisplayList list)? onPageRun;
 
   final Map<int, List<LaidOutRun>> _runs = <int, List<LaidOutRun>>{};
+
+  /// Each page's annotations drawn on their own, for a page the phone draws
+  /// without them; null for a page that has none.
+  final Map<int, PageDisplayList?> _marks = <int, PageDisplayList?>{};
+  final Map<int, List<LaidOutRun>> _markRuns = <int, List<LaidOutRun>>{};
+  final Map<int, Map<String, ui.Image>> _markImages = <int, Map<String, ui.Image>>{};
   final Map<int, RenderPlan> _plans = <int, RenderPlan>{};
   final Map<int, Size> _sizes = <int, Size>{};
   final Set<int> _decoding = <int>{};
@@ -325,6 +340,8 @@ class PdfPages extends ChangeNotifier {
   /// Everything the reader needs to draw [page] right now.
   PdfPageRender pageAt(int page) {
     final list = _cache.list(page);
+    final raster = _drawnByPhone ? _rasters[page] : null;
+    final marks = raster != null && !(_native?.drawsMarks ?? true) ? _marks[page] : null;
     return PdfPageRender(
       index: page,
       size: sizeOf(page),
@@ -332,7 +349,10 @@ class PdfPages extends ChangeNotifier {
       list: list,
       runs: list == null ? const <LaidOutRun>[] : (_runs[page] ?? const []),
       images: _cache.imagesFor(page),
-      raster: _drawnByPhone ? _rasters[page] : null,
+      raster: raster,
+      marks: marks,
+      markRuns: marks == null ? const <LaidOutRun>[] : (_markRuns[page] ?? const <LaidOutRun>[]),
+      markImages: marks == null ? const <String, ui.Image>{} : (_markImages[page] ?? const <String, ui.Image>{}),
     );
   }
 
@@ -410,6 +430,7 @@ class PdfPages extends ChangeNotifier {
       _cache.put(page, list);
       _runs[page] = mergeRuns(list.texts);
       _plans[page] = planFor(list, threw: false);
+      _readMarks(page);
       onPageRun?.call(page, list);
     } on Object {
       // The rung says damaged, and the page is drawn as a torn leaf inline.
@@ -420,19 +441,39 @@ class PdfPages extends ChangeNotifier {
     return true;
   }
 
+  /// Draws [page]'s annotations on their own, once, for when the phone
+  /// draws the page and leaves them off it.
+  void _readMarks(int page) {
+    if (_marks.containsKey(page)) return;
+    PageDisplayList? marks;
+    try {
+      final dict = file.pages[page];
+      final annots = file.resolve(dict['Annots']);
+      if (annots is List && annots.isNotEmpty) {
+        final list = ContentInterpreter(file).run(dict, annotationsOnly: true);
+        if (list.paths.isNotEmpty || list.texts.isNotEmpty || list.images.isNotEmpty) marks = list;
+      }
+    } on Object {
+      // A page whose marks will not draw is shown as the phone draws it.
+      marks = null;
+    }
+    _marks[page] = marks;
+    if (marks != null) _markRuns[page] = mergeRuns(marks.texts);
+  }
+
+  static bool _decodable(PageDisplayList list) => list.images.any(
+    (image) => image.bytes != null && kDecodableImageEncodings.contains(image.encoding),
+  );
+
   /// True when [page] carries an image this reader can turn into pixels and
   /// has not decoded yet.
   bool wantsImages(int page) {
     final list = _cache.list(page);
     if (list == null || _decoding.contains(page)) return false;
+    final marks = _marks[page];
+    if (marks != null && _markImages[page] == null && _decodable(marks)) return true;
     if (_cache.imagesFor(page).isNotEmpty) return false;
-    for (final image in list.images) {
-      if (image.bytes != null &&
-          kDecodableImageEncodings.contains(image.encoding)) {
-        return true;
-      }
-    }
-    return false;
+    return _decodable(list);
   }
 
   /// Decodes [page]'s images, off the paint path.
@@ -444,10 +485,20 @@ class PdfPages extends ChangeNotifier {
     final list = _cache.list(page);
     if (list == null || !_decoding.add(page)) return;
     try {
-      final decoded = await decodePageImages(list);
-      if (decoded.isEmpty) return;
-      _cache.putImages(page, decoded);
-      notifyListeners();
+      var changed = false;
+      final marks = _marks[page];
+      if (marks != null && _markImages[page] == null && _decodable(marks)) {
+        _markImages[page] = await decodePageImages(marks);
+        changed = true;
+      }
+      if (_cache.imagesFor(page).isEmpty && _decodable(list)) {
+        final decoded = await decodePageImages(list);
+        if (decoded.isNotEmpty) {
+          _cache.putImages(page, decoded);
+          changed = true;
+        }
+      }
+      if (changed) notifyListeners();
     } finally {
       _decoding.remove(page);
     }
@@ -458,6 +509,12 @@ class PdfPages extends ChangeNotifier {
     _cache.clear();
     _runs.clear();
     _plans.clear();
+    for (final images in _markImages.values) {
+      for (final image in images.values) {
+        image.dispose();
+      }
+    }
+    _markImages.clear();
     _dropRasters();
     unawaited(_native?.close());
     _native = null;
@@ -694,7 +751,20 @@ class PdfPageView extends StatelessWidget {
         Positioned.fill(
           child: CustomPaint(
             painter: raster != null
-                ? RasterPagePainter(raster)
+                ? RasterPagePainter(
+                    raster,
+                    over: switch (page.marks) {
+                      final marks? => PageListPainter(
+                        list: marks,
+                        runs: page.markRuns,
+                        images: page.markImages,
+                        serifFamily: kPdfSerifFamily,
+                        sansFamily: kPdfSansFamily,
+                        ground: false,
+                      ),
+                      null => null,
+                    },
+                  )
                 : PageListPainter(
                     list: list,
                     runs: page.runs,
@@ -778,11 +848,13 @@ class PdfPageView extends StatelessWidget {
   );
 }
 
-/// A page as the phone drew it, laid over the whole of the page's rect.
+/// A page as the phone drew it, laid over the whole of the page's rect,
+/// with [over] drawn on it: the marks the phone left off.
 class RasterPagePainter extends CustomPainter {
-  RasterPagePainter(this.raster);
+  RasterPagePainter(this.raster, {this.over});
 
   final ui.Image raster;
+  final PageListPainter? over;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -792,10 +864,12 @@ class RasterPagePainter extends CustomPainter {
       Offset.zero & size,
       Paint()..filterQuality = FilterQuality.medium,
     );
+    over?.paint(canvas, size);
   }
 
   @override
-  bool shouldRepaint(RasterPagePainter old) => old.raster != raster;
+  bool shouldRepaint(RasterPagePainter old) =>
+      old.raster != raster || old.over?.list != over?.list || old.over?.images != over?.images;
 }
 
 /// Where an image sits on the drawn page, whichever way round its own rect
