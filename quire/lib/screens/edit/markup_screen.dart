@@ -17,6 +17,7 @@ import '../../pdf/truetype.dart';
 import '../../pdf/writer.dart';
 import '../../services/picture.dart';
 import '../../theme/colors.dart';
+import '../../theme/easings.dart';
 import '../../theme/metrics.dart';
 import '../../theme/typography.dart';
 import '../../widgets/press_fade.dart';
@@ -538,7 +539,7 @@ class MarkupScreen extends StatefulWidget {
   State<MarkupScreen> createState() => MarkupScreenState();
 }
 
-class MarkupScreenState extends State<MarkupScreen> {
+class MarkupScreenState extends State<MarkupScreen> with SingleTickerProviderStateMixin {
   PdfFile get _file => widget.pages.file;
 
   late int _page = widget.openAt.clamp(0, math.max(0, widget.pages.pageCount - 1));
@@ -629,6 +630,11 @@ class MarkupScreenState extends State<MarkupScreen> {
 
   bool _saving = false;
   bool _asking = false;
+
+  /// A mark just put down settles onto the page, as a signature does.
+  late final AnimationController _landing = AnimationController(vsync: this, duration: kStampSettle)
+    ..addListener(() => setState(() {}));
+  int? _landingId;
   String? _problem;
   Offset? _pasteAt;
 
@@ -650,6 +656,10 @@ class MarkupScreenState extends State<MarkupScreen> {
 
   @visibleForTesting
   int get page => _page;
+
+  /// The mark settling onto the page and how far it has come, while it is.
+  @visibleForTesting
+  (int?, double) get landing => (_landing.isAnimating ? _landingId : null, _landing.value);
 
   @visibleForTesting
   MarkupChanges get changes => changesFor(_marks, _removed, font: _font);
@@ -687,6 +697,7 @@ class MarkupScreenState extends State<MarkupScreen> {
 
   @override
   void dispose() {
+    _landing.dispose();
     _hold?.cancel();
     _awaitingEnds?.cancel();
     for (final art in _art.values) {
@@ -870,8 +881,10 @@ class MarkupScreenState extends State<MarkupScreen> {
       if (select) {
         _selected = id;
         _tool = MarkupTool.select;
+        _landingId = id;
       }
     });
+    if (select) _landing.forward(from: 0);
   }
 
   /// The mark on this page under [at], the one drawn last first. Ink is
@@ -1058,7 +1071,9 @@ class MarkupScreenState extends State<MarkupScreen> {
     }
     if (_pointers.length != 1) return;
     final drawing = _gesture == _Gesture.ink || _gesture == _Gesture.markup;
-    final far = (e.localPosition - _downAt).distance > kMarkSlop;
+    // A drawing starts at once; anything else is still a tap until the
+    // finger has wandered as far as a finger's tap does.
+    final far = (e.localPosition - _downAt).distance > (drawing ? kMarkSlop : kTouchSlop);
     if (!_moved) {
       if (!drawing && !far) return;
       _moved = true;
@@ -1744,7 +1759,10 @@ class MarkupScreenState extends State<MarkupScreen> {
   TextBoxEdit _fitted(EditorMark mark, TextBoxEdit box) =>
       mark.found?.anchored ?? false ? box : tallEnough(box, _font, page: _pageSize.height);
 
-  Future<void> _putWords(Offset at) async {
+  /// Asks for words and puts them down at [at], or with no [at], in the
+  /// middle of the page as it is in sight, picked up to be dragged and sized
+  /// where they go, as a signature is.
+  Future<void> _putWords(Offset? at) async {
     _asking = true;
     var typed = '';
     final words = await showDeskSheet<String>(
@@ -1756,11 +1774,27 @@ class MarkupScreenState extends State<MarkupScreen> {
     if (words.trim().isEmpty || !mounted) return;
     _add(TextBoxEdit(
       _page,
-      rect: textBoxAt(at, words, _pageSize, size: _wordsSize, font: _font),
+      rect: at == null ? _wordsInSight(words) : textBoxAt(at, words, _pageSize, size: _wordsSize, font: _font),
       text: words,
       size: _wordsSize,
       color: _colours[MarkupTool.text]!,
     ));
+  }
+
+  /// A box for [words] in the middle of the part of the page in sight.
+  Rect _wordsInSight(String words) {
+    final page = _pageSize;
+    final seen = Rect.fromPoints(_toPage(Offset.zero), _toPage(Offset(_viewport.width, _viewport.height)))
+        .intersect(Offset.zero & page);
+    final middle = seen.width > 0 && seen.height > 0 ? seen.center : (Offset.zero & page).center;
+    final width = math.max(40.0, math.min(kMarkupTextWidth, page.width - 16));
+    final height = wordsHeightOf(words, _wordsSize, width, _font);
+    return Rect.fromLTWH(
+      (middle.dx - width / 2).clamp(0.0, math.max(0.0, page.width - width)),
+      (middle.dy - height / 2).clamp(0.0, math.max(0.0, page.height - height)),
+      width,
+      height,
+    );
   }
 
   /// Puts [picture], which is [data] decoded, down at [at] on the page.
@@ -1857,12 +1891,16 @@ class MarkupScreenState extends State<MarkupScreen> {
     };
   }
 
-  void _pick(MarkupTool tool) => setState(() {
-        _tool = tool;
-        _selected = null;
-        _inkMark = null;
-        _pasteAt = null;
-      });
+  void _pick(MarkupTool tool) {
+    setState(() {
+      _tool = tool;
+      _selected = null;
+      _inkMark = null;
+      _pasteAt = null;
+    });
+    // Words are written first, as a signature is, and then land in sight.
+    if (tool == MarkupTool.text) unawaited(_putWords(null));
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -2095,6 +2133,8 @@ class MarkupScreenState extends State<MarkupScreen> {
                         strokeWidth: _inkWidth,
                         strokeOpacity: _opacities[MarkupTool.ink]!,
                         dragged: _dragged,
+                        landing: _landing.isAnimating ? _landingId : null,
+                        landed: easeOutCubic.transform(_landing.value),
                       ),
                     ),
                   ),
@@ -2144,9 +2184,16 @@ class MarkupPainter extends CustomPainter {
     this.strokeWidth = 2,
     this.strokeOpacity = 1,
     this.dragged,
+    this.landing,
+    this.landed = 1,
   });
 
   final List<EditorMark> marks;
+
+  /// The mark settling onto the page, and how far it has come, 0 to 1: it
+  /// comes down from a little larger and fades in, as a stamp lands.
+  final int? landing;
+  final double landed;
   final Map<int, MarkupPageArt> arts;
   final Map<MarkOrigin, FoundMark> found;
   final Map<int, ui.Image> pictures;
@@ -2188,6 +2235,17 @@ class MarkupPainter extends CustomPainter {
     for (final mark in marks) {
       final edit = mark.edit;
       final f = mark.found;
+      final settling = mark.id == landing && landed < 1;
+      if (settling) {
+        final middle = edit.bounds.center;
+        final grow = 1 + 0.15 * (1 - landed);
+        canvas
+          ..save()
+          ..translate(middle.dx, middle.dy)
+          ..scale(grow)
+          ..translate(-middle.dx, -middle.dy)
+          ..saveLayer(null, Paint()..color = Color.fromRGBO(0, 0, 0, landed));
+      }
       if (mark.drawnAsFound) {
         _art(canvas, f!, mark.reshaped ? null : mark.shift, edit.bounds);
       } else if (edit is KeptEdit) {
@@ -2202,6 +2260,11 @@ class MarkupPainter extends CustomPainter {
         paintWords(canvas, edit, font);
       } else {
         paintEdit(canvas, edit, pictures[mark.id], font: font);
+      }
+      if (settling) {
+        canvas
+          ..restore()
+          ..restore();
       }
     }
     if (stroke.isNotEmpty) {

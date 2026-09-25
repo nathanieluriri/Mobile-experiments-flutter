@@ -353,16 +353,15 @@ void main() {
   testWidgets('words typed in the sheet are kept however it is closed', (tester) async {
     final state = await open(tester, _pages());
     await pick(tester, 'Words');
-    await tester.tapAt(at(tester, state, const Offset(40, 200)));
-    await settle(tester);
     await tester.enterText(find.byType(EditableText).last, 'Ask about the deposit');
     await tester.pump();
     await tester.tapAt(const Offset(200, 120));
     await settle(tester);
     expect((state.marks.single.edit as TextBoxEdit).text, 'Ask about the deposit');
-    await tester.tapAt(at(tester, state, const Offset(60, 206)));
+    final box = state.marks.single.edit.bounds;
+    await tester.tapAt(at(tester, state, box.centerLeft + const Offset(20, 0)));
     await tester.pump(const Duration(milliseconds: 60));
-    await tester.tapAt(at(tester, state, const Offset(60, 206)));
+    await tester.tapAt(at(tester, state, box.centerLeft + const Offset(20, 0)));
     await settle(tester);
     await tester.enterText(find.byType(EditableText).last, 'Second words, better ones');
     await tester.pump();
@@ -381,6 +380,10 @@ void main() {
       expect(state.zoom, greaterThan(1));
       final before = state.origin;
       await pick(tester, 'Words');
+      // Closed with nothing written, the tool puts words where the page is
+      // tapped.
+      await tester.binding.handlePopRoute();
+      await settle(tester);
       final spot = at(tester, state, const Offset(230, 330));
       await tester.tapAt(spot);
       await settle(tester);
@@ -587,10 +590,8 @@ void main() {
   });
 
   testWidgets('words no font here can set are pictured into the save', (tester) async {
-    final state = await open(tester, _pages());
+    await open(tester, _pages());
     await pick(tester, 'Words');
-    await tester.tapAt(at(tester, state, const Offset(40, 200)));
-    await settle(tester);
     await tester.enterText(find.byType(EditableText).last, '你好，世界');
     await tester.tap(find.text('Put them on the page'));
     await settle(tester);
@@ -697,6 +698,42 @@ void main() {
       await tester.binding.handlePopRoute();
       await settle(tester);
       expect(find.text('Keep editing'), findsOneWidget);
+    });
+  });
+  group('after the owner\'s report', () {
+    testWidgets('Words asks for the words at once, and they land in sight, picked up, and settle', (tester) async {
+      final state = await open(tester, _pages());
+      await pick(tester, 'Words');
+      expect(find.byType(WordsSheet), findsOneWidget);
+      await tester.enterText(find.byType(EditableText).last, 'Ask about the deposit');
+      await tester.tap(find.text('Put them on the page'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 60));
+      final words = state.marks.single;
+      expect(state.landing.$1, words.id);
+      expect(state.landing.$2, inExclusiveRange(0, 1));
+      await settle(tester);
+      expect(state.landing.$1, isNull);
+      expect(state.selection?.id, words.id);
+      final page = tester.getRect(find.byKey(const ValueKey<String>('markup-page')));
+      final centre = at(tester, state, words.edit.bounds.center);
+      expect(page.contains(centre), isTrue);
+      expect(tester.getRect(find.byType(MarkupScreen)).contains(centre), isTrue);
+    });
+
+    testWidgets('with Words out, a tap that wanders as a finger does opens the words', (tester) async {
+      final state = await open(tester, _pages());
+      await pick(tester, 'Words');
+      await tester.binding.handlePopRoute();
+      await settle(tester);
+      expect(find.byType(WordsSheet), findsNothing);
+      final gesture = await tester.startGesture(at(tester, state, const Offset(80, 220)));
+      await tester.pump(const Duration(milliseconds: 30));
+      await gesture.moveBy(const Offset(6, 5));
+      await tester.pump(const Duration(milliseconds: 30));
+      await gesture.up();
+      await settle(tester);
+      expect(find.byType(WordsSheet), findsOneWidget);
     });
   });
 }

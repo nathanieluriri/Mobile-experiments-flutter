@@ -125,8 +125,6 @@ void main() {
     await settle(tester);
     await tester.tap(find.bySemanticsLabel('Words'));
     await settle(tester);
-    await tester.tapAt(at(const Offset(70, 700)));
-    await settle(tester);
     await tester.enterText(find.byType(EditableText).last, 'Zażółć gęślą jaźń, Привет, 你好');
     await tester.tap(find.text('Put them on the page'));
     await settle(tester);
