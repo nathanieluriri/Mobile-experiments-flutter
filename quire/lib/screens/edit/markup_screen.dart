@@ -401,11 +401,15 @@ class EditorMark {
 
   /// Highlights, underlines and strikes stay on the words they mark;
   /// everything else can be picked up.
-  bool get movable => found?.movable ?? (edit is! HighlightEdit && edit is! StrikeEdit);
+  bool get movable => found?.movable ?? true;
 
-  /// A note's icon keeps its size; everything else that moves can be
-  /// stretched.
-  bool get resizable => movable && (found?.resizable ?? true);
+  /// True for a highlight or strike put down here, which moves onto the
+  /// words it is dropped on rather than anywhere.
+  bool get onWords => found == null && (edit is HighlightEdit || edit is StrikeEdit);
+
+  /// A note's icon keeps its size, and a highlight or strike its words;
+  /// everything else that moves can be stretched.
+  bool get resizable => movable && !onWords && (found?.resizable ?? true);
 
   /// True when the mark is drawn from the appearance the file gave it.
   bool get drawnAsFound {
@@ -1037,11 +1041,16 @@ class MarkupScreenState extends State<MarkupScreen> {
     }
     if (_pointers.length != 1) return;
     final drawing = _gesture == _Gesture.ink || _gesture == _Gesture.markup;
+    final far = (e.localPosition - _downAt).distance > kMarkSlop;
     if (!_moved) {
-      if (!drawing && (e.localPosition - _downAt).distance <= kMarkSlop) return;
+      if (!drawing && !far) return;
       _moved = true;
-      _hold?.cancel();
+      // A drawing starts at once, and a finger still held on a mark can yet
+      // pick it up.
+      if (far || !drawing) _hold?.cancel();
       _begin();
+    } else if (far) {
+      _hold?.cancel();
     }
     _update(e.localPosition);
     _lastView = e.localPosition;
@@ -1113,10 +1122,12 @@ class MarkupScreenState extends State<MarkupScreen> {
       case MarkupTool.select:
       case MarkupTool.text:
       case MarkupTool.picture:
-        // Only the mark already picked up moves; a swipe anywhere else
-        // scrolls the page, as a reader does.
+        // A mark is dragged straight off the page seen whole, as a
+        // signature is. Zoomed in, only the mark already picked up moves,
+        // and a swipe anywhere else scrolls the page, as a reader does;
+        // holding a mark picks it up there too.
         final pressed = _pressed;
-        if (pressed != null && pressed.movable && pressed.id == _selected) {
+        if (pressed != null && pressed.movable && (pressed.id == _selected || _zoom <= 1)) {
           _gesture = _Gesture.move;
           _gestureStart = pressed;
         } else if (_zoom > 1) {
@@ -1194,6 +1205,8 @@ class MarkupScreenState extends State<MarkupScreen> {
         // A touch that moved nothing leaves nothing to undo.
         if (start != null && now != null && now.edit.bounds == start.edit.bounds && _undo.isNotEmpty) {
           _undo.removeLast();
+        } else if (start != null && now != null && now.onWords) {
+          _dropOnWords(start, now);
         }
         _gestureStart = null;
         setState(() {});
@@ -1202,6 +1215,37 @@ class MarkupScreenState extends State<MarkupScreen> {
       case _Gesture.markup:
         _finishMarkup(_downPage, _dragTo);
     }
+  }
+
+  /// A highlight or strike moved to where it was dropped, on the words
+  /// there, from the start of its first line to the end of its last; back
+  /// where it was when there are no words there.
+  void _dropOnWords(EditorMark start, EditorMark now) {
+    final edit = now.edit;
+    final rects = switch (edit) {
+      HighlightEdit() => edit.rects,
+      StrikeEdit() => edit.rects,
+      _ => const <Rect>[],
+    };
+    if (rects.isEmpty) return;
+    final snapped = snapToLines(
+      _art[_page]?.runs ?? const <LaidOutRun>[],
+      rects.first.centerLeft + const Offset(1, 0),
+      rects.last.centerRight - const Offset(1, 0),
+    );
+    if (snapped.isEmpty) {
+      _replaceMark(start);
+      if (_undo.isNotEmpty) _undo.removeLast();
+      return;
+    }
+    _replaceMark(now.copyWith(
+      edit: switch (edit) {
+        HighlightEdit() => HighlightEdit(edit.pageIndex, rects: snapped, color: edit.color, opacity: edit.opacity),
+        StrikeEdit() => StrikeEdit(edit.pageIndex, rects: snapped, color: edit.color, opacity: edit.opacity),
+        _ => edit,
+      },
+    ));
+    _refreshArt(_page);
   }
 
   void _finishStroke() {
@@ -1302,7 +1346,27 @@ class MarkupScreenState extends State<MarkupScreen> {
   }
 
   void _longPress() {
-    if (_moved || _pointers.length != 1 || _gesture != _Gesture.none) return;
+    if (_pointers.length != 1 || _pinching) return;
+    final pressed = _pressed;
+    final still = (_lastView - _downAt).distance <= kMarkSlop;
+    if (pressed != null && pressed.movable && still && _gesture != _Gesture.move && _gesture != _Gesture.stretch) {
+      // Held on a mark, the mark is picked up whatever tool is out, and the
+      // same finger carries it.
+      _remember();
+      setState(() {
+        _stroke = <Offset>[];
+        _dragged = null;
+        _selected = pressed.id;
+        _tool = MarkupTool.select;
+        _inkMark = null;
+        _pasteAt = null;
+      });
+      _gesture = _Gesture.move;
+      _gestureStart = pressed;
+      _moved = true;
+      return;
+    }
+    if (_moved || _gesture != _Gesture.none) return;
     if (_pressed != null || _clipboard == null) return;
     _held = true;
     setState(() {
@@ -1315,6 +1379,18 @@ class MarkupScreenState extends State<MarkupScreen> {
     _gesture = _Gesture.none;
     final gesture = _stroke.isNotEmpty ? _Gesture.ink : (_dragged != null ? _Gesture.markup : _Gesture.none);
     if (gesture == _Gesture.ink) {
+      final hit = _hit(at);
+      if (hit != null && hit.edit is! InkEdit && !(hit.found?.subtype == 'Ink')) {
+        // A tap on words, a picture or a shape picks it up; on ink it is a
+        // dot, to finish the word being written.
+        setState(() {
+          _stroke = <Offset>[];
+          _selected = hit.id;
+          _tool = MarkupTool.select;
+          _inkMark = null;
+        });
+        return;
+      }
       // A dot.
       _finishStroke();
       return;
@@ -1729,17 +1805,19 @@ class MarkupScreenState extends State<MarkupScreen> {
     if (problem != null) return problem;
     final selected = _selection;
     if (selected != null) {
+      if (selected.onWords) return 'Drag it onto other words to move it.';
       return selected.movable
           ? 'Drag it to move it, or a handle to size it.'
           : 'Highlights and strikes stay on their words.';
     }
+    // One line each, so the page never shifts when the words change.
     return switch (_tool) {
-      MarkupTool.select => 'Tap a mark to pick it up. Pinch to zoom.',
-      MarkupTool.text => 'Tap where the words should go.',
-      MarkupTool.ink => 'Draw on the page. Two fingers move it.',
-      MarkupTool.highlight => 'Drag across the words, or tap one.',
-      MarkupTool.strike => 'Drag across the words, or tap one.',
-      MarkupTool.picture => 'Tap where the picture should go.',
+      MarkupTool.select => 'Drag a mark to move it. Pinch to zoom.',
+      MarkupTool.text => 'Tap where the words go. Hold a mark to move it.',
+      MarkupTool.ink => 'Draw on the page. Hold a mark to move it.',
+      MarkupTool.highlight => 'Drag across words. Hold a mark to move it.',
+      MarkupTool.strike => 'Drag across words. Hold a mark to move it.',
+      MarkupTool.picture => 'Tap where the picture goes. Hold a mark to move it.',
     };
   }
 

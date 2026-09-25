@@ -597,4 +597,80 @@ void main() {
     final out = PdfFile.open(PdfAnnotator.apply(pages.file, added: saved!.added, font: saved!.font));
     expect(out.dict((out.resolve(out.pages[0]['Annots'])! as List).single), isNotNull);
   });
+
+  group('moving a mark once it is down', () {
+    Uint8List twoLines() => buildPdf([
+      obj('<< /Type /Catalog /Pages 2 0 R >>'),
+      obj('<< /Type /Pages /Kids [4 0 R] /Count 1 >>'),
+      obj('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>'),
+      obj('<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 400] /Resources << /Font << /F1 3 0 R >> >> /Contents 5 0 R >>'),
+      streamObj('', ascii.encode('BT /F1 12 Tf 40 360 Td (The quick brown fox) Tj ET BT /F1 12 Tf 40 300 Td (jumps over the lazy dog) Tj ET')),
+    ]);
+
+    testWidgets('a mark is dragged straight away, with no tap to pick it up first', (tester) async {
+      final bytes = PdfAnnotator.annotated(PdfFile.open(_pages()), [
+        const TextBoxEdit(0, rect: Rect.fromLTWH(40, 150, 160, 40), text: 'A note', size: 12),
+      ]);
+      final state = await open(tester, bytes);
+      expect(state.selection, isNull);
+      await drag(tester, at(tester, state, const Offset(120, 170)), const Offset(48, 36));
+      final moved = state.marks.single;
+      expect(moved.shift.dx, closeTo(48 / state.fit, 0.5));
+      expect(moved.shift.dy, closeTo(36 / state.fit, 0.5));
+      expect(state.selection?.id, moved.id);
+      expect(state.changes.updates, isNotEmpty);
+    });
+
+    testWidgets('with the pen out, holding a mark picks it up and the finger carries it', (tester) async {
+      final state = await open(tester, _pages());
+      await pick(tester, 'Ink');
+      await drag(tester, at(tester, state, const Offset(60, 200)), const Offset(90, 0));
+      final drawn = state.marks.single;
+      final before = (drawn.edit as InkEdit).strokes.length;
+      await tester.pump(kInkJoin);
+      final start = at(tester, state, const Offset(100, 200));
+      final gesture = await tester.startGesture(start);
+      await tester.pump(const Duration(milliseconds: 700));
+      for (var i = 1; i <= 8; i++) {
+        await gesture.moveTo(start + Offset(0, 8.0 * i));
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      await gesture.up();
+      await settle(tester);
+      expect(state.marks, hasLength(1));
+      final ink = state.marks.single;
+      expect((ink.edit as InkEdit).strokes, hasLength(before));
+      expect(ink.edit.bounds.top, closeTo(drawn.edit.bounds.top + 64 / state.fit, 1));
+      expect(state.tool, MarkupTool.select);
+      expect(state.selection?.id, ink.id);
+    });
+
+    testWidgets('with the pen out, a tap on a box of words picks it up and draws nothing', (tester) async {
+      final bytes = PdfAnnotator.annotated(PdfFile.open(_pages()), [
+        const TextBoxEdit(0, rect: Rect.fromLTWH(40, 150, 160, 40), text: 'A note', size: 12),
+      ]);
+      final state = await open(tester, bytes);
+      await pick(tester, 'Ink');
+      await tester.tapAt(at(tester, state, const Offset(120, 170)));
+      await settle(tester);
+      expect(state.marks, hasLength(1));
+      expect(state.selection?.edit, isA<TextBoxEdit>());
+      expect(state.tool, MarkupTool.select);
+    });
+
+    testWidgets('a new highlight dragged onto other words lands on them', (tester) async {
+      final state = await open(tester, twoLines());
+      await pick(tester, 'Highlight');
+      await drag(tester, at(tester, state, const Offset(45, 36)), const Offset(90, 0));
+      final lit = (state.marks.single.edit as HighlightEdit).rects.single;
+      await pick(tester, 'Select');
+      await drag(tester, at(tester, state, lit.center), Offset(0, 60 * state.fit));
+      final now = (state.marks.single.edit as HighlightEdit).rects.single;
+      // The second line of words sits 60 lower, and the highlight is on it,
+      // as tall as the words and no taller.
+      expect(now.center.dy, closeTo(lit.center.dy + 60, 3));
+      expect(now.height, closeTo(lit.height, 1));
+      expect(state.changes.added.single, isA<HighlightEdit>());
+    });
+  });
 }
