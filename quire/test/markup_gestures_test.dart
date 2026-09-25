@@ -679,4 +679,24 @@ void main() {
       expect(state.changes.added.single, isA<HighlightEdit>());
     });
   });
+  group('after the integration critic', () {
+    testWidgets('Back with a mark picked up lets go of it first, and only then asks to keep changes', (tester) async {
+      final bytes = PdfAnnotator.annotated(PdfFile.open(_pages()), [
+        const TextBoxEdit(0, rect: Rect.fromLTWH(40, 100, 160, 16), text: 'A note', size: 12),
+      ]);
+      final state = await open(tester, bytes);
+      await tester.tapAt(at(tester, state, const Offset(100, 108)));
+      await settle(tester);
+      await drag(tester, at(tester, state, const Offset(100, 108)), const Offset(0, 40));
+      expect(state.selection, isNotNull);
+      await tester.binding.handlePopRoute();
+      await settle(tester);
+      expect(find.byType(MarkupScreen), findsOneWidget);
+      expect(state.selection, isNull);
+      expect(find.text('Keep editing'), findsNothing);
+      await tester.binding.handlePopRoute();
+      await settle(tester);
+      expect(find.text('Keep editing'), findsOneWidget);
+    });
+  });
 }

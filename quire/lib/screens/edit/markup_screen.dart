@@ -1874,6 +1874,13 @@ class MarkupScreenState extends State<MarkupScreen> {
       onSave: _save,
       canSave: _changed,
       saving: _saving,
+      // Back lets go of a mark picked up, or the offer to paste, before it
+      // leaves, as the other editors do.
+      covered: _selection != null || _pasteAt != null,
+      onUncover: () => setState(() {
+        _selected = null;
+        _pasteAt = null;
+      }),
       // Words are typed in a sheet of their own: the keyboard coming and
       // going leaves the page, and the zoom, where they were.
       resizeForKeyboard: false,
