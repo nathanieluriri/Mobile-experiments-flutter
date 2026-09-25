@@ -6,7 +6,8 @@ import 'dart:io' show File;
 import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
-import 'package:flutter/foundation.dart' show clampDouble;
+import 'package:flutter/foundation.dart'
+    show TargetPlatform, clampDouble, defaultTargetPlatform;
 import 'package:flutter/material.dart' show showLicensePage;
 import 'package:flutter/physics.dart';
 import 'package:flutter/services.dart' show rootBundle;
@@ -1190,7 +1191,7 @@ class _DeskScreenState extends State<DeskScreen> with TickerProviderStateMixin {
         return Column(
           children: <Widget>[
             NewFolderRow(onTap: _makeFolder),
-            AdoptFolderRow(onTap: _adopt),
+            if (_phoneFolders) AdoptFolderRow(onTap: _adopt),
             DestinationPanel(destination: _destination),
           ],
         );
@@ -1201,7 +1202,7 @@ class _DeskScreenState extends State<DeskScreen> with TickerProviderStateMixin {
         onOpen: (folder) => setState(() => _folder = folder),
         onRemove: _folderActions,
         onMake: _makeFolder,
-        onAdopt: _adopt,
+        onAdopt: _phoneFolders ? _adopt : null,
         deviceFolders: onPhone,
         isMissing: widget.store.isMissing,
         onOpenDevice: _openDevice,
@@ -1253,6 +1254,11 @@ class _DeskScreenState extends State<DeskScreen> with TickerProviderStateMixin {
   }
 
   // Folders on the phone.
+
+  /// Whether the phone can hand quire its folders. Only Android's side is
+  /// written, so elsewhere the row is not offered rather than offered and
+  /// ignored.
+  bool get _phoneFolders => defaultTargetPlatform == TargetPlatform.android;
 
   /// A folder on the phone, from the inside: a new folder, its subfolders,
   /// then its documents under the same tabs and sort as the desk's.

@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -309,6 +310,20 @@ void main() {
       await settle(tester);
       expect(find.byType(FolderCrumb), findsNothing);
       expect(find.byType(AdoptFolderRow), findsOneWidget);
+    });
+
+    testWidgets('where the phone cannot hand folders over, none is offered', (
+      tester,
+    ) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      final store = LibraryStore();
+      await pumpScreen(tester, app(store));
+      await settle(tester);
+      await openFolders(tester);
+      expect(find.byType(NewFolderRow), findsOneWidget);
+      expect(find.byType(AdoptFolderRow), findsNothing);
+      debugDefaultTargetPlatformOverride = null;
     });
 
     testWidgets('a folder that has gone says so where it stood', (
