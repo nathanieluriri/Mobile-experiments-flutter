@@ -85,6 +85,7 @@ class TextRunCmd {
     required this.seq,
     this.angle = 0,
     this.spaceWidthPts = 0,
+    this.clip = kNoClip,
   });
 
   /// Unicode text of the run.
@@ -106,10 +107,34 @@ class TextRunCmd {
   /// How wide the font's own space is at this size, or 0 when it has none.
   final double spaceWidthPts;
 
+  /// The clip region the run is drawn inside, an index into
+  /// [PageDisplayList.clips], or [kNoClip].
+  final int clip;
+
   @override
   String toString() =>
       'Text("$text") @(${x.toStringAsFixed(1)},${y.toStringAsFixed(1)}) '
       'size=${fontSize.toStringAsFixed(1)} w=${widthPts.toStringAsFixed(1)}';
+}
+
+/// A command drawn inside no clip region but the page.
+const int kNoClip = -1;
+
+/// One path of a clip, in top-left page space.
+class ClipPath {
+  const ClipPath(this.segs, {required this.evenOdd});
+  final List<PathSeg> segs;
+  final bool evenOdd;
+}
+
+/// A region drawing is held inside: the intersection of every path in it.
+///
+/// A PDF sets a clip with `W` and keeps it until the graphics state it was
+/// set in is restored, and each new one narrows the last, so a region is
+/// its parent's paths with one more.
+class PageClip {
+  const PageClip(this.paths);
+  final List<ClipPath> paths;
 }
 
 enum PathOp { move, line, cubic, close }
@@ -130,12 +155,40 @@ class PathCmd {
     required this.lineWidth,
     required this.evenOdd,
     required this.seq,
+    this.clip = kNoClip,
   });
   final List<PathSeg> segs;
   final bool fill, stroke, evenOdd;
   final int fillColor, strokeColor;
   final double lineWidth;
   final int seq;
+  final int clip;
+}
+
+/// A smooth shading: an axial or radial blend of [colors], evenly spread
+/// along its parameter, drawn over the whole of its clip region.
+class ShadeCmd {
+  ShadeCmd({
+    required this.radial,
+    required this.coords,
+    required this.matrix,
+    required this.colors,
+    required this.extendStart,
+    required this.extendEnd,
+    required this.seq,
+    this.clip = kNoClip,
+  });
+
+  final bool radial;
+
+  /// x0 y0 x1 y1, or x0 y0 r0 x1 y1 r1 when [radial], in the shading's own
+  /// space, which [matrix] takes to top-left page space.
+  final List<double> coords;
+  final Mat matrix;
+  final List<int> colors;
+  final bool extendStart, extendEnd;
+  final int seq;
+  final int clip;
 }
 
 class ImageCmd {
@@ -147,6 +200,7 @@ class ImageCmd {
     required this.width,
     required this.height,
     required this.seq,
+    this.clip = kNoClip,
   });
   final String name;
 
@@ -160,6 +214,7 @@ class ImageCmd {
   final String encoding;
   final int width, height;
   final int seq;
+  final int clip;
 
   @override
   String toString() =>
@@ -178,6 +233,10 @@ class PageDisplayList {
   final List<TextRunCmd> texts = [];
   final List<PathCmd> paths = [];
   final List<ImageCmd> images = [];
+  final List<ShadeCmd> shades = [];
+
+  /// Every clip region a command refers to by index.
+  final List<PageClip> clips = [];
 
   /// Fraction of the page area covered by images: a rough "is this a scan?"
   /// signal for choosing the fallback presentation.
@@ -217,7 +276,7 @@ const double kWordGapEm = 0.026;
 /// Adjacent runs on the same baseline merged into one paintable line.
 class LaidOutRun {
   LaidOutRun(this.text, this.x, this.y, this.size, this.width, this.style,
-      this.color, this.seq, {this.angle = 0});
+      this.color, this.seq, {this.angle = 0, this.clip = kNoClip});
 
   /// The merged unicode text of the line.
   final String text;
@@ -237,6 +296,10 @@ class LaidOutRun {
   /// The direction the baseline runs, in radians clockwise. The painter turns
   /// the line about its origin by this much.
   final double angle;
+
+  /// The clip region the line is drawn inside. Runs in different regions are
+  /// never merged into one line.
+  final int clip;
 
   bool get bold => (style & 1) != 0;
   bool get italic => (style & 2) != 0;
@@ -343,12 +406,14 @@ List<LaidOutRun> _mergeUpright(List<TextRunCmd> runs, double wordGapEm) {
   var color = sorted.first.color;
   var cursor = sorted.first.x;
   var seq = sorted.first.seq;
+  var clip = sorted.first.clip;
 
   void flush(double endX) {
     final s = buf.toString();
     if (s.trim().isNotEmpty) {
-      out.add(
-          LaidOutRun(s, startX, lineY, size, endX - startX, style, color, seq));
+      out.add(LaidOutRun(
+          s, startX, lineY, size, endX - startX, style, color, seq,
+          clip: clip));
     }
     buf = StringBuffer();
   }
@@ -363,7 +428,8 @@ List<LaidOutRun> _mergeUpright(List<TextRunCmd> runs, double wordGapEm) {
     final sameLine = (r.y - lineY).abs() <= size * 0.3;
     final sameStyle = _styleOf(r) == style &&
         (r.fontSize - size).abs() < 0.6 &&
-        r.color == color;
+        r.color == color &&
+        r.clip == clip;
     final gap = r.x - cursor;
     if (sameLine && sameStyle && gap > -size * 0.6 && gap < size * 1.2) {
       // A gap this wide is a word break the producer expressed as positioning
@@ -382,6 +448,7 @@ List<LaidOutRun> _mergeUpright(List<TextRunCmd> runs, double wordGapEm) {
     style = _styleOf(r);
     color = r.color;
     seq = r.seq;
+    clip = r.clip;
     buf.write(r.text);
     cursor = r.x + r.widthPts;
   }
@@ -404,7 +471,7 @@ List<LaidOutRun> _mergeTurned(List<TextRunCmd> runs, double wordGapEm) {
     if (h != null && buf.toString().trim().isNotEmpty) {
       out.add(LaidOutRun(buf.toString(), h.x, h.y, h.fontSize, length,
           _styleOf(h), h.color, h.seq,
-          angle: h.angle));
+          angle: h.angle, clip: h.clip));
     }
     head = null;
     buf = StringBuffer();
@@ -416,7 +483,8 @@ List<LaidOutRun> _mergeTurned(List<TextRunCmd> runs, double wordGapEm) {
         (r.angle - h.angle).abs() < 0.01 &&
         _styleOf(r) == _styleOf(h) &&
         (r.fontSize - h.fontSize).abs() < 0.6 &&
-        r.color == h.color) {
+        r.color == h.color &&
+        r.clip == h.clip) {
       final cos = math.cos(h.angle), sin = math.sin(h.angle);
       final dx = r.x - endX, dy = r.y - endY;
       final along = dx * cos + dy * sin;

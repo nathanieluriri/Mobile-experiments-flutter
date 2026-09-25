@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import '../pdf/display_list.dart';
@@ -140,20 +141,88 @@ class PageListPainter extends CustomPainter {
     // the sequence number it had in the content stream.
     final ops = <(int, Object)>[
       for (final im in list.images) (im.seq, im),
+      if (drawPaths) for (final sh in list.shades) (sh.seq, sh),
       if (drawPaths) for (final p in list.paths) (p.seq, p),
       for (final r in runs) (r.seq, r),
     ]..sort((a, b) => a.$1.compareTo(b.$1));
 
+    var inside = kNoClip;
     for (final (_, cmd) in ops) {
+      final clip = switch (cmd) {
+        ImageCmd() => cmd.clip,
+        ShadeCmd() => cmd.clip,
+        PathCmd() => cmd.clip,
+        LaidOutRun() => cmd.clip,
+        _ => kNoClip,
+      };
+      if (clip != inside) {
+        if (inside != kNoClip) canvas.restore();
+        inside = clip;
+        if (clip != kNoClip && clip < list.clips.length) {
+          canvas.save();
+          for (final path in list.clips[clip].paths) {
+            canvas.clipPath(_pathOf(path.segs, path.evenOdd));
+          }
+        } else {
+          inside = kNoClip;
+        }
+      }
       if (cmd is ImageCmd) {
         _image(canvas, cmd);
+      } else if (cmd is ShadeCmd) {
+        _shade(canvas, cmd);
       } else if (cmd is PathCmd) {
         _path(canvas, cmd);
       } else if (cmd is LaidOutRun) {
         _text(canvas, cmd);
       }
     }
+    if (inside != kNoClip) canvas.restore();
     canvas.restore();
+  }
+
+  /// A shading over its whole clip region, or the whole page when it has
+  /// none, drawn in its own space so the blend runs the way the file set it.
+  void _shade(Canvas canvas, ShadeCmd s) {
+    final m = s.matrix;
+    final det = m.a * m.d - m.b * m.c;
+    if (det.abs() < 1e-12 || s.colors.length < 2) return;
+    final colors = [for (final c in s.colors) Color(c)];
+    final stops = [
+      for (var i = 0; i < colors.length; i++) i / (colors.length - 1),
+    ];
+    // An unextended end leaves the page bare past it. When only one end
+    // extends the blend is extended both ways, which is rare and close.
+    final tile = s.extendStart || s.extendEnd ? TileMode.clamp : TileMode.decal;
+    final c = s.coords;
+    final ui.Gradient gradient = s.radial
+        ? ui.Gradient.radial(
+            Offset(c[3], c[4]),
+            c[5],
+            colors,
+            stops,
+            tile,
+            null,
+            Offset(c[0], c[1]),
+            c[2],
+          )
+        : ui.Gradient.linear(
+            Offset(c[0], c[1]),
+            Offset(c[2], c[3]),
+            colors,
+            stops,
+            tile,
+          );
+    canvas
+      ..save()
+      ..transform(Float64List.fromList(<double>[
+        m.a, m.b, 0, 0, //
+        m.c, m.d, 0, 0,
+        0, 0, 1, 0,
+        m.e, m.f, 0, 1,
+      ]))
+      ..drawPaint(Paint()..shader = gradient)
+      ..restore();
   }
 
   void _image(Canvas canvas, ImageCmd im) {
@@ -185,10 +254,10 @@ class PageListPainter extends CustomPainter {
     canvas.restore();
   }
 
-  void _path(Canvas canvas, PathCmd p) {
+  static Path _pathOf(List<PathSeg> segs, bool evenOdd) {
     final path = Path()
-      ..fillType = p.evenOdd ? PathFillType.evenOdd : PathFillType.nonZero;
-    for (final s in p.segs) {
+      ..fillType = evenOdd ? PathFillType.evenOdd : PathFillType.nonZero;
+    for (final s in segs) {
       switch (s.op) {
         case PathOp.move:
           path.moveTo(s.pts[0], s.pts[1]);
@@ -204,6 +273,11 @@ class PageListPainter extends CustomPainter {
           break;
       }
     }
+    return path;
+  }
+
+  void _path(Canvas canvas, PathCmd p) {
+    final path = _pathOf(p.segs, p.evenOdd);
     if (p.fill) {
       canvas.drawPath(
           path,

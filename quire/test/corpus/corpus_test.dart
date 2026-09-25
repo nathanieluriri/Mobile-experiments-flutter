@@ -115,7 +115,13 @@ void _read(File entry, String label, _Report report) {
     final pageGlyphs =
         list.texts.fold<int>(0, (n, t) => n + t.text.runes.length);
     glyphs += pageGlyphs;
-    final drawn = list.texts.length + list.paths.length + list.images.length;
+    final drawn = list.texts.length +
+        list.paths.length +
+        list.images.length +
+        list.shades.length;
+    report
+      ..count('clip regions', list.clips.length)
+      ..count('shadings drawn', list.shades.length);
     if (drawn == 0 && file.pageContent(page).length > 64) {
       empty.add(i + 1);
       report.count('empty pages with content');

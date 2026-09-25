@@ -4,6 +4,7 @@ import 'document.dart';
 import 'font.dart';
 import 'lexer.dart';
 import 'objects.dart';
+import 'shading.dart';
 
 class _GState {
   _GState(this.ctm, this.fill, this.stroke, this.lineWidth,
@@ -21,14 +22,43 @@ class _GState {
   int get fillColor => _withAlpha(fill, fillAlpha);
   int get strokeColor => _withAlpha(stroke, strokeAlpha);
 
+  /// The clip region drawing is held inside, as an index into the page's
+  /// clips.
+  int clip = kNoClip;
+
+  /// A shading pattern fills are painted with instead of [fill], and the
+  /// matrix that takes its space to the page.
+  PdfShading? fillShading;
+  Mat? fillShadingMatrix;
+
   _GState clone() =>
-      _GState(ctm, fill, stroke, lineWidth, fillAlpha, strokeAlpha);
+      _GState(ctm, fill, stroke, lineWidth, fillAlpha, strokeAlpha)
+        ..clip = clip
+        ..fillShading = fillShading
+        ..fillShadingMatrix = fillShadingMatrix;
 
   static int _withAlpha(int argb, double alpha) {
     if (alpha >= 1) return argb;
     final a = (alpha.clamp(0.0, 1.0) * 255).round();
     return (argb & 0x00FFFFFF) | (a << 24);
   }
+}
+
+/// [text] with each Latin ligature character spelt out as its letters.
+///
+/// A file that draws `fi` with one ligature glyph says so with U+FB01, which
+/// the app's typeface has no glyph for and which a search for `find` never
+/// matches.
+String expandLigatures(String text) {
+  if (!text.runes.any((r) => r >= 0xFB00 && r <= 0xFB06)) return text;
+  const letters = ['ff', 'fi', 'fl', 'ffi', 'ffl', 'st', 'st'];
+  final out = StringBuffer();
+  for (final rune in text.runes) {
+    out.write(rune >= 0xFB00 && rune <= 0xFB06
+        ? letters[rune - 0xFB00]
+        : String.fromCharCode(rune));
+  }
+  return out.toString();
 }
 
 /// Interprets a page content stream into a paintable display list.
@@ -96,12 +126,12 @@ class ContentInterpreter {
   // ------------------------------------------------------------ execution
 
   void _exec(Uint8List content, Map<String, Object?> res, Mat base,
-      PageDisplayList out, int depth) {
+      PageDisplayList out, int depth, {int clip = kNoClip}) {
     if (depth > 8) return;
     final fontCache = <String, PdfFont?>{};
     final lx = PdfLexer(content);
     final stack = <Object?>[];
-    var gs = _GState(base, 0xFF000000, 0xFF000000, 1);
+    var gs = _GState(base, 0xFF000000, 0xFF000000, 1)..clip = clip;
     final gsStack = <_GState>[];
 
     // Text state
@@ -118,6 +148,7 @@ class ContentInterpreter {
     var segs = <PathSeg>[];
     var cx = 0.0, cy = 0.0, sx = 0.0, sy = 0.0;
     var pendingClip = false;
+    var pendingClipEvenOdd = false;
 
     double num_(int back) {
       final i = stack.length - back;
@@ -133,7 +164,8 @@ class ContentInterpreter {
       final mono = f.baseFont.toLowerCase().contains('courier') ||
           f.baseFont.toLowerCase().contains('mono');
       out.texts.add(TextRunCmd(
-        text: text,
+        clip: gs.clip,
+        text: expandLigatures(text),
         x: at.e,
         y: at.f,
         fontSize: (fontSize * m.heightY * f.sizeScale).abs(),
@@ -199,18 +231,46 @@ class ContentInterpreter {
       tm = Mat(1, 0, 0, 1, advance, 0).mul(tm);
     }
 
+    List<PathSeg> placed() => <PathSeg>[
+          for (final s in segs)
+            PathSeg(s.op, <double>[
+              for (var i = 0; i + 1 < s.pts.length; i += 2) ...[
+                gs.ctm.tx(s.pts[i], s.pts[i + 1]),
+                gs.ctm.ty(s.pts[i], s.pts[i + 1]),
+              ],
+            ]),
+        ];
+
+    void shade(PdfShading shading, Mat matrix, int clip) {
+      out.shades.add(ShadeCmd(
+        radial: shading.type == 3,
+        coords: shading.coords,
+        matrix: matrix,
+        colors: <int>[
+          for (final c in shading.colors) _GState._withAlpha(c, gs.fillAlpha),
+        ],
+        extendStart: shading.extendStart,
+        extendEnd: shading.extendEnd,
+        seq: _seq++,
+        clip: clip,
+      ));
+    }
+
     void emitPath({required bool fill, required bool stroke, required bool eo}) {
-      if (segs.isNotEmpty && (fill || stroke)) {
-        final t = <PathSeg>[];
-        for (final s in segs) {
-          final p = <double>[];
-          for (var i = 0; i + 1 < s.pts.length; i += 2) {
-            p
-              ..add(gs.ctm.tx(s.pts[i], s.pts[i + 1]))
-              ..add(gs.ctm.ty(s.pts[i], s.pts[i + 1]));
-          }
-          t.add(PathSeg(s.op, p));
-        }
+      final t = segs.isEmpty ? const <PathSeg>[] : placed();
+      final shading = gs.fillShading;
+      if (fill && shading != null && t.isNotEmpty) {
+        // A shading pattern fills the path with the blend, which is the blend
+        // drawn inside the path.
+        final parent =
+            gs.clip == kNoClip ? const <ClipPath>[] : out.clips[gs.clip].paths;
+        out.clips.add(
+          PageClip(<ClipPath>[...parent, ClipPath(t, evenOdd: eo)]),
+        );
+        shade(shading, gs.fillShadingMatrix!, out.clips.length - 1);
+        fill = false;
+      }
+      if (t.isNotEmpty && (fill || stroke)) {
         out.paths.add(PathCmd(
           segs: t,
           fill: fill,
@@ -220,7 +280,19 @@ class ContentInterpreter {
           lineWidth: gs.lineWidth * gs.ctm.scaleY,
           evenOdd: eo,
           seq: _seq++,
+          clip: gs.clip,
         ));
+      }
+      // The path a W marks narrows the clip after it has been painted, which
+      // is why the command above is still drawn in the clip before it.
+      if (pendingClip && t.isNotEmpty) {
+        final parent =
+            gs.clip == kNoClip ? const <ClipPath>[] : out.clips[gs.clip].paths;
+        out.clips.add(PageClip(<ClipPath>[
+          ...parent,
+          ClipPath(t, evenOdd: pendingClipEvenOdd),
+        ]));
+        gs.clip = out.clips.length - 1;
       }
       segs = <PathSeg>[];
       pendingClip = false;
@@ -409,29 +481,41 @@ class ContentInterpreter {
         case 'W':
         case 'W*':
           pendingClip = true;
+          pendingClipEvenOdd = op == 'W*';
           break;
         case 'g':
           gs.fill = _gray(num_(1));
+          gs.fillShading = null;
           break;
         case 'G':
           gs.stroke = _gray(num_(1));
           break;
         case 'rg':
           gs.fill = _rgb(num_(3), num_(2), num_(1));
+          gs.fillShading = null;
           break;
         case 'RG':
           gs.stroke = _rgb(num_(3), num_(2), num_(1));
           break;
         case 'k':
           gs.fill = _cmyk(num_(4), num_(3), num_(2), num_(1));
+          gs.fillShading = null;
           break;
         case 'K':
           gs.stroke = _cmyk(num_(4), num_(3), num_(2), num_(1));
           break;
         case 'sc':
         case 'scn':
+          final named = stack.isNotEmpty ? stack.last : null;
+          if (named is PdfName) {
+            _usePattern(res, named.value, base, gs);
+            break;
+          }
           final c = _fromComponents(stack);
-          if (c != null) gs.fill = c;
+          if (c != null) {
+            gs.fill = c;
+            gs.fillShading = null;
+          }
           break;
         case 'SC':
         case 'SCN':
@@ -446,7 +530,14 @@ class ContentInterpreter {
           _inlineImage(lx, gs, out);
           break;
         case 'sh':
-          unsupported.add('sh');
+          final named = stack.isNotEmpty ? stack.last : null;
+          if (named is! PdfName) break;
+          final shading = PdfShading.read(
+            doc,
+            doc.dict(res['Shading'])?[named.value],
+            unsupported: unsupported.add,
+          );
+          if (shading != null) shade(shading, gs.ctm, gs.clip);
           break;
         case 'gs':
           final n = stack.isNotEmpty ? stack.last : null;
@@ -479,10 +570,44 @@ class ContentInterpreter {
       if (op != 'W' && op != 'W*') {
         stack.clear();
       }
-      if (pendingClip && (op == 'W' || op == 'W*')) {
-        // clip is applied by the next path-painting op; we ignore clipping.
-      }
     }
+  }
+
+  /// Makes the pattern named [name] the fill, when it is a shading. A tiling
+  /// pattern is a small picture repeated, which is not drawn; the fill keeps
+  /// the colour it had.
+  ///
+  /// A pattern's matrix is relative to the space its content stream started
+  /// in, [base], and not to whatever the page has done to the space since.
+  void _usePattern(
+    Map<String, Object?> res,
+    String name,
+    Mat base,
+    _GState gs,
+  ) {
+    final raw = doc.resolve(doc.dict(res['Pattern'])?[name]);
+    final pattern = raw is PdfStream ? raw.dict : doc.dict(raw);
+    if (pattern == null) return;
+    final type = (doc.resolve(pattern['PatternType']) as num?)?.toInt();
+    if (type != 2) {
+      unsupported.add('pattern:tiling');
+      return;
+    }
+    final shading = PdfShading.read(
+      doc,
+      pattern['Shading'],
+      unsupported: unsupported.add,
+    );
+    if (shading == null) return;
+    var matrix = base;
+    final m = doc.resolve(pattern['Matrix']);
+    if (m is List && m.length == 6) {
+      final v = [for (final e in m) ((doc.resolve(e) as num?) ?? 0).toDouble()];
+      matrix = Mat(v[0], v[1], v[2], v[3], v[4], v[5]).mul(base);
+    }
+    gs
+      ..fillShading = shading
+      ..fillShadingMatrix = matrix;
   }
 
   /// Applies one named /ExtGState to the live graphics state.
@@ -536,11 +661,33 @@ class ContentInterpreter {
         m = Mat(v[0], v[1], v[2], v[3], v[4], v[5]).mul(gs.ctm);
       }
       final formRes = doc.dict(obj.dict['Resources']) ?? res;
-      _exec(doc.decodeStream(obj), formRes, m, out, depth + 1);
+      // A form draws inside its own box, and inside whatever clip it was
+      // drawn in.
+      var clip = gs.clip;
+      final box = doc.resolve(obj.dict['BBox']);
+      if (box is List && box.length == 4) {
+        final b = box.map((e) => ((doc.resolve(e) as num?) ?? 0).toDouble())
+            .toList();
+        List<double> at(double x, double y) => [m.tx(x, y), m.ty(x, y)];
+        final parent =
+            clip == kNoClip ? const <ClipPath>[] : out.clips[clip].paths;
+        out.clips.add(PageClip(<ClipPath>[
+          ...parent,
+          ClipPath(<PathSeg>[
+            PathSeg(PathOp.move, at(b[0], b[1])),
+            PathSeg(PathOp.line, at(b[2], b[1])),
+            PathSeg(PathOp.line, at(b[2], b[3])),
+            PathSeg(PathOp.line, at(b[0], b[3])),
+            const PathSeg(PathOp.close, <double>[]),
+          ], evenOdd: false),
+        ]));
+        clip = out.clips.length - 1;
+      }
+      _exec(doc.decodeStream(obj), formRes, m, out, depth + 1, clip: clip);
       return;
     }
     if (sub == 'Image') {
-      out.images.add(_imageCmd(name, obj, gs.ctm));
+      out.images.add(_imageCmd(name, obj, gs.ctm, clip: gs.clip));
     }
   }
 
@@ -718,7 +865,7 @@ class ContentInterpreter {
     return out;
   }
 
-  ImageCmd _imageCmd(String name, PdfStream s, Mat ctm) {
+  ImageCmd _imageCmd(String name, PdfStream s, Mat ctm, {int clip = kNoClip}) {
     final w = (doc.resolve(s.dict['Width'] ?? s.dict['W']) as num?)?.toInt() ?? 0;
     final h = (doc.resolve(s.dict['Height'] ?? s.dict['H']) as num?)?.toInt() ?? 0;
     // The unit square maps to the image placement rect.
@@ -785,6 +932,7 @@ class ContentInterpreter {
       width: w,
       height: h,
       seq: _seq++,
+      clip: clip,
     );
   }
 
@@ -812,7 +960,8 @@ class ContentInterpreter {
     }
     final data = Uint8List.sublistView(lx.bytes, start, p);
     lx.pos = (p + 2).clamp(0, lx.bytes.length);
-    out.images.add(_imageCmd('inline', PdfStream(d, data), gs.ctm));
+    out.images.add(
+        _imageCmd('inline', PdfStream(d, data), gs.ctm, clip: gs.clip));
   }
 
   static int _gray(double v) {
