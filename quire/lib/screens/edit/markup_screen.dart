@@ -217,12 +217,15 @@ double wordsHeightOf(String text, double size, double width, TrueTypeFont? font,
   return height;
 }
 
-/// [box] made tall enough for its words.
-TextBoxEdit tallEnough(TextBoxEdit box, TrueTypeFont? font) {
+/// [box] made tall enough for its words, moved up where growing down would
+/// take it past the foot of a page [page] points tall.
+TextBoxEdit tallEnough(TextBoxEdit box, TrueTypeFont? font, {double? page}) {
   final inset = box.inset;
   final need = wordsHeightOf(box.text, box.size, box.wordsBox.width, font, family: box.family) + inset.top + inset.bottom;
   if (box.rect.height >= need) return box;
-  return box.copyWith(rect: Rect.fromLTWH(box.rect.left, box.rect.top, box.rect.width, need));
+  var top = box.rect.top;
+  if (page != null && top + need > page) top = math.max(0, page - need);
+  return box.copyWith(rect: Rect.fromLTWH(box.rect.left, top, box.rect.width, need));
 }
 
 /// Words in a script no font here can set, laid out by the phone itself,
@@ -243,6 +246,22 @@ TextPainter drawnWords(String text, double size, int colour) {
       style: TextStyle(fontFamily: 'Inter', fontSize: size, height: 1.2, color: Color(colour)),
     ),
     textDirection: rtl ? TextDirection.rtl : TextDirection.ltr,
+  );
+}
+
+/// The smallest a picked up mark's frame is drawn on screen, so a small
+/// mark stays in sight inside its handles.
+const double kLeastFrame = 44.0;
+
+/// The frame drawn round a picked up mark, in page points: the mark's own
+/// box, grown about its middle to [kLeastFrame] on screen when it is
+/// smaller, so the handles stand clear of the mark instead of covering it.
+Rect selectionFrame(Rect bounds, double scale) {
+  final least = kLeastFrame / scale;
+  return Rect.fromCenter(
+    center: bounds.center,
+    width: math.max(bounds.width, least),
+    height: math.max(bounds.height, least),
   );
 }
 
@@ -883,8 +902,28 @@ class MarkupScreenState extends State<MarkupScreen> {
   int _handleAt(Offset at) {
     final mark = _selection;
     if (mark == null || !mark.resizable || mark.page != _page) return -1;
-    final box = mark.edit.bounds;
+    final bounds = mark.edit.bounds;
+    final box = selectionFrame(bounds, _scale);
     final reach = kHandleReach / _scale;
+    // Round a small mark the handles stand clear of it: the mark, and a
+    // little round it, move it, and only a touch near a handle sizes it.
+    final small = box != bounds;
+    if (small) {
+      final handles = handlesOf(box);
+      var best = -1;
+      var bestDistance = double.infinity;
+      for (var i = 0; i < handles.length; i++) {
+        final d = (handles[i] - at).distance;
+        if (d < bestDistance) {
+          best = i;
+          bestDistance = d;
+        }
+      }
+      // Right on a drawn handle sizes; on the mark or just round it moves.
+      if (bestDistance <= (kHandleRadius + 4) / _scale) return best;
+      if (bounds.inflate(6 / _scale).contains(at)) return -1;
+      return bestDistance <= reach ? best : -1;
+    }
     if (!box.contains(at)) {
       final handles = handlesOf(box);
       var best = -1;
@@ -1018,7 +1057,7 @@ class MarkupScreenState extends State<MarkupScreen> {
         _moved = true;
         _lastView = _pointers.values.first;
       } else if (_pointers.isEmpty) {
-        _pinching = false;
+        setState(() => _pinching = false);
       }
       return;
     }
@@ -1123,7 +1162,7 @@ class MarkupScreenState extends State<MarkupScreen> {
         if (box.width < 0 || box.height < 0) return;
         var next = edit.fitted(box);
         // A box of words is never shorter than its words.
-        if (next is TextBoxEdit) next = tallEnough(next, _font);
+        if (next is TextBoxEdit) next = tallEnough(next, _font, page: _pageSize.height);
         setState(() => _replaceMark(start.changedTo(next)));
       case _Gesture.ink:
         setState(() => _stroke = <Offset>[..._stroke, at]);
@@ -1145,6 +1184,8 @@ class MarkupScreenState extends State<MarkupScreen> {
         }
         return;
       case _Gesture.pan:
+        // The action bar comes back once the page stops.
+        setState(() {});
         return;
       case _Gesture.move:
       case _Gesture.stretch:
@@ -1590,7 +1631,7 @@ class MarkupScreenState extends State<MarkupScreen> {
   /// [box] made tall enough for its words, unless it is a callout, whose box
   /// keeps its size so its line stays on what it points at.
   TextBoxEdit _fitted(EditorMark mark, TextBoxEdit box) =>
-      mark.found?.anchored ?? false ? box : tallEnough(box, _font);
+      mark.found?.anchored ?? false ? box : tallEnough(box, _font, page: _pageSize.height);
 
   Future<void> _putWords(Offset at) async {
     _asking = true;
@@ -1719,6 +1760,9 @@ class MarkupScreenState extends State<MarkupScreen> {
       onSave: _save,
       canSave: _changed,
       saving: _saving,
+      // Words are typed in a sheet of their own: the keyboard coming and
+      // going leaves the page, and the zoom, where they were.
+      resizeForKeyboard: false,
       tools: <Widget>[
         EditButton(icon: LucideIcons.undo2, label: 'Undo', enabled: _undo.isNotEmpty, onTap: undo),
         const SizedBox(width: 6),
@@ -1939,7 +1983,7 @@ class MarkupScreenState extends State<MarkupScreen> {
           if (showPill)
             Positioned.fill(
               child: CustomSingleChildLayout(
-                delegate: PillPlacement(toView(selected.edit.bounds).inflate(kHandleRadius)),
+                delegate: PillPlacement(toView(selectionFrame(selected.edit.bounds, scale)).inflate(kHandleRadius)),
                 child: ActionPill(
                   key: const ValueKey<String>('markup-actions'),
                   actions: _actionsFor(selected),
@@ -2172,11 +2216,12 @@ class MarkupPainter extends CustomPainter {
       }
       return;
     }
+    final frame = selectionFrame(edit.bounds, scale);
     final box = Rect.fromLTRB(
-      edit.bounds.left * scale,
-      edit.bounds.top * scale,
-      edit.bounds.right * scale,
-      edit.bounds.bottom * scale,
+      frame.left * scale,
+      frame.top * scale,
+      frame.right * scale,
+      frame.bottom * scale,
     );
     canvas.drawRect(box, line);
     if (!mark.resizable) return;

@@ -196,7 +196,7 @@ TextBoxEdit _words(
 
 /// The standard typeface a box of words is set in, from the font its /DA
 /// names, looked up in its appearance or the form's resources, or null for
-/// Helvetica or a face of its own.
+/// a face of its own.
 String? _family(PdfFile file, Map<String, Object?> annot, String da) {
   final name = RegExp(r'/([^\s/\[\]()<>{}%]+)\s+[0-9.]+\s+Tf').firstMatch(da)?.group(1);
   if (name == null) return null;
@@ -218,7 +218,7 @@ String? _family(PdfFile file, Map<String, Object?> annot, String da) {
     'Cour': 'Courier', 'CoBo': 'Courier-Bold', 'CoOb': 'Courier-Oblique', 'CoBO': 'Courier-BoldOblique',
   };
   final known = base == null ? short[name] : null;
-  if (known != null) return known == 'Helvetica' ? null : known;
+  if (known != null) return known;
   final key = (base ?? name).toLowerCase().replaceAll(RegExp(r'^[a-z]{6}\+'), '').replaceAll(RegExp(r'[\s_,-]'), '');
   final bold = key.contains('bold');
   final slant = key.contains('italic') || key.contains('oblique');
@@ -229,7 +229,7 @@ String? _family(PdfFile file, Map<String, Object?> annot, String da) {
     return bold && slant ? 'Times-BoldItalic' : bold ? 'Times-Bold' : slant ? 'Times-Italic' : 'Times-Roman';
   }
   if (key.startsWith('helvetica') || key.startsWith('arial')) {
-    return bold && slant ? 'Helvetica-BoldOblique' : bold ? 'Helvetica-Bold' : slant ? 'Helvetica-Oblique' : null;
+    return bold && slant ? 'Helvetica-BoldOblique' : bold ? 'Helvetica-Bold' : slant ? 'Helvetica-Oblique' : 'Helvetica';
   }
   return null;
 }

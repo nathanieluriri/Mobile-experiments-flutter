@@ -1291,6 +1291,40 @@ class PdfAnnotator extends PdfUpdate {
         if (level == 1 || level == 2) return false;
       }
     }
+    // A signed field that locks the document against every change, or all
+    // but filling in forms, which PDF 2.0 writes as P 1 or 2 in its lock and
+    // in its FieldMDP transform.
+    final form = file.dict(file.dict(file.trailer['Root'])?['AcroForm']);
+    final fields = file.resolve(form?['Fields']);
+    final seen = <Object?>{};
+    bool locks(Object? raw, int depth) {
+      final field = file.dict(raw);
+      if (field == null || depth > 8 || !seen.add(raw is PdfRef ? raw.number : field)) return false;
+      final kids = file.resolve(field['Kids']);
+      if (kids is List && kids.any((k) => locks(k, depth + 1))) return true;
+      final type = file.resolve(field['FT']);
+      final value = file.dict(field['V']);
+      if (type is! PdfName || type.value != 'Sig' || value == null) return false;
+      bool tight(Object? p) {
+        final level = file.resolve(p);
+        return level is num && (level.toInt() == 1 || level.toInt() == 2);
+      }
+
+      if (tight(file.dict(field['Lock'])?['P'])) return true;
+      final references = file.resolve(value['Reference']);
+      if (references is List) {
+        for (final r in references) {
+          final reference = file.dict(r);
+          final method = file.resolve(reference?['TransformMethod']);
+          if (method is PdfName && method.value == 'FieldMDP' && tight(file.dict(reference?['TransformParams'])?['P'])) {
+            return true;
+          }
+        }
+      }
+      return false;
+    }
+
+    if (fields is List && fields.any((f) => locks(f, 0))) return false;
     return true;
   }
 
@@ -1350,9 +1384,7 @@ class PdfAnnotator extends PdfUpdate {
         case MarkMoved():
           listChanged |= _replace(annots, at, _movedDict(annots[at], update.by, place));
         case MarkRefitted():
-          final dict = Map<String, Object?>.of(file.dict(annots[at])!)
-            ..['Rect'] = place.userRect([update.rect.topLeft, update.rect.bottomRight])
-            ..remove('RD')
+          final dict = _refitted(file.dict(annots[at])!, place.userRect([update.rect.topLeft, update.rect.bottomRight]))
             ..['M'] = _now();
           listChanged |= _replace(annots, at, dict);
         case MarkRewritten():
@@ -1386,6 +1418,38 @@ class PdfAnnotator extends PdfUpdate {
     }
     annots[at] = dict;
     return true;
+  }
+
+  /// [old] fitted to the box [to], `left bottom right top` in user space:
+  /// its points, line, vertices, callout and ink carried from the old box
+  /// to the new one the way a reader stretches its appearance, and its
+  /// inner box scaled with them, so what it says it is matches what it
+  /// draws.
+  Map<String, Object?> _refitted(Map<String, Object?> old, List<double> to) {
+    final dict = Map<String, Object?>.of(old)..['Rect'] = to;
+    final had = _numbers(old['Rect']);
+    if (had == null || had.length != 4) return dict..remove('RD');
+    final x0 = math.min(had[0], had[2]), y0 = math.min(had[1], had[3]);
+    final x1 = math.max(had[0], had[2]), y1 = math.max(had[1], had[3]);
+    final sx = x1 == x0 ? 1.0 : (to[2] - to[0]) / (x1 - x0);
+    final sy = y1 == y0 ? 1.0 : (to[3] - to[1]) / (y1 - y0);
+    List<Object?> carried(List<double> values) => <Object?>[
+          for (var i = 0; i < values.length; i++)
+            i.isEven ? to[0] + (values[i] - x0) * sx : to[1] + (values[i] - y0) * sy,
+        ];
+    for (final key in const <String>['QuadPoints', 'CL', 'Vertices', 'L']) {
+      final values = _numbers(old[key]);
+      if (values != null) dict[key] = carried(values);
+    }
+    final ink = file.resolve(old['InkList']);
+    if (ink is List) {
+      dict['InkList'] = <Object?>[for (final stroke in ink) carried(_numbers(stroke) ?? const <double>[])];
+    }
+    final inner = _numbers(old['RD']);
+    if (inner != null && inner.length == 4) {
+      dict['RD'] = <Object?>[inner[0] * sx, inner[1] * sy, inner[2] * sx, inner[3] * sy];
+    }
+    return dict;
   }
 
   List<double>? _numbers(Object? raw) {
@@ -1434,10 +1498,7 @@ class PdfAnnotator extends PdfUpdate {
   ) {
     final old = file.dict(raw)!;
     if (edit is KeptEdit) {
-      return Map<String, Object?>.of(old)
-        ..['Rect'] = place.userRect([edit.rect.topLeft, edit.rect.bottomRight])
-        ..remove('RD')
-        ..['M'] = _now();
+      return _refitted(old, place.userRect([edit.rect.topLeft, edit.rect.bottomRight]))..['M'] = _now();
     }
     final subtype = file.resolve(old['Subtype']);
     if (edit is TextBoxEdit && subtype is PdfName && subtype.value == 'FreeText') {
@@ -1564,6 +1625,18 @@ class PdfAnnotator extends PdfUpdate {
     for (final key in const <String>['Popup', 'IRT', 'RT', 'StructParent', 'NM', 'Type', 'RD', 'P', 'AP', 'AS']) {
       body.remove(key);
     }
+    // The inner box a callout's words sit in, scaled with the copy. A copy
+    // turned onto a page the other way round swaps its sides.
+    final inner = _numbers(old['RD']);
+    if (inner != null && inner.length == 4) {
+      if (carry[1].abs() < 1e-9 && carry[2].abs() < 1e-9) {
+        final ax = carry[0].abs(), ay = carry[3].abs();
+        body['RD'] = <Object?>[inner[0] * ax, inner[1] * ay, inner[2] * ax, inner[3] * ay];
+      } else if (carry[0].abs() < 1e-9 && carry[3].abs() < 1e-9) {
+        final ax = carry[1].abs(), ay = carry[2].abs();
+        body['RD'] = <Object?>[inner[3] * ay, inner[0] * ax, inner[1] * ay, inner[2] * ax];
+      }
+    }
     final box = place.userRect([to.topLeft, to.bottomRight]);
     body['Rect'] = box;
     for (final key in const <String>['QuadPoints', 'CL', 'Vertices', 'L']) {
@@ -1641,10 +1714,11 @@ class PdfAnnotator extends PdfUpdate {
   int _rewordedLook(PdfStream look, TextBoxEdit edit, PagePlace place, List<double> rect) {
     final bbox = _numbers(look.dict['BBox']) ?? rect;
     final matrix = _numbers(look.dict['Matrix']) ?? const <double>[1, 0, 0, 1, 0, 0];
-    final resources = Map<String, Object?>.of(file.dict(look.dict['Resources']) ?? const <String, Object?>{});
-    final pictures = file.dict(resources['XObject']);
-    if (pictures != null && pictures.containsKey(kDrawnWords)) {
-      resources['XObject'] = Map<String, Object?>.of(pictures)..remove(kDrawnWords);
+    final Map<String, Object?> resources;
+    try {
+      resources = _wordless(file.dict(look.dict['Resources']) ?? const <String, Object?>{}, 0);
+    } on Object {
+      throw const PdfWriteError('This box of words is drawn in a way quire cannot change.');
     }
     final words = _words(edit, resources);
     final fit = _fitOf(bbox, matrix, rect);
@@ -1662,6 +1736,37 @@ class PdfAnnotator extends PdfUpdate {
       ..add(latin1.encode(words))
       ..add(ascii.encode('Q\n'));
     return _form(bbox, resources, content.takeBytes(), matrix: matrix);
+  }
+
+  /// [resources] with the words taken out of every form they draw, however
+  /// deep, each form written again as a copy of its own so the forms other
+  /// marks share are left as they are, and words quire drew as a picture
+  /// dropped.
+  Map<String, Object?> _wordless(Map<String, Object?> resources, int depth) {
+    final out = Map<String, Object?>.of(resources);
+    final pictures = file.dict(resources['XObject']);
+    if (pictures == null) return out;
+    final next = <String, Object?>{};
+    for (final entry in pictures.entries) {
+      if (entry.key == kDrawnWords) continue;
+      final form = file.resolve(entry.value);
+      final subtype = form is PdfStream ? file.resolve(form.dict['Subtype']) : null;
+      if (form is! PdfStream || subtype is! PdfName || subtype.value != 'Form' || depth > 6) {
+        next[entry.key] = entry.value;
+        continue;
+      }
+      final dict = Map<String, Object?>.of(form.dict)
+        ..remove('Length')
+        ..remove('Filter')
+        ..remove('DecodeParms');
+      final inner = file.dict(form.dict['Resources']);
+      if (inner != null) dict['Resources'] = _wordless(inner, depth + 1);
+      final number = _next++;
+      _streamObject(number, dict, contentWithoutText(file.decodeStream(form)));
+      next[entry.key] = PdfRef(number, 0);
+    }
+    out['XObject'] = next;
+    return out;
   }
 
   static List<double> _mul(List<double> m, List<double> n) => <double>[
@@ -1764,7 +1869,7 @@ class PdfAnnotator extends PdfUpdate {
   static WordsFace wordsFace(String text, TrueTypeFont? font, {String? family}) {
     var plain = true;
     for (final rune in text.runes) {
-      if (rune == 0x0A || rune == 0x0D || rune == 0x3F) continue;
+      if (rune == 0x0A || rune == 0x0D || rune == 0x3F || rune == 0x09) continue;
       if (_winAnsiCode(rune) == 0x3F) {
         plain = false;
         break;
@@ -1773,7 +1878,7 @@ class PdfAnnotator extends PdfUpdate {
     if (family != null && plain) return WordsFace.standard;
     if (font == null) return plain ? WordsFace.standard : WordsFace.drawn;
     for (final rune in text.runes) {
-      if (rune == 0x0A || rune == 0x0D) continue;
+      if (rune == 0x0A || rune == 0x0D || rune == 0x09) continue;
       if (!font.covers(rune) || font.glyphFor(rune) == 0 || _shaped(rune)) return WordsFace.drawn;
     }
     return WordsFace.embedded;
@@ -1844,7 +1949,8 @@ class PdfAnnotator extends PdfUpdate {
     }
     resources['Font'] = fonts;
     out.writeln(_colour(edit.color));
-    final lines = wrapWords(edit.text, edit.size, box.width, font: embedded ? font : null, family: edit.family);
+    // A tab in words is set as a space, as a text box sets it.
+    final lines = wrapWords(edit.text.replaceAll('\t', ' '), edit.size, box.width, font: embedded ? font : null, family: edit.family);
     var baseline = box.top + edit.size;
     for (final line in lines) {
       if (baseline > box.bottom + edit.size * 0.3) break;

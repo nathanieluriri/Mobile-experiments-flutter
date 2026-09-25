@@ -371,6 +371,106 @@ void main() {
     expect((state.marks.single.edit as TextBoxEdit).text, 'Second words, better ones');
   });
 
+  group('after round three', () {
+    testWidgets('words put down while zoomed in leave the page where it was once the keyboard goes', (tester) async {
+      final state = await open(tester, _pages());
+      await tester.tapAt(at(tester, state, const Offset(250, 350)));
+      await tester.pump(const Duration(milliseconds: 60));
+      await tester.tapAt(at(tester, state, const Offset(250, 350)));
+      await settle(tester);
+      expect(state.zoom, greaterThan(1));
+      final before = state.origin;
+      await pick(tester, 'Words');
+      final spot = at(tester, state, const Offset(230, 330));
+      await tester.tapAt(spot);
+      await settle(tester);
+      addTearDown(tester.view.resetViewInsets);
+      for (var i = 1; i <= 6; i++) {
+        tester.view.viewInsets = FakeViewPadding(bottom: 290 * 2 * i / 6);
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      await tester.enterText(find.byType(EditableText).last, 'Signed');
+      await tester.tap(find.text('Put them on the page'));
+      await settle(tester);
+      for (var i = 5; i >= 0; i--) {
+        tester.view.viewInsets = FakeViewPadding(bottom: 290 * 2 * i / 6);
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      await settle(tester);
+      expect(state.origin, before);
+      final box = state.marks.single.edit.bounds;
+      expect((at(tester, state, box.topLeft) - spot).distance, lessThan(8));
+    });
+
+    testWidgets('a small tick is dragged from near its middle, not stretched', (tester) async {
+      final bytes = PdfAnnotator.annotated(PdfFile.open(_pages()), [
+        const InkEdit(0, strokes: [
+          [Offset(150, 200), Offset(154, 206), Offset(162, 194)],
+        ], width: 2),
+      ]);
+      final state = await open(tester, bytes);
+      final tick = state.marks.single.edit.bounds;
+      await tester.tapAt(at(tester, state, tick.center));
+      await settle(tester);
+      var shift = Offset.zero;
+      for (final off in const <Offset>[Offset(2, 1), Offset(-3, 2), Offset(3, -2)]) {
+        final from = at(tester, state, tick.center + shift) + off;
+        await drag(tester, from, const Offset(40, 30));
+        shift += const Offset(40, 30) / state.fit;
+        final now = state.marks.single.edit.bounds;
+        expect(now.size.width, closeTo(tick.width, 0.01));
+        expect(now.size.height, closeTo(tick.height, 0.01));
+        expect((now.center - (tick.center + shift)).distance, lessThan(0.5));
+      }
+    });
+
+    testWidgets('the action bar comes back after a pinch or a pan', (tester) async {
+      final bytes = PdfAnnotator.annotated(PdfFile.open(_pages()), [
+        const TextBoxEdit(0, rect: Rect.fromLTWH(40, 100, 160, 40), text: 'A note', size: 12),
+      ]);
+      final state = await open(tester, bytes);
+      await tester.tapAt(at(tester, state, const Offset(100, 120)));
+      await settle(tester);
+      expect(find.byKey(const ValueKey<String>('markup-actions')), findsOneWidget);
+      final middle = at(tester, state, const Offset(150, 300));
+      final one = await tester.startGesture(middle - const Offset(20, 0), pointer: 1);
+      final two = await tester.startGesture(middle + const Offset(20, 0), pointer: 2);
+      for (var i = 1; i <= 6; i++) {
+        await one.moveTo(middle - Offset(20.0 + i * 10, 0));
+        await two.moveTo(middle + Offset(20.0 + i * 10, 0));
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      await one.up();
+      await two.up();
+      await settle(tester);
+      expect(state.zoom, greaterThan(1));
+      expect(find.byKey(const ValueKey<String>('markup-actions')), findsOneWidget);
+      await drag(tester, at(tester, state, const Offset(250, 350)), const Offset(-40, -60));
+      expect(find.byKey(const ValueKey<String>('markup-actions')), findsOneWidget);
+    });
+
+    testWidgets('a box near the foot of the page grows upward, not off it', (tester) async {
+      final bytes = PdfAnnotator.annotated(PdfFile.open(_pages()), [
+        const TextBoxEdit(0, rect: Rect.fromLTWH(40, 350, 200, 30), text: 'Signed at the foot of the page', size: 12),
+      ]);
+      final state = await open(tester, bytes);
+      await tester.tapAt(at(tester, state, const Offset(100, 365)));
+      await settle(tester);
+      await tester.tap(find.bySemanticsLabel('More actions'));
+      await settle(tester);
+      await tester.tap(find.text('Colour and size'));
+      await settle(tester);
+      for (var i = 0; i < 12; i++) {
+        await tester.tap(find.bySemanticsLabel('Larger'));
+        await tester.pump();
+      }
+      await settle(tester);
+      final box = state.marks.single.edit.bounds;
+      expect(box.bottom, lessThanOrEqualTo(400.01));
+      expect((state.marks.single.edit as TextBoxEdit).size, greaterThan(20));
+    });
+  });
+
   List<int> formObj(String bbox, String content, {String resources = ''}) => streamObj(
         '/Type /XObject /Subtype /Form /BBox [$bbox] /Resources << $resources >>',
         ascii.encode(content),

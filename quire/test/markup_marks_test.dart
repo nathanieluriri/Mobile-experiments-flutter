@@ -519,9 +519,11 @@ void main() {
         final state = await open(tester, withWords());
         await tester.tapAt(at(tester, state, _box.center));
         await settle(tester);
+        // The handle is drawn at the corner of the frame round the box,
+        // which stands clear of a box this thin.
         await drag(
           tester,
-          at(tester, state, _box.bottomRight),
+          at(tester, state, selectionFrame(_box, state.fit).bottomRight),
           const Offset(60, 0),
         );
         final words = state.marks.single.edit as TextBoxEdit;

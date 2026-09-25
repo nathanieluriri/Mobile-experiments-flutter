@@ -504,6 +504,128 @@ void main() {
     });
   });
 
+  group('after round three', () {
+    List<String> wordsOf(PdfFile file, int annot) =>
+        [for (final t in ContentInterpreter(file).run(file.pages[0], onlyAnnotation: annot).texts) t.text];
+
+    test('a saved copy of a box, reworded, draws only its new words', () {
+      final bytes = _pageWith('4 0 R', [
+        obj('<< /Type /Annot /Subtype /FreeText /Rect [40 280 240 340] /DA (/Helv 12 Tf 0 0 1 rg) '
+            '/Contents (Old words) /BS << /W 2 >> /C [1 0 0] /IC [1 1 0.7] /AP << /N 5 0 R >> >>'),
+        _form('40 280 240 340', '1 0 0 RG 2 w 41 281 198 58 re S BT /Helv 12 Tf 46 320 Td (Old words) Tj ET',
+            resources: _helv),
+      ]);
+      final file = PdfFile.open(bytes);
+      final box = readMarks(file, 0).single;
+      final copied = PdfFile.open(PdfAnnotator.apply(file,
+          added: [KeptEdit(0, rect: box.edit.bounds.shift(const Offset(0, 100)), origin: box.origin)]));
+      final copy = readMarks(copied, 0).last;
+      final words = copy.edit as TextBoxEdit;
+      final out = PdfFile.open(PdfAnnotator.apply(copied,
+          updates: [MarkRewritten(copy.origin, words.copyWith(text: 'New words'))], font: _inter()));
+      expect(wordsOf(out, 1).join(' '), 'New words');
+      expect(wordsOf(out, 0).join(' '), 'Old words');
+      final recoloured = PdfFile.open(PdfAnnotator.apply(copied,
+          updates: [MarkRewritten(copy.origin, words.copyWith(color: 0xFFD23B3B))], font: _inter()));
+      expect(wordsOf(recoloured, 1), ['Old words']);
+    });
+
+    test('a box that draws its words through a form of its own is reworded cleanly', () {
+      final bytes = _pageWith('4 0 R', [
+        obj('<< /Type /Annot /Subtype /FreeText /Rect [40 280 240 340] /DA (/Helv 12 Tf 0 g) '
+            '/Contents (Nested words) /AP << /N 5 0 R >> >>'),
+        _form('40 280 240 340', '0 0 1 RG 41 281 198 58 re S /Fm0 Do', resources: '/XObject << /Fm0 6 0 R >>'),
+        _form('40 280 240 340', 'BT /Helv 12 Tf 46 320 Td (Nested words) Tj ET', resources: _helv),
+      ]);
+      final file = PdfFile.open(bytes);
+      final found = readMarks(file, 0).single;
+      final out = PdfFile.open(PdfAnnotator.apply(file,
+          updates: [MarkRewritten(found.origin, (found.edit as TextBoxEdit).copyWith(text: 'Reworded'))], font: _inter()));
+      expect(wordsOf(out, 0), ['Reworded']);
+      expect(ContentInterpreter(out).run(out.pages[0], onlyAnnotation: 0).paths, isNotEmpty);
+    });
+
+    test('a copied callout keeps the inner box its words sit in', () {
+      final bytes = _pageWith('4 0 R', [
+        obj('<< /Type /Annot /Subtype /FreeText /IT /FreeTextCallout /Rect [20 200 280 300] /RD [100 0 0 50] '
+            '/CL [30 210 80 270 120 270] /DA (/Helv 12 Tf 0 g) /Contents (See this figure) /AP << /N 5 0 R >> >>'),
+        _form('20 200 280 300', '0 G 120 200 160 50 re S 30 210 m 80 270 l 120 270 l S BT /Helv 12 Tf 124 280 Td (See this figure) Tj ET',
+            resources: _helv),
+      ]);
+      final file = PdfFile.open(bytes);
+      final callout = readMarks(file, 0).single;
+      final out = PdfFile.open(PdfAnnotator.apply(file,
+          added: [KeptEdit(0, rect: callout.edit.bounds.shift(const Offset(0, 60)), origin: callout.origin)]));
+      expect(_nums(out, _annot(out, 1)['RD']), [100, 0, 0, 50]);
+    });
+
+    test('stretching a line or a polygon carries its points with it', () {
+      final bytes = _pageWith('4 0 R 5 0 R', [
+        obj('<< /Type /Annot /Subtype /Line /Rect [55 195 205 255] /L [60 250 200 200] /AP << /N 6 0 R >> >>'),
+        obj('<< /Type /Annot /Subtype /Polygon /Rect [50 50 150 120] /Vertices [50 50 150 50 100 120] /AP << /N 6 0 R >> >>'),
+        _form('0 0 300 400', '0 G 60 250 m 200 200 l S'),
+      ]);
+      final file = PdfFile.open(bytes);
+      final found = readMarks(file, 0);
+      Rect wider(Rect r) => Rect.fromLTWH(r.left, r.top, r.width * 1.6, r.height);
+      final out = PdfFile.open(PdfAnnotator.apply(file, updates: [
+        for (final f in found) MarkRefitted(f.origin, wider(f.edit.bounds)),
+      ]));
+      final line = _nums(out, _annot(out, 0)['L']);
+      expect(line[0], closeTo(55 + 5 * 1.6, 0.01));
+      expect(line[2], closeTo(55 + 145 * 1.6, 0.01));
+      expect(line[1], closeTo(250, 0.01));
+      final vertices = _nums(out, _annot(out, 1)['Vertices']);
+      expect(vertices[2], closeTo(50 + 100 * 1.6, 0.01));
+      expect(vertices[4], closeTo(50 + 50 * 1.6, 0.01));
+    });
+
+    test('a tab in a box\'s words is a space, not a reason to picture them', () {
+      final bytes = _pageWith('4 0 R', [
+        obj('<< /Type /Annot /Subtype /FreeText /Rect [40 280 260 340] /DA (/Helv 12 Tf 0 0 1 rg) '
+            '/Contents (Rent:\tfour hundred) /AP << /N 5 0 R >> >>'),
+        _form('40 280 260 340', 'BT /Helv 12 Tf 44 324 Td (Rent: four hundred) Tj ET', resources: _helv),
+      ]);
+      final file = PdfFile.open(bytes);
+      final found = readMarks(file, 0).single;
+      final words = found.edit as TextBoxEdit;
+      expect(PdfAnnotator.wordsFace(words.text, _inter(), family: words.family), isNot(WordsFace.drawn));
+      final out = PdfFile.open(PdfAnnotator.apply(file,
+          updates: [MarkRewritten(found.origin, words.copyWith(color: 0xFFD23B3B))], font: _inter()));
+      expect(wordsOf(out, 0).join(), contains('four hundred'));
+      expect(_appearanceText(out, _annot(out, 0)), isNot(contains(kDrawnWords)));
+    });
+
+    test('another program\'s Helvetica box stays in Helvetica when recoloured', () {
+      final bytes = _pageWith('4 0 R', [
+        obj('<< /Type /Annot /Subtype /FreeText /Rect [40 280 260 340] /DA (/Helv 12 Tf 0 0 1 rg) '
+            '/Contents (Plain words) /AP << /N 5 0 R >> >>'),
+        _form('40 280 260 340', 'BT /Helv 12 Tf 44 324 Td (Plain words) Tj ET', resources: _helv),
+      ]);
+      final file = PdfFile.open(bytes);
+      final found = readMarks(file, 0).single;
+      expect((found.edit as TextBoxEdit).family, 'Helvetica');
+      final out = PdfFile.open(PdfAnnotator.apply(file,
+          updates: [MarkRewritten(found.origin, (found.edit as TextBoxEdit).copyWith(color: 0xFFD23B3B))], font: _inter()));
+      final look = out.dict(out.dict(_annot(out, 0)['AP'])!['N'])!;
+      final fonts = out.dict(out.dict(look['Resources'])!['Font'])!;
+      expect(fonts.containsKey('QuireWords'), isFalse);
+      expect((out.dict(fonts['QuireHelv'])!['BaseFont']! as PdfName).value, 'Helvetica');
+    });
+
+    test('a file a signed field locks against every change is not annotated', () {
+      final bytes = buildPdf([
+        obj('<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R] /SigFlags 3 >> >>'),
+        obj('<< /Type /Pages /Kids [3 0 R] /Count 1 >>'),
+        obj('<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 400] >>'),
+        obj('<< /FT /Sig /T (Signature1) /Lock << /Type /SigFieldLock /Action /All /P 1 >> /V 5 0 R >>'),
+        obj('<< /Type /Sig /Filter /Adobe.PPKLite /Reference [<< /TransformMethod /FieldMDP '
+            '/TransformParams << /Action /All /P 1 >> >>] >>'),
+      ]);
+      expect(PdfAnnotator.allowsComments(PdfFile.open(bytes)), isFalse);
+    });
+  });
+
   test('text objects come out of a drawing and nothing else does', () {
     final out = contentWithoutText(Uint8List.fromList(latin1.encode(
       'q 1 0 0 RG 0 0 10 10 re S BT /F1 12 Tf (a (nested) ET) Tj ET 5 5 m 6 6 l S '

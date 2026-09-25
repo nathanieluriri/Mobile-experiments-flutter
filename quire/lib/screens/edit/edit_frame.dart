@@ -32,6 +32,7 @@ class EditFrame extends StatelessWidget {
     this.note,
     this.covered = false,
     this.onUncover,
+    this.resizeForKeyboard = true,
   });
 
   final String title;
@@ -45,6 +46,10 @@ class EditFrame extends StatelessWidget {
   /// actions, which Back closes before it leaves.
   final bool covered;
   final VoidCallback? onUncover;
+
+  /// False for an editor typed into only through sheets of its own, whose
+  /// page should stay where it is while the keyboard comes and goes.
+  final bool resizeForKeyboard;
 
   /// What sits between the title and the save, such as a preview switch.
   final List<Widget> tools;
@@ -113,7 +118,7 @@ class EditFrame extends StatelessWidget {
       child: Padding(
         padding: EdgeInsets.only(
           top: inset.top,
-          bottom: MediaQuery.viewInsetsOf(context).bottom > inset.bottom
+          bottom: resizeForKeyboard && MediaQuery.viewInsetsOf(context).bottom > inset.bottom
               ? MediaQuery.viewInsetsOf(context).bottom
               : inset.bottom,
         ),
