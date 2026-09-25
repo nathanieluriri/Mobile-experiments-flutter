@@ -36,9 +36,15 @@ class XrefEntry {
 /// A random access PDF file: the xref chain, object resolution, stream
 /// decoding and the page tree.
 ///
-/// [open] never throws. A file whose xref is unreachable or whose catalogue is
-/// missing falls through to [_scanAllObjects], which is why a damaged download
-/// still opens to its real pages instead of an error sheet.
+/// [open] recovers rather than refuses: a file whose xref is unreachable or
+/// whose catalogue is missing falls through to [_scanAllObjects], which is why
+/// a damaged download still opens to its real pages instead of an error sheet.
+///
+/// It is not proof against a hostile file, and it used to say it was. Two
+/// hundred thousand nested array brackets, or a page tree that is a chain
+/// sixty thousand deep, run the stack out; a `/DecodeParms` that claims a
+/// billion columns asks for the memory that number describes. Every caller
+/// inside the app takes [Object], which is what makes those survivable.
 class PdfFile {
   PdfFile._(this.bytes);
   final Uint8List bytes;

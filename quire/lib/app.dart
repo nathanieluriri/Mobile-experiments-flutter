@@ -15,13 +15,53 @@ import 'screens/reader/reader_host.dart';
 import 'screens/reader/reader_route.dart';
 import 'screens/sign/sign_screen.dart';
 import 'services/document_store.dart';
+import 'services/failure_log.dart';
 import 'services/incoming_documents.dart';
 import 'services/library_catalogue.dart';
 import 'theme/colors.dart';
 import 'theme/metrics.dart';
 import 'theme/typography.dart';
+import 'widgets/damaged_surface.dart';
 import 'widgets/dissolve/dissolve_scope.dart';
 import 'widgets/quire_spinner.dart';
+
+/// Gives a failure somewhere to go, before anything can raise one.
+///
+/// Two boundaries can be the first to see an error, and left alone both are
+/// silent. A widget that throws while building draws Flutter's grey
+/// rectangle, sized to whatever slot the broken thing was in, with no text on
+/// it in a release build. Everything else reaches the platform: an error on a
+/// future nobody awaited, which is how this app saves the desk, printed one
+/// line to a device log the owner will never see, having silently not saved.
+///
+/// Both arrive here instead, so a fault is counted once, and what the reader
+/// is shown where the broken thing was is drawn in the app's own hand.
+///
+/// There is deliberately no [runZonedGuarded]. It is the older way to catch
+/// the second kind, and it brings a hazard with it: the binding has to be
+/// initialised inside the same zone it runs in, so a guarded `main` and an
+/// unguarded `WidgetsFlutterBinding.ensureInitialized` fail against each
+/// other at launch, which is the worst moment to learn about a zone.
+/// `PlatformDispatcher.onError` is the root zone's own handler and catches
+/// the same errors without asking `main` to be arranged around it.
+///
+/// Called first from `main`, which is the only caller that is not a test.
+void installFailureHandlers() {
+  FlutterError.onError = (details) {
+    failures.record(details.exception, where: 'a build', stack: details.stack);
+    // Still said out loud. In a debug run this is the red panel and the
+    // console dump, and taking those away would trade one silence for
+    // another.
+    FlutterError.presentError(details);
+  };
+  PlatformDispatcher.instance.onError = (error, stack) {
+    failures.record(error, where: 'the platform', stack: stack);
+    return true;
+  };
+  // Recorded already by the handler above, which runs first and always. This
+  // only has to decide what stands in the hole.
+  ErrorWidget.builder = (details) => const DamagedSurface();
+}
 
 /// The desk, where every document lives.
 const kDeskRoute = '/';

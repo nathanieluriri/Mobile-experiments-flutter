@@ -8,6 +8,30 @@ import '../model/document.dart';
 import 'formula_shift.dart';
 import 'number_format.dart';
 
+/// The furthest corner a worksheet can actually have.
+///
+/// These are the format's own limits, so a reference past either of them is
+/// not a large sheet, it is a broken one: `ZZZZZZZZZZZZZZZ1` used to run the
+/// column accumulator past a 64 bit int and come back as a negative column.
+const kMaxSheetRows = 1048576;
+const kMaxSheetColumns = 16384;
+
+/// The most cells a sheet will be laid out into.
+///
+/// A worksheet can legally say a cell is at XFD1048576, and one cell there is
+/// enough to ask for a grid of seventeen billion slots. Nothing catches that,
+/// because running out of time is not an exception: the app simply stops
+/// answering and the system kills it. A one kilobyte file could take the app
+/// away for good.
+///
+/// Measured here, laying out an otherwise empty sheet: 260,000 cells took
+/// 466ms, a million took 1.9s, four million took 8.9s. A phone is three to
+/// five times slower than that and Android stops waiting at five seconds, so
+/// a million is already past anything that could be shown. Refusing beyond it
+/// costs a file nobody could have read, and a refusal is a `FormatException`,
+/// which the loader already turns into the damaged state the app draws.
+const kMaxSheetCells = 1000000;
+
 /// What a worksheet cell actually holds, before any formatting is applied.
 ///
 /// The distinction between [number] and [date] is not cosmetic: the same
@@ -162,10 +186,13 @@ class XlsxParser {
     while (i < ref.length) {
       final c = ref.codeUnitAt(i);
       if (c >= 65 && c <= 90) {
-        col = col * 26 + (c - 64);
+        // Stops climbing once it is already past the last column there is.
+        // Left to run, fifteen letters overflow a 64 bit int and the ref
+        // comes back as a large negative column, which indexes a grid.
+        if (col <= kMaxSheetColumns) col = col * 26 + (c - 64);
         i++;
       } else if (c >= 97 && c <= 122) {
-        col = col * 26 + (c - 96);
+        if (col <= kMaxSheetColumns) col = col * 26 + (c - 96);
         i++;
       } else {
         break;
@@ -608,6 +635,14 @@ class XlsxParser {
     for (final c in m.byRef.values) {
       if (c.row > maxRow) maxRow = c.row;
     }
+    final area = (maxRow + 1) * (m.maxCol + 1);
+    if (area > kMaxSheetCells) {
+      throw FormatException(
+        'This sheet reaches ${colName(m.maxCol)}${maxRow + 1}, which is '
+        '$area cells to lay out for ${m.byRef.length} that hold anything. '
+        'The most this reads is $kMaxSheetCells.',
+      );
+    }
     for (var r = 0; r <= maxRow; r++) {
       m.grid.add(List<SheetCell?>.filled(m.maxCol + 1, null));
     }
@@ -627,6 +662,12 @@ class XlsxParser {
     }
     (row, col) = refToRowCol(ref);
     if (row < 0) row = rowIdx;
+    // Past here every path indexes the grid with these two numbers, so a
+    // reference the format cannot express is dropped rather than carried.
+    // A cell written `A0` in a row with no number of its own used to arrive
+    // as row -1 and hand the grid an index of minus one.
+    if (row < 0 || row >= kMaxSheetRows) return null;
+    if (col < 0 || col >= kMaxSheetColumns) return null;
     final type = _at(c, 't') ?? 'n';
     final styleIndex = int.tryParse(_at(c, 's') ?? '') ?? -1;
     final code = _numFmtCode(styleIndex);
@@ -764,24 +805,52 @@ class XlsxParser {
 QuireDocument xlsxToDocument(XlsxWorkbook wb, String title) {
   final sections = <DocSection>[];
   for (final s in wb.sheets) {
-    final mergedAt = <String, List<int>>{};
-    final continuation = <String>{};
-    for (final m in s.merges) {
-      mergedAt['${m[0]}:${m[1]}'] = m;
-      for (var r = m[0]; r <= m[2]; r++) {
-        for (var c = m[1]; c <= m[3]; c++) {
-          if (r == m[0] && c == m[1]) continue;
-          continuation.add('$r:$c');
-        }
-      }
-    }
-    // A cell somebody commented on is a cell, even with nothing in it.
+    // How far the sheet goes is settled before anything is walked, because
+    // everything below walks it. A cell somebody commented on is a cell, even
+    // with nothing in it, but a note out past what the format can hold is not
+    // one and must not be able to stretch the sheet to reach it.
     var rowCount = s.grid.length;
     var columnCount = s.maxCol + 1;
     for (final ref in s.notes.keys) {
       final (r, c) = XlsxParser.refToRowCol(ref);
-      if (r + 1 > rowCount) rowCount = r + 1;
-      if (c + 1 > columnCount) columnCount = c + 1;
+      if (r < 0 || c < 0 || r >= kMaxSheetRows || c >= kMaxSheetColumns) {
+        continue;
+      }
+      final rows = r + 1 > rowCount ? r + 1 : rowCount;
+      final cols = c + 1 > columnCount ? c + 1 : columnCount;
+      // A comment on an empty cell just past the last one with something in
+      // it is worth widening the sheet to show. One anchored out at the
+      // format's furthest corner is not, and refusing a perfectly readable
+      // sheet over a stray anchor would be the worse answer of the two.
+      if (rows * cols > kMaxSheetCells) continue;
+      rowCount = rows;
+      columnCount = cols;
+    }
+    if (rowCount * columnCount > kMaxSheetCells) {
+      throw FormatException(
+        'This sheet reaches ${XlsxParser.colName(columnCount - 1)}$rowCount, '
+        'which is ${rowCount * columnCount} cells. '
+        'The most this reads is $kMaxSheetCells.',
+      );
+    }
+
+    final mergedAt = <String, List<int>>{};
+    final continuation = <String>{};
+    for (final m in s.merges) {
+      if (m[0] < 0 || m[1] < 0) continue;
+      mergedAt['${m[0]}:${m[1]}'] = m;
+      // Clipped to the sheet, because a merge only ever covers cells that are
+      // there. One written A1:XFD1048576 covers exactly the cells A1:B2 does
+      // on a sheet of that size, and walking out to the format's last corner
+      // is seventeen billion steps to arrive at the same answer.
+      final lastRow = m[2] < rowCount ? m[2] : rowCount - 1;
+      final lastCol = m[3] < columnCount ? m[3] : columnCount - 1;
+      for (var r = m[0]; r <= lastRow; r++) {
+        for (var c = m[1]; c <= lastCol; c++) {
+          if (r == m[0] && c == m[1]) continue;
+          continuation.add('$r:$c');
+        }
+      }
     }
     final rows = <DocRow>[];
     for (var r = 0; r < rowCount; r++) {

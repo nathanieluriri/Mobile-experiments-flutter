@@ -17,6 +17,8 @@ const kSystemBars = SystemUiOverlayStyle(
 );
 
 void main(List<String> args) {
+  // First, so that anything the three lines below raise has somewhere to go.
+  installFailureHandlers();
   WidgetsFlutterBinding.ensureInitialized();
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
   SystemChrome.setSystemUIOverlayStyle(kSystemBars);

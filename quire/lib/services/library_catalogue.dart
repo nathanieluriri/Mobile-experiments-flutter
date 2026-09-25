@@ -26,6 +26,12 @@ class LibraryCatalogue {
   static const _state = 'state.json';
   static const _version = 1;
 
+  /// What a file being written is called before it is a file.
+  static const _draft = '.tmp';
+
+  /// What the one it replaces is called afterwards.
+  static const _kept = '.bak';
+
   Directory? _root;
 
   Future<Directory> _home() async {
@@ -40,27 +46,65 @@ class LibraryCatalogue {
   File _fileIn(Directory root, String name) =>
       File('${root.path}${Platform.pathSeparator}$name');
 
-  /// A JSON object read from [name] in the app's storage, or an empty one for
-  /// a file that is missing or unreadable, which the caller treats as a fresh
+  /// A JSON object read from [name] in the app's storage, or from the copy
+  /// kept beside it, or an empty one, which the caller treats as a fresh
   /// start rather than as an error to show.
   Future<Map<String, Object?>> _readObject(String name) async {
-    final file = _fileIn(await _home(), name);
-    if (!await file.exists()) return <String, Object?>{};
-    try {
-      final decoded = jsonDecode(await file.readAsString());
-      if (decoded is Map<String, Object?>) return decoded;
-    } on FormatException {
-      // A file somebody or something has damaged. Starting over loses at
-      // most a reading position; refusing to start loses the app.
-    } on FileSystemException {
-      // The same, damaged below the JSON: bytes that are not text at all.
-    }
-    return <String, Object?>{};
+    final root = await _home();
+    final live = await _readOne(_fileIn(root, name));
+    if (live != null) return live;
+    // The live file is missing or will not parse, which is exactly what a
+    // write the system stopped part way through leaves behind. The copy
+    // beside it is the last one that was whole.
+    return await _readOne(_fileIn(root, '$name$_kept')) ?? <String, Object?>{};
   }
 
+  /// One candidate file read, or null for anything that is not a JSON object.
+  ///
+  /// It catches everything, not just a malformed file. A read can fail for
+  /// reasons that are not `FormatException`: bytes that are not text at all,
+  /// a permission the platform withdrew, a file another process is holding.
+  /// Each of those has the same right answer, which is to try the copy beside
+  /// it and then start fresh.
+  Future<Map<String, Object?>?> _readOne(File file) async {
+    try {
+      if (!await file.exists()) return null;
+      final decoded = jsonDecode(await file.readAsString());
+      if (decoded is Map<String, Object?>) return decoded;
+    } on Object {
+      // Damaged, unreadable, or not ours. Starting over loses at most a
+      // reading position; refusing to start loses the app.
+    }
+    return null;
+  }
+
+  /// Writes [object] to [name] without ever leaving [name] half written.
+  ///
+  /// This is called from the lifecycle handler as the app goes to the
+  /// background, which is the one moment the system is most likely to stop it
+  /// mid sentence. Written straight onto the live file, a kill between the
+  /// truncate and the last byte left invalid JSON, and invalid JSON reads
+  /// back as a fresh start: the whole desk, every reading position, every dog
+  /// ear and every saved signature, gone without a word.
+  ///
+  /// So the bytes go to a draft beside it first, and only a file that is
+  /// already complete is ever moved into place. The one it replaces is kept,
+  /// because the cheapest way to survive a torn write is to still be holding
+  /// yesterday's.
   Future<void> _writeObject(String name, Map<String, Object?> object) async {
-    final file = _fileIn(await _home(), name);
-    await file.writeAsString(jsonEncode(object), flush: true);
+    final root = await _home();
+    final file = _fileIn(root, name);
+    final draft = _fileIn(root, '$name$_draft');
+    // First, because nothing above may be touched until this has worked. A
+    // disk that is full fails here, with the live file still standing.
+    await draft.writeAsString(jsonEncode(object), flush: true);
+    if (await file.exists()) await file.copy('${file.path}$_kept');
+    // Moving a whole file into place is one operation the system either did
+    // or did not do, so the live file is never half written. Windows refuses
+    // to move onto a file that exists, and there the copy kept beside it is
+    // what covers the instant in between.
+    if (Platform.isWindows && await file.exists()) await file.delete();
+    await draft.rename(file.path);
   }
 
   /// The documents brought in so far, newest first, skipping any whose copy
