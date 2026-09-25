@@ -314,7 +314,7 @@ class DocEditorState extends State<DocEditor> {
     var offset = _controller.selection.baseOffset;
     final render = _editorKey.currentState?.renderEditor;
     if (render != null && render.hasSize && _scroll.hasClients) {
-      offset = render.getPositionForOffset(Offset(24, _scroll.offset + 24)).offset;
+      offset = render.getPositionForOffset(render.localToGlobal(Offset(24, _scroll.offset + 24))).offset;
     }
     offset = offset.clamp(0, length - 1);
     Node? node = document.queryChild(offset).node;

@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_quill/flutter_quill.dart' show ChangeSource;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:quire/edit/ooxml_patch.dart';
 import 'package:quire/edit/xlsx_patch.dart';
@@ -363,7 +364,9 @@ void main() {
       await settle(tester);
       final text = editor.controller.document.toPlainText();
       final last = text.lastIndexOf(RegExp(r'[a-z]'));
-      editor.controller.replaceText(last + 1, 0, ' more', null);
+      // Typed where a tap near the end puts the caret.
+      editor.controller.updateSelection(TextSelection.collapsed(offset: last + 1), ChangeSource.local);
+      editor.controller.replaceText(last + 1, 0, ' more', TextSelection.collapsed(offset: last + 6));
       await settle(tester);
       await tester.tap(find.text('SAVE'));
       await _disk(tester);
